@@ -9,6 +9,8 @@ Pickup sports platformasi (Plei / Birgo uslubida): o'yinchilar tayyor havaskor o
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Texnik arxitektura: tech stack, DB, API, data residency, compliance, roadmap |
 | [api/openapi.yaml](api/openapi.yaml) | API kontrakti (OpenAPI 3.1) |
 | [apps/api](apps/api) | **Backend** — NestJS modular monolith (TypeScript) |
+| [apps/player](apps/player) | **O'yinchi ilovasi** — Expo (React Native, TypeScript) |
+| [packages/contracts](packages/contracts) | `api/openapi.yaml` dan generatsiya qilingan API tiplari (openapi-typescript) |
 | [db/migrations/](db/migrations/) | SQL migratsiyalar — sxemaning yagona haqiqat manbai |
 | [db/queries/](db/queries/), [db/tests/](db/tests/) | Kritik SQL va DB darajasidagi testlar (oversell race, constraint'lar) |
 
