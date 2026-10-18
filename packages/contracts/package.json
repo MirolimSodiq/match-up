@@ -1,0 +1,16 @@
+{
+  "name": "@matchup/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "api/openapi.yaml dan generatsiya qilingan API tiplari (openapi-typescript)",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "generate": "openapi-typescript ../../api/openapi.yaml -o src/schema.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^7.13.0",
+    "typescript": "~5.8.3"
+  }
+}
