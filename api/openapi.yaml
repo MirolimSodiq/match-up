@@ -1,0 +1,1879 @@
+openapi: 3.1.0
+info:
+  title: Match Up API
+  version: 0.1.0
+  summary: Pickup sports platform — MVP API (player, host, admin, payment webhooks)
+  description: |
+    MVP REST API. Umumiy qoidalar:
+
+    * **Auth:** `Authorization: Bearer <JWT>` (EdDSA, access token 15 daqiqa). Refresh token rotation + reuse detection.
+    * **Pul:** har doim `Money` obyekti — `amount` minor units'da (UZS uchun tiyin: 45 000 so'm = `4500000`).
+    * **Vaqt:** ISO 8601, UTC (`2026-10-18T14:00:00Z`). Mahalliy ko'rsatish uchun `timezone` maydoni beriladi.
+    * **Til:** `Accept-Language` (`uz-Latn`, `uz-Cyrl`, `ru`, `en`) -> xato matnlari va kontent tarjimasi.
+    * **Xatolar:** RFC 9457 Problem Details (`application/problem+json`), mashina o'qiydigan `code` bilan.
+    * **Idempotency:** pul bilan bog'liq POST'larda `Idempotency-Key` majburiy (24 soat saqlanadi).
+    * **Pagination:** cursor-based (`cursor`, `limit` -> `next_cursor`).
+  contact:
+    name: Match Up Engineering
+    email: engineering@matchup.example
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+servers:
+  - url: https://api.uz-1.matchup.example
+    description: UZ cell (MVP — AWS eu-central-1, Frankfurt)
+  - url: http://{host}:{port}
+    description: Lokal dev (NestJS)
+    variables:
+      host: { default: localhost }
+      port: { default: '3000' }
+tags:
+  - name: Auth
+    description: OTP (SMS/Telegram) va social login, token'lar
+  - name: Profile
+    description: Profil, sport darajalari, consent'lar, GDPR so'rovlari
+  - name: Catalog
+    description: Sport turlari, shaharlar, venue'lar
+  - name: Discovery
+    description: Match qidirish va tafsilotlar
+  - name: Waivers
+    description: Javobgarlikdan voz kechish hujjatlari va imzolar
+  - name: Bookings
+    description: Joy band qilish, checkout, bekor qilish, chipta (QR)
+  - name: Webhooks
+    description: To'lov provayderlaridan keladigan chaqiruvlar (Payme, Click, Uzum, Stripe)
+  - name: Host
+    description: Freelance Match Host paneli — offer'lar, roster, check-in, highlight
+  - name: Media
+    description: Media yuklashni yakunlash
+  - name: Admin
+    description: Ichki operatsiyalar (match yaratish, nashr, bekor qilish)
+
+security:
+  - bearerAuth: []
+
+paths:
+  # ===========================================================================
+  # AUTH
+  # ===========================================================================
+  /v1/auth/otp/request:
+    post:
+      tags: [Auth]
+      operationId: requestOtp
+      summary: OTP kod yuborish
+      description: |
+        Rate limit: telefon raqam bo'yicha 1/60s va 5/soat, IP bo'yicha 20/soat (Redis).
+        `channel=telegram` — kod rasmiy Telegram bot orqali (SMS'dan arzon va tez).
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/AcceptLanguage'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone]
+              properties:
+                phone: { type: string, description: E.164, examples: ['+998901234567'] }
+                channel: { type: string, enum: [sms, telegram], default: sms }
+      responses:
+        '200':
+          description: Kod yuborildi
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [challenge_id, expires_in, resend_after]
+                properties:
+                  challenge_id: { type: string, format: uuid }
+                  expires_in: { type: integer, description: soniya, examples: [300] }
+                  resend_after: { type: integer, description: soniya, examples: [60] }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /v1/auth/otp/verify:
+    post:
+      tags: [Auth]
+      operationId: verifyOtp
+      summary: OTP'ni tasdiqlash va token olish
+      description: 5 ta noto'g'ri urinishdan keyin challenge bloklanadi.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [challenge_id, code, device]
+              properties:
+                challenge_id: { type: string, format: uuid }
+                code: { type: string, pattern: '^[0-9]{6}$' }
+                device: { $ref: '#/components/schemas/DeviceInfo' }
+      responses:
+        '200': { $ref: '#/components/responses/AuthSuccess' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /v1/auth/social:
+    post:
+      tags: [Auth]
+      operationId: socialLogin
+      summary: Google / Apple / Telegram orqali kirish
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [provider, device]
+              properties:
+                provider: { type: string, enum: [google, apple, telegram] }
+                id_token: { type: string, description: Google/Apple ID token (JWT) }
+                telegram_auth:
+                  type: object
+                  description: Telegram Login Widget ma'lumotlari (server bot token bilan hash'ni tekshiradi)
+                  additionalProperties: true
+                device: { $ref: '#/components/schemas/DeviceInfo' }
+      responses:
+        '200': { $ref: '#/components/responses/AuthSuccess' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/auth/refresh:
+    post:
+      tags: [Auth]
+      operationId: refreshToken
+      summary: Token yangilash (rotation)
+      description: Eski refresh token qayta ishlatilsa — butun token family bekor qilinadi (o'g'irlik belgisi).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token: { type: string }
+      responses:
+        '200':
+          description: Yangi token juftligi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tokens' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logout
+      summary: Joriy sessiyani bekor qilish
+      responses:
+        '204': { description: Sessiya bekor qilindi }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ===========================================================================
+  # PROFILE
+  # ===========================================================================
+  /v1/me:
+    get:
+      tags: [Profile]
+      operationId: getMe
+      summary: Joriy foydalanuvchi profili
+      responses:
+        '200':
+          description: Profil
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    patch:
+      tags: [Profile]
+      operationId: updateMe
+      summary: Profilni yangilash (onboarding ham shu)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserUpdate' }
+      responses:
+        '200':
+          description: Yangilangan profil
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Profile]
+      operationId: requestAccountErasure
+      summary: Akkauntni o'chirish (GDPR erasure)
+      description: |
+        30 kunlik grace period, keyin anonimlashtirish: PII o'chiriladi, to'lov yozuvlari soliq talabi
+        muddatida anonim holda saqlanadi, highlight teglari olib tashlanadi.
+      responses:
+        '202':
+          description: So'rov qabul qilindi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DataSubjectRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /v1/me/sports/{sportCode}:
+    put:
+      tags: [Profile]
+      operationId: upsertSportProfile
+      summary: Sport bo'yicha daraja va pozitsiya
+      parameters:
+        - name: sportCode
+          in: path
+          required: true
+          schema: { type: string, examples: [football] }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [self_level]
+              properties:
+                self_level: { $ref: '#/components/schemas/SkillLevel' }
+                preferred_position: { type: string, examples: [midfielder] }
+      responses:
+        '200':
+          description: Saqlandi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SportProfile' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/me/consents:
+    put:
+      tags: [Profile]
+      operationId: updateConsents
+      summary: Rozilik (consent) holatlarini yangilash
+      description: Har bir o'zgarish append-only yozuv sifatida saqlanadi (versiya, IP, manba bilan).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [consents]
+              properties:
+                consents:
+                  type: array
+                  items: { $ref: '#/components/schemas/ConsentInput' }
+      responses:
+        '200':
+          description: Joriy holat
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Consent' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /v1/me/data-export:
+    post:
+      tags: [Profile]
+      operationId: requestDataExport
+      summary: Shaxsiy ma'lumotlarni eksport qilish (GDPR Art. 15/20)
+      description: JSON + media zip tayyorlanadi, tayyor bo'lgach push/Telegram orqali vaqtinchalik havola yuboriladi.
+      responses:
+        '202':
+          description: So'rov qabul qilindi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DataSubjectRequest' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /v1/me/bookings:
+    get:
+      tags: [Bookings]
+      operationId: listMyBookings
+      summary: Mening booking'larim
+      parameters:
+        - name: scope
+          in: query
+          schema: { type: string, enum: [upcoming, past], default: upcoming }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Booking'lar ro'yxati
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Booking' }
+                  next_cursor: { type: [string, 'null'] }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ===========================================================================
+  # CATALOG
+  # ===========================================================================
+  /v1/sports:
+    get:
+      tags: [Catalog]
+      operationId: listSports
+      summary: Sport turlari
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/AcceptLanguage'
+      responses:
+        '200':
+          description: Ro'yxat (CDN'da 1 soat kesh)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    code: { type: string, examples: [football] }
+                    name: { type: string, examples: [Futbol] }
+                    default_players_per_side: { type: integer, examples: [7] }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /v1/cities:
+    get:
+      tags: [Catalog]
+      operationId: listCities
+      summary: Faol shaharlar
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/AcceptLanguage'
+      responses:
+        '200':
+          description: Ro'yxat
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: integer }
+                    slug: { type: string, examples: [tashkent] }
+                    name: { type: string, examples: [Toshkent] }
+                    timezone: { type: string, examples: [Asia/Tashkent] }
+                    currency: { type: string, examples: [UZS] }
+                    center: { $ref: '#/components/schemas/GeoPoint' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /v1/venues/{venueId}:
+    get:
+      tags: [Catalog]
+      operationId: getVenue
+      summary: Venue tafsilotlari
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/VenueId'
+        - $ref: '#/components/parameters/AcceptLanguage'
+      responses:
+        '200':
+          description: Venue
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Venue' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ===========================================================================
+  # DISCOVERY
+  # ===========================================================================
+  /v1/matches:
+    get:
+      tags: [Discovery]
+      operationId: searchMatches
+      summary: Yaqin atrofdagi match'larni qidirish
+      description: |
+        PostGIS `ST_DWithin` + composite GiST (location, starts_at). Javob Redis'da geohash(6) + filtrlar
+        kaliti bilan 15–30 soniya keshlanadi; bo'sh joylar soni real-time WebSocket orqali yangilanadi
+        (`match:{id}` kanali, `slots.updated` event).
+      security: []
+      parameters:
+        - { name: lat, in: query, required: true, schema: { type: number, minimum: -90, maximum: 90 }, example: 41.2995 }
+        - { name: lng, in: query, required: true, schema: { type: number, minimum: -180, maximum: 180 }, example: 69.2401 }
+        - { name: radius_km, in: query, schema: { type: number, minimum: 1, maximum: 50, default: 10 } }
+        - name: sport
+          in: query
+          description: Vergul bilan ajratilgan sport kodlari
+          schema: { type: string, examples: ['football,basketball'] }
+        - { name: date_from, in: query, schema: { type: string, format: date-time } }
+        - { name: date_to, in: query, schema: { type: string, format: date-time } }
+        - { name: min_slots, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: price_max, in: query, description: minor units, schema: { type: integer, format: int64 } }
+        - { name: level, in: query, schema: { $ref: '#/components/schemas/SkillLevel' } }
+        - { name: sort, in: query, schema: { type: string, enum: [starts_at, distance], default: starts_at } }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/AcceptLanguage'
+      responses:
+        '200':
+          description: Match'lar
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/MatchSummary' }
+                  next_cursor: { type: [string, 'null'] }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /v1/matches/{matchId}:
+    get:
+      tags: [Discovery]
+      operationId: getMatch
+      summary: Match tafsilotlari
+      description: Auth ixtiyoriy — token bo'lsa `my_booking` va `waiver.signed` to'ldiriladi.
+      security: [{}, { bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/MatchId'
+        - $ref: '#/components/parameters/AcceptLanguage'
+      responses:
+        '200':
+          description: Match
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MatchDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/matches/{matchId}/waitlist:
+    post:
+      tags: [Discovery]
+      operationId: joinWaitlist
+      summary: Kutish ro'yxatiga yozilish (match to'la bo'lsa)
+      description: Joy bo'shasa navbatdagi odamga push + 10 daqiqalik eksklyuziv booking oynasi beriladi.
+      parameters:
+        - $ref: '#/components/parameters/MatchId'
+      responses:
+        '201':
+          description: Navbatga qo'shildi
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  position: { type: integer, examples: [3] }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [Discovery]
+      operationId: leaveWaitlist
+      summary: Kutish ro'yxatidan chiqish
+      parameters:
+        - $ref: '#/components/parameters/MatchId'
+      responses:
+        '204': { description: Chiqarildi }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ===========================================================================
+  # WAIVERS
+  # ===========================================================================
+  /v1/waivers/required:
+    get:
+      tags: [Waivers]
+      operationId: getRequiredWaiver
+      summary: Match uchun talab qilinadigan waiver (foydalanuvchi tilida, oxirgi versiya)
+      parameters:
+        - name: match_id
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/AcceptLanguage'
+      responses:
+        '200':
+          description: Waiver matni va imzo holati
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [template, signed]
+                properties:
+                  template: { $ref: '#/components/schemas/WaiverTemplate' }
+                  signed: { type: boolean }
+                  signature_id: { type: [string, 'null'], format: uuid }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/waivers/{templateId}/signatures:
+    post:
+      tags: [Waivers]
+      operationId: signWaiver
+      summary: Waiver'ni imzolash
+      description: |
+        Server matn SHA-256 hash'ini, IP, user-agent, app versiyasini saqlaydi (append-only).
+        `otp_confirmed` usulida avval `/auth/otp/request` bilan kod olinadi (kuchliroq elektron imzo).
+        18 yoshdan kichiklar uchun `guardian` majburiy.
+      parameters:
+        - name: templateId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [accepted, method, document_sha256]
+              properties:
+                accepted: { type: boolean, const: true }
+                method: { type: string, enum: [clickwrap, otp_confirmed] }
+                document_sha256:
+                  type: string
+                  description: Client ko'rsatgan matnning hash'i — server'dagi bilan mos bo'lishi shart
+                typed_full_name: { type: string }
+                otp: { type: object, properties: { challenge_id: { type: string, format: uuid }, code: { type: string } } }
+                match_id: { type: string, format: uuid }
+                guardian:
+                  type: object
+                  properties:
+                    name: { type: string }
+                    phone: { type: string }
+                    relation: { type: string, examples: [parent] }
+      responses:
+        '201':
+          description: Imzolandi
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  signature_id: { type: string, format: uuid }
+                  signed_at: { type: string, format: date-time }
+        '409':
+          description: Hujjat versiyasi eskirgan (hash mos emas) — yangi matnni qayta ko'rsatish kerak
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  # ===========================================================================
+  # BOOKINGS
+  # ===========================================================================
+  /v1/payment-methods:
+    get:
+      tags: [Bookings]
+      operationId: listPaymentMethods
+      summary: Match uchun mavjud to'lov usullari
+      description: '`payment_provider_configs` (davlat + valyuta + priority) va wallet balansi asosida.'
+      parameters:
+        - name: match_id
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: To'lov usullari (priority bo'yicha)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  wallet_balance: { $ref: '#/components/schemas/Money' }
+                  methods:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        provider: { $ref: '#/components/schemas/PaymentProvider' }
+                        display_name: { type: string, examples: [Payme] }
+                        icon_url: { type: string, format: uri }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/bookings:
+    post:
+      tags: [Bookings]
+      operationId: createBooking
+      summary: Joyni band qilish (hold) va checkout boshlash
+      description: |
+        1. Waiver imzosi tekshiriladi. 2. Atomik seat hold (`db/queries/hold_seat.sql`), muddati 15 daqiqa.
+        3. Provider adapter checkout yaratadi. Wallet to'liq yopsa — darhol `confirmed`.
+        Holat o'zgarishini client `GET /v1/bookings/{id}` yoki WebSocket `booking:{id}` orqali kuzatadi.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BookingCreate' }
+            example:
+              match_id: 01a14af9-734c-7ed5-a7de-75db4109f156
+              seats: 1
+              payment_method: payme
+              use_wallet: false
+              waiver_signature_id: 01a14af9-72f1-7c11-8a0e-3b1d1c7e9a10
+              return_url: matchup://bookings/return
+      responses:
+        '201':
+          description: Booking yaratildi (pending_payment yoki wallet bilan confirmed)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [booking, checkout]
+                properties:
+                  booking: { $ref: '#/components/schemas/Booking' }
+                  checkout: { $ref: '#/components/schemas/Checkout' }
+        '409':
+          description: '`MATCH_FULL` | `ALREADY_BOOKED` | `BOOKING_CLOSED`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example:
+                type: https://docs.matchup.example/errors/match-full
+                title: Match to'lgan
+                status: 409
+                code: MATCH_FULL
+                detail: Bu o'yinda bo'sh joy qolmadi. Kutish ro'yxatiga yozilishingiz mumkin.
+        '422':
+          description: '`WAIVER_REQUIRED` | `SKILL_LEVEL_MISMATCH` | `AGE_RESTRICTED` | validatsiya'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /v1/bookings/{bookingId}:
+    get:
+      tags: [Bookings]
+      operationId: getBooking
+      summary: Booking holati (to'lovdan qaytgandan keyin polling)
+      parameters:
+        - $ref: '#/components/parameters/BookingId'
+      responses:
+        '200':
+          description: Booking
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Booking' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/bookings/{bookingId}/cancel:
+    post:
+      tags: [Bookings]
+      operationId: cancelBooking
+      summary: Booking'ni bekor qilish (cancellation policy bo'yicha refund)
+      parameters:
+        - $ref: '#/components/parameters/BookingId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string, maxLength: 500 }
+                refund_destination:
+                  type: string
+                  enum: [original_method, wallet]
+                  description: Policy ruxsat bergan hollarda tanlov (wallet — darhol, bonus bilan)
+      responses:
+        '200':
+          description: Bekor qilindi
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  booking: { $ref: '#/components/schemas/Booking' }
+                  refund:
+                    type: [object, 'null']
+                    properties:
+                      amount: { $ref: '#/components/schemas/Money' }
+                      destination: { type: string, enum: [original_method, wallet] }
+                      status: { type: string, enum: [pending, succeeded] }
+                      policy_rule: { type: string, examples: ['>=24h: 100% original_method'] }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /v1/bookings/{bookingId}/ticket:
+    get:
+      tags: [Bookings]
+      operationId: getTicket
+      summary: Check-in uchun QR chipta
+      description: |
+        `qr_payload` — Ed25519 bilan imzolangan compact token (participant_id, match_id, exp).
+        Host app roster bilan birga public key'ni oladi va internetsiz tekshiradi.
+      parameters:
+        - $ref: '#/components/parameters/BookingId'
+      responses:
+        '200':
+          description: Chipta
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tickets:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        participant_id: { type: string, format: uuid }
+                        holder_name: { type: string }
+                        qr_payload: { type: string, examples: ['mu1.eyJwIjoiMDFhMS4uLiIsIm0iOiIwMWExLi4uIiwiZSI6MTc2MDgwMDAwMH0.sig'] }
+                        expires_at: { type: string, format: date-time }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ===========================================================================
+  # WEBHOOKS
+  # ===========================================================================
+  /v1/webhooks/payme:
+    post:
+      tags: [Webhooks]
+      operationId: paymeMerchantApi
+      summary: Payme Merchant API (JSON-RPC 2.0)
+      description: |
+        Payme bizning endpointni chaqiradi. Har doim HTTP 200, xato JSON-RPC `error` ichida.
+        Auth: `Basic base64("Paycom:" + merchant_key)` + Payme IP allowlist. Summalar tiyin'da.
+
+        | Method | Biznes mantiq |
+        |---|---|
+        | `CheckPerformTransaction` | booking `pending_payment`, summa mos; hold muddati o'tgan bo'lsa joy bo'lsa qayta hold, aks holda `-31050` (pul yechilmaydi) |
+        | `CreateTransaction` | `payments` qatori (`provider_transaction_id = params.id`), `state=1`; takroriy chaqiruv o'sha javobni qaytaradi |
+        | `PerformTransaction` | `confirm_payment.sql` (booking confirmed, `state=2`) — idempotent |
+        | `CancelTransaction` | `state=-1` (perform'dan oldin) yoki `-2` (refund, joy qaytariladi) |
+        | `CheckTransaction` | `provider_state`'dan aynan saqlangan vaqtlar |
+        | `GetStatement` | davr bo'yicha tranzaksiyalar (reconciliation) |
+      security:
+        - paymeBasic: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PaymeRequest' }
+            examples:
+              check:
+                summary: CheckPerformTransaction
+                value: { jsonrpc: '2.0', id: 1001, method: CheckPerformTransaction,
+                         params: { amount: 4500000, account: { booking_id: 01a14af9-7400-7aaa-9bbb-123456789abc } } }
+              perform:
+                summary: PerformTransaction
+                value: { jsonrpc: '2.0', id: 1003, method: PerformTransaction, params: { id: 5e730e8e0b852a417aa49ceb } }
+      responses:
+        '200':
+          description: JSON-RPC javob (result yoki error)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaymeResponse' }
+              examples:
+                allow:
+                  summary: CheckPerformTransaction OK
+                  value: { jsonrpc: '2.0', id: 1001, result: { allow: true } }
+                performed:
+                  summary: PerformTransaction OK
+                  value: { jsonrpc: '2.0', id: 1003,
+                           result: { transaction: 01a14af9-7401-7ccc-8ddd-abcdefabcdef, perform_time: 1760800000123, state: 2 } }
+                seat_gone:
+                  summary: Hold muddati o'tgan va joy qolmagan
+                  value: { jsonrpc: '2.0', id: 1001,
+                           error: { code: -31050, data: booking_id,
+                                    message: { uz: "Joy qolmadi", ru: "Мест не осталось", en: "No seats left" } } }
+        '401':
+          description: Faqat API gateway darajasida (IP allowlist'dan tashqari so'rovlar). Payme'ning o'zi uchun auth xatosi 200 + `-32504`.
+
+  /v1/webhooks/click/prepare:
+    post:
+      tags: [Webhooks]
+      operationId: clickPrepare
+      summary: Click SHOP API — Prepare (action=0)
+      description: |
+        `sign_string = md5(click_trans_id + service_id + SECRET_KEY + merchant_trans_id + amount + action + sign_time)`.
+        `merchant_trans_id` = booking id. Summa so'mda (decimal) — adapter tiyin'ga o'giradi.
+        Hold muddati tekshiriladi (Payme `CheckPerformTransaction` bilan bir xil mantiq).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema: { $ref: '#/components/schemas/ClickRequest' }
+      responses:
+        '200':
+          description: Click javobi (`error = 0` — muvaffaqiyat)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClickResponse' }
+              example: { click_trans_id: 2213460134, merchant_trans_id: 01a14af9-7400-7aaa-9bbb-123456789abc,
+                         merchant_prepare_id: 1780412, error: 0, error_note: Success }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /v1/webhooks/click/complete:
+    post:
+      tags: [Webhooks]
+      operationId: clickComplete
+      summary: Click SHOP API — Complete (action=1)
+      description: |
+        `sign_string = md5(click_trans_id + service_id + SECRET_KEY + merchant_trans_id + merchant_prepare_id + amount + action + sign_time)`.
+        `error < 0` kelsa (Click tomonda bekor) — booking hold'i darhol ozod qilinadi.
+        Xato kodlari: `-1` sign, `-2` summa, `-4` allaqachon to'langan, `-5` booking topilmadi, `-6` tranzaksiya topilmadi, `-9` bekor qilingan.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/ClickRequest'
+                - type: object
+                  required: [merchant_prepare_id]
+                  properties:
+                    merchant_prepare_id: { type: integer }
+      responses:
+        '200':
+          description: Click javobi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClickResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /v1/webhooks/uzum/{operation}:
+    post:
+      tags: [Webhooks]
+      operationId: uzumMerchantApi
+      summary: Uzum Bank Merchant API
+      description: |
+        Operatsiyalar: `check` (to'lash mumkinmi), `create`, `confirm` (-> confirm_payment.sql), `reverse` (refund), `status`.
+        Basic auth. Payload Uzum spetsifikatsiyasiga ko'ra adapter ichida normalizatsiya qilinadi.
+      security:
+        - uzumBasic: []
+      parameters:
+        - name: operation
+          in: path
+          required: true
+          schema: { type: string, enum: [check, create, confirm, reverse, status] }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [serviceId, timestamp]
+              properties:
+                serviceId: { type: integer }
+                timestamp: { type: integer, format: int64 }
+                transId: { type: string }
+                amount: { type: integer, format: int64, description: tiyin }
+                params:
+                  type: object
+                  properties:
+                    booking_id: { type: string, format: uuid }
+              additionalProperties: true
+      responses:
+        '200':
+          description: Uzum javobi
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /v1/webhooks/stripe:
+    post:
+      tags: [Webhooks]
+      operationId: stripeWebhook
+      summary: Stripe event'lari (xalqaro cell'lar, Apple Pay / Google Pay)
+      description: |
+        `Stripe-Signature` header raw body bilan tekshiriladi (5 daqiqa tolerance).
+        Qayta ishlanadigan event'lar: `payment_intent.succeeded`, `payment_intent.payment_failed`, `charge.refunded`.
+        Kech kelgan `succeeded` (hold muddati o'tgan, joy yo'q) -> avtomatik refund yoki waitlist.
+      security:
+        - stripeSignature: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, type, data]
+              properties:
+                id: { type: string, examples: [evt_1Q2w3e4r5t6y] }
+                type: { type: string, examples: [payment_intent.succeeded] }
+                data: { type: object, additionalProperties: true }
+      responses:
+        '200':
+          description: Qabul qilindi (dublikat ham 200 — payment_events UNIQUE)
+          content:
+            application/json:
+              schema: { type: object, properties: { received: { type: boolean } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  # ===========================================================================
+  # HOST PANEL
+  # ===========================================================================
+  /v1/host/offers:
+    get:
+      tags: [Host]
+      operationId: listHostOffers
+      summary: Menga kelgan dispatch offer'lar
+      responses:
+        '200':
+          description: Faol offer'lar
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/HostOffer' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /v1/host/offers/{assignmentId}/accept:
+    post:
+      tags: [Host]
+      operationId: acceptHostOffer
+      summary: Offer'ni qabul qilish
+      description: Birinchi qabul qilgan yutadi (partial unique index). Qolgan offer'lar avtomatik `expired`.
+      parameters:
+        - $ref: '#/components/parameters/AssignmentId'
+      responses:
+        '200':
+          description: Tayinlandi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HostMatch' }
+        '409':
+          description: '`OFFER_TAKEN` | `OFFER_EXPIRED` | `SCHEDULE_CONFLICT`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /v1/host/offers/{assignmentId}/decline:
+    post:
+      tags: [Host]
+      operationId: declineHostOffer
+      summary: Offer'ni rad etish
+      parameters:
+        - $ref: '#/components/parameters/AssignmentId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string, enum: [busy, too_far, other] }
+      responses:
+        '204': { description: Rad etildi — dispatch keyingi hostga o'tadi }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /v1/host/matches:
+    get:
+      tags: [Host]
+      operationId: listHostMatches
+      summary: Menga tayinlangan match'lar
+      parameters:
+        - name: scope
+          in: query
+          schema: { type: string, enum: [today, upcoming, past], default: upcoming }
+      responses:
+        '200':
+          description: Match'lar
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/HostMatch' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /v1/host/matches/{matchId}/roster:
+    get:
+      tags: [Host]
+      operationId: getHostRoster
+      summary: Roster (offline check-in uchun to'liq)
+      description: Host app buni match boshlanishidan oldin yuklab keshlaydi; `qr_public_key` bilan QR'larni internetsiz tekshiradi.
+      parameters:
+        - $ref: '#/components/parameters/MatchId'
+      responses:
+        '200':
+          description: Roster
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Roster' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /v1/host/matches/{matchId}/arrive:
+    post:
+      tags: [Host]
+      operationId: hostArrive
+      summary: Host maydonga yetib keldi (geofence)
+      description: Venue'dan ≤ 200 m bo'lishi shart; aks holda 422 `OUTSIDE_GEOFENCE`. Kech qolish host reytingiga ta'sir qiladi.
+      parameters:
+        - $ref: '#/components/parameters/MatchId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [location]
+              properties:
+                location: { $ref: '#/components/schemas/GeoPoint' }
+                accuracy_m: { type: number }
+      responses:
+        '200':
+          description: Qayd etildi
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  arrived_at: { type: string, format: date-time }
+                  distance_m: { type: integer, examples: [35] }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /v1/host/matches/{matchId}/checkins:
+    post:
+      tags: [Host]
+      operationId: syncCheckins
+      summary: Check-in'larni yuborish (batch, offline sync)
+      description: |
+        Har bir event `client_event_id` bilan — takroriy yuborish xavfsiz (`duplicate` qaytadi).
+        QR bo'yicha: `qr_payload`; ism bo'yicha (telefonsiz o'yinchi): `participant_id` + `method=manual`.
+      parameters:
+        - $ref: '#/components/parameters/MatchId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [events]
+              properties:
+                events:
+                  type: array
+                  maxItems: 100
+                  items: { $ref: '#/components/schemas/CheckinEvent' }
+      responses:
+        '200':
+          description: Har bir event natijasi
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        client_event_id: { type: string, format: uuid }
+                        status: { type: string, enum: [accepted, duplicate, rejected] }
+                        reason: { type: [string, 'null'], examples: [TICKET_EXPIRED, NOT_ON_ROSTER, INVALID_SIGNATURE] }
+                        participant_id: { type: [string, 'null'], format: uuid }
+                  roster_version: { type: integer }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /v1/host/matches/{matchId}/participants/{participantId}:
+    patch:
+      tags: [Host]
+      operationId: updateParticipant
+      summary: O'yinchini jamoaga taqsimlash yoki no-show belgilash
+      parameters:
+        - $ref: '#/components/parameters/MatchId'
+        - name: participantId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                side_no: { type: integer, minimum: 1 }
+                status: { type: string, enum: [checked_in, no_show] }
+      responses:
+        '200':
+          description: Yangilandi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RosterEntry' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /v1/host/matches/{matchId}/complete:
+    post:
+      tags: [Host]
+      operationId: completeMatch
+      summary: O'yinni yakunlash (hisob, hodisalar)
+      description: '`MatchCompleted` event -> rating hisoblash, feedback so''rovi, host payout hisobi.'
+      parameters:
+        - $ref: '#/components/parameters/MatchId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [scores]
+              properties:
+                scores:
+                  type: array
+                  items:
+                    type: object
+                    required: [side_no, score]
+                    properties:
+                      side_no: { type: integer }
+                      score: { type: integer, minimum: 0 }
+                mvp_participant_id: { type: [string, 'null'], format: uuid }
+                incidents:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type: { type: string, enum: [injury, misconduct, venue_issue, other] }
+                      participant_id: { type: [string, 'null'], format: uuid }
+                      note: { type: string }
+      responses:
+        '200':
+          description: Yakunlandi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HostMatch' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /v1/host/matches/{matchId}/highlights/uploads:
+    post:
+      tags: [Host]
+      operationId: initHighlightUpload
+      summary: Highlight video yuklashni boshlash (S3 multipart, presigned)
+      description: |
+        Client videoni 720p H.264 ga siqadi, keyin qismlarni to'g'ridan-to'g'ri object storage'ga yuklaydi
+        (backend orqali o'tmaydi). Maksimal 60 soniya / 150 MB.
+      parameters:
+        - $ref: '#/components/parameters/MatchId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content_type, size_bytes, duration_ms]
+              properties:
+                content_type: { type: string, enum: [video/mp4, video/quicktime] }
+                size_bytes: { type: integer, maximum: 157286400 }
+                duration_ms: { type: integer, maximum: 60000 }
+                recorded_at: { type: string, format: date-time }
+                match_offset_ms: { type: integer, minimum: 0 }
+                title: { type: string, maxLength: 120 }
+                tagged_user_ids:
+                  type: array
+                  items: { type: string, format: uuid }
+                  description: Faqat `media_appearance` consent'i borlar teglanadi (qolganlari jim tashlab yuboriladi)
+      responses:
+        '201':
+          description: Yuklash URL'lari
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UploadInit' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /v1/media/{mediaId}/complete:
+    post:
+      tags: [Media]
+      operationId: completeMediaUpload
+      summary: Multipart yuklashni yakunlash
+      description: Object storage `CompleteMultipartUpload` -> `media_assets.status = processing` -> transcode navbati (SQS -> Python worker).
+      parameters:
+        - name: mediaId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [parts]
+              properties:
+                parts:
+                  type: array
+                  items:
+                    type: object
+                    required: [part_number, etag]
+                    properties:
+                      part_number: { type: integer }
+                      etag: { type: string }
+                checksum_sha256: { type: string }
+      responses:
+        '202':
+          description: Qayta ishlashga yuborildi
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  media_id: { type: string, format: uuid }
+                  status: { type: string, enum: [processing] }
+                  highlight_id: { type: string, format: uuid }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  # ===========================================================================
+  # ADMIN (MVP minimal)
+  # ===========================================================================
+  /v1/admin/matches:
+    post:
+      tags: [Admin]
+      operationId: adminCreateMatch
+      summary: Ijaraga olingan slot asosida match yaratish (draft)
+      description: Lease bilan birga yaratiladi; bitta pitch'ga ustma-ust lease DB `EXCLUDE` constraint bilan rad etiladi (409 `LEASE_OVERLAP`).
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminMatchCreate' }
+      responses:
+        '201':
+          description: Draft match
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MatchDetail' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /v1/admin/matches/{matchId}/publish:
+    post:
+      tags: [Admin]
+      operationId: adminPublishMatch
+      summary: Match'ni nashr qilish (draft -> open)
+      parameters:
+        - $ref: '#/components/parameters/MatchId'
+      responses:
+        '200':
+          description: Nashr qilindi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MatchDetail' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /v1/admin/matches/{matchId}/cancel:
+    post:
+      tags: [Admin]
+      operationId: adminCancelMatch
+      summary: Match'ni bekor qilish — barcha booking'lar 100% refund
+      parameters:
+        - $ref: '#/components/parameters/MatchId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string, enum: [min_players_not_reached, weather, venue_issue, no_host, other] }
+                refund_destination: { type: string, enum: [original_method, wallet], default: original_method }
+                wallet_bonus_pct: { type: integer, minimum: 0, maximum: 100, default: 0 }
+      responses:
+        '202':
+          description: Bekor qilindi, refund'lar navbatga qo'yildi
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  refunds_queued: { type: integer }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+# =============================================================================
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    paymeBasic:
+      type: http
+      scheme: basic
+      description: '`Paycom:<merchant_key>`'
+    uzumBasic:
+      type: http
+      scheme: basic
+    stripeSignature:
+      type: apiKey
+      in: header
+      name: Stripe-Signature
+
+  parameters:
+    AcceptLanguage:
+      name: Accept-Language
+      in: header
+      schema: { type: string, enum: [uz-Latn, uz-Cyrl, ru, en], default: uz-Latn }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, format: uuid }
+    Cursor:
+      name: cursor
+      in: query
+      schema: { type: string }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+    MatchId:
+      name: matchId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    VenueId:
+      name: venueId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    BookingId:
+      name: bookingId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    AssignmentId:
+      name: assignmentId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+
+  responses:
+    AuthSuccess:
+      description: Muvaffaqiyatli kirish
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Tokens'
+              - type: object
+                required: [user, is_new_user]
+                properties:
+                  user: { $ref: '#/components/schemas/User' }
+                  is_new_user: { type: boolean, description: true bo'lsa onboarding ekranlari ko'rsatiladi }
+    BadRequest:
+      description: Noto'g'ri so'rov
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Unauthorized:
+      description: Token yo'q yoki yaroqsiz
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Forbidden:
+      description: Rol yetarli emas (masalan host emas)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    NotFound:
+      description: Topilmadi
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Conflict:
+      description: Holat ziddiyati (state machine ruxsat bermaydi)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    ValidationError:
+      description: Validatsiya xatosi
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    TooManyRequests:
+      description: Rate limit
+      headers:
+        Retry-After:
+          schema: { type: integer }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+  schemas:
+    # --- Umumiy -------------------------------------------------------------
+    Problem:
+      type: object
+      description: RFC 9457 Problem Details
+      required: [type, title, status, code]
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        code: { type: string, description: Mashina o'qiydigan kod, examples: [MATCH_FULL] }
+        detail: { type: string, description: Accept-Language tilida }
+        instance: { type: string }
+        request_id: { type: string }
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              field: { type: string }
+              code: { type: string }
+              message: { type: string }
+    Money:
+      type: object
+      required: [amount, currency]
+      properties:
+        amount: { type: integer, format: int64, description: Minor units (UZS -> tiyin), examples: [4500000] }
+        currency: { type: string, pattern: '^[A-Z]{3}$', examples: [UZS] }
+        formatted: { type: string, description: Server tomonda locale bo'yicha, examples: ["45 000 so'm"] }
+    GeoPoint:
+      type: object
+      required: [lat, lng]
+      properties:
+        lat: { type: number, examples: [41.2756] }
+        lng: { type: number, examples: [69.2034] }
+    SkillLevel:
+      type: string
+      enum: [beginner, intermediate, advanced, pro]
+    PaymentProvider:
+      type: string
+      enum: [payme, click, uzum, stripe, paypal, wallet]
+    DeviceInfo:
+      type: object
+      required: [device_id, platform]
+      properties:
+        device_id: { type: string }
+        platform: { type: string, enum: [ios, android, web] }
+        app_version: { type: string, examples: [1.0.3] }
+        push_token: { type: string }
+        locale: { type: string, examples: [uz-Latn] }
+
+    # --- Auth / Profile -----------------------------------------------------
+    Tokens:
+      type: object
+      required: [access_token, refresh_token, token_type, expires_in]
+      properties:
+        access_token: { type: string }
+        refresh_token: { type: string }
+        token_type: { type: string, const: Bearer }
+        expires_in: { type: integer, examples: [900] }
+    User:
+      type: object
+      required: [id, display_name, roles, locale, country_code]
+      properties:
+        id: { type: string, format: uuid }
+        display_name: { type: string, examples: [Jasur] }
+        phone: { type: [string, 'null'], examples: ['+998901234567'] }
+        email: { type: [string, 'null'], format: email }
+        avatar_url: { type: [string, 'null'], format: uri }
+        roles:
+          type: array
+          items: { type: string, enum: [player, host, admin, super_admin, venue_partner] }
+        locale: { type: string, examples: [uz-Latn] }
+        country_code: { type: string, examples: [UZ] }
+        home_city_id: { type: [integer, 'null'] }
+        birth_date: { type: [string, 'null'], format: date }
+        gender: { type: string, enum: [male, female, other, undisclosed] }
+        sports:
+          type: array
+          items: { $ref: '#/components/schemas/SportProfile' }
+        stats:
+          type: object
+          properties:
+            games_played: { type: integer }
+            no_show_count: { type: integer }
+        onboarded: { type: boolean }
+    UserUpdate:
+      type: object
+      properties:
+        display_name: { type: string, minLength: 2, maxLength: 40 }
+        first_name: { type: string }
+        last_name: { type: string }
+        locale: { type: string, enum: [uz-Latn, uz-Cyrl, ru, en] }
+        home_city_id: { type: integer }
+        birth_date: { type: string, format: date }
+        gender: { type: string, enum: [male, female, other, undisclosed] }
+    SportProfile:
+      type: object
+      properties:
+        sport: { type: string, examples: [football] }
+        self_level: { $ref: '#/components/schemas/SkillLevel' }
+        rating: { type: number, examples: [1532.4] }
+        games_played: { type: integer }
+        preferred_position: { type: [string, 'null'] }
+    ConsentPurpose:
+      type: string
+      enum: [terms_of_service, privacy_policy, marketing_sms, marketing_push, marketing_email,
+             analytics, media_appearance, location_tracking]
+    ConsentInput:
+      type: object
+      required: [purpose, granted]
+      properties:
+        purpose: { $ref: '#/components/schemas/ConsentPurpose' }
+        granted: { type: boolean }
+        document_version: { type: string, examples: [privacy-2026-10] }
+    Consent:
+      allOf:
+        - $ref: '#/components/schemas/ConsentInput'
+        - type: object
+          properties:
+            recorded_at: { type: string, format: date-time }
+    DataSubjectRequest:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        type: { type: string, enum: [export, erasure] }
+        status: { type: string, enum: [received, in_progress, completed, rejected] }
+        due_at: { type: string, format: date-time }
+
+    # --- Catalog / Discovery ------------------------------------------------
+    VenueSummary:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, examples: [Chilonzor Arena] }
+        address: { type: string }
+        location: { $ref: '#/components/schemas/GeoPoint' }
+        distance_m: { type: [integer, 'null'], examples: [4062] }
+    Venue:
+      allOf:
+        - $ref: '#/components/schemas/VenueSummary'
+        - type: object
+          properties:
+            description: { type: string }
+            timezone: { type: string, examples: [Asia/Tashkent] }
+            cover_url: { type: [string, 'null'], format: uri }
+            amenities:
+              type: array
+              items:
+                type: object
+                properties:
+                  code: { type: string, examples: [parking] }
+                  name: { type: string, examples: [Avtoturargoh] }
+            pitches:
+              type: array
+              items:
+                type: object
+                properties:
+                  id: { type: string, format: uuid }
+                  name: { type: string }
+                  surface: { type: string, enum: [artificial_turf, natural_grass, indoor_hard, indoor_parquet, sand, asphalt] }
+                  is_indoor: { type: boolean }
+    Slots:
+      type: object
+      required: [max, taken, available]
+      properties:
+        max: { type: integer, examples: [14] }
+        min_to_play: { type: integer, examples: [10] }
+        taken: { type: integer, description: confirmed + held, examples: [13] }
+        available: { type: integer, examples: [1] }
+    MatchStatus:
+      type: string
+      enum: [draft, open, full, in_progress, completed, cancelled]
+    MatchSummary:
+      type: object
+      required: [id, sport, starts_at, ends_at, timezone, format, price, slots, status, venue]
+      properties:
+        id: { type: string, format: uuid }
+        public_code: { type: string, examples: [MU-7F3K2] }
+        sport: { type: string, examples: [football] }
+        title: { type: string, examples: [7v7 Chilonzor Arena] }
+        starts_at: { type: string, format: date-time }
+        ends_at: { type: string, format: date-time }
+        timezone: { type: string, examples: [Asia/Tashkent] }
+        format: { type: string, examples: [7v7] }
+        price: { $ref: '#/components/schemas/Money' }
+        slots: { $ref: '#/components/schemas/Slots' }
+        level: { type: object, properties: { min: { $ref: '#/components/schemas/SkillLevel' }, max: { $ref: '#/components/schemas/SkillLevel' } } }
+        gender_policy: { type: string, enum: [any, male, female, mixed] }
+        status: { $ref: '#/components/schemas/MatchStatus' }
+        host_assigned: { type: boolean }
+        venue: { $ref: '#/components/schemas/VenueSummary' }
+    MatchDetail:
+      allOf:
+        - $ref: '#/components/schemas/MatchSummary'
+        - type: object
+          properties:
+            description: { type: string }
+            rules: { type: string }
+            booking_closes_at: { type: string, format: date-time }
+            min_players_deadline: { type: string, format: date-time }
+            cancellation_policy:
+              type: object
+              properties:
+                summary: { type: string, examples: ["24 soatgacha — 100% qaytariladi; 3 soatgacha — wallet'ga"] }
+            participants_preview:
+              type: array
+              description: Faqat ism va avatar (privacy)
+              items:
+                type: object
+                properties:
+                  display_name: { type: string }
+                  avatar_url: { type: [string, 'null'], format: uri }
+                  level: { $ref: '#/components/schemas/SkillLevel' }
+            waiver:
+              type: object
+              properties:
+                required: { type: boolean }
+                template_code: { type: string }
+                signed: { type: [boolean, 'null'], description: Auth bo'lmasa null }
+            my_booking:
+              oneOf:
+                - $ref: '#/components/schemas/Booking'
+                - type: 'null'
+            venue_detail: { $ref: '#/components/schemas/Venue' }
+
+    # --- Waivers ------------------------------------------------------------
+    WaiverTemplate:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string, examples: [general_liability] }
+        version: { type: integer, examples: [1] }
+        locale: { type: string, examples: [uz-Latn] }
+        title: { type: string }
+        body_md: { type: string }
+        document_sha256: { type: string }
+        min_age: { type: integer, examples: [16] }
+
+    # --- Bookings / Payments ------------------------------------------------
+    BookingCreate:
+      type: object
+      required: [match_id, seats, payment_method, waiver_signature_id]
+      properties:
+        match_id: { type: string, format: uuid }
+        seats: { type: integer, minimum: 1, maximum: 4, default: 1 }
+        guests:
+          type: array
+          maxItems: 3
+          description: seats > 1 bo'lsa mehmonlar ismi (roster uchun)
+          items:
+            type: object
+            required: [name]
+            properties:
+              name: { type: string }
+        payment_method: { $ref: '#/components/schemas/PaymentProvider' }
+        use_wallet: { type: boolean, default: false }
+        promo_code: { type: string }
+        waiver_signature_id: { type: string, format: uuid }
+        return_url: { type: string, format: uri, description: Redirect provider'dan keyin app deep link }
+    BookingStatus:
+      type: string
+      enum: [pending_payment, confirmed, cancelled, expired, completed]
+    Booking:
+      type: object
+      required: [id, match_id, status, seats, total]
+      properties:
+        id: { type: string, format: uuid }
+        match_id: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/BookingStatus' }
+        seats: { type: integer }
+        unit_price: { $ref: '#/components/schemas/Money' }
+        discount: { $ref: '#/components/schemas/Money' }
+        wallet_applied: { $ref: '#/components/schemas/Money' }
+        total: { $ref: '#/components/schemas/Money' }
+        expires_at: { type: [string, 'null'], format: date-time, description: Hold muddati (pending_payment) }
+        confirmed_at: { type: [string, 'null'], format: date-time }
+        match: { $ref: '#/components/schemas/MatchSummary' }
+    Checkout:
+      description: Provider turiga qarab client nima qilishi kerakligi
+      oneOf:
+        - type: object
+          title: RedirectCheckout
+          required: [type, provider, url]
+          properties:
+            type: { const: redirect }
+            provider: { type: string, enum: [payme, click, uzum] }
+            url:
+              type: string
+              format: uri
+              examples: ['https://checkout.paycom.uz/bT1kZW1vO2FjLmJvb2tpbmdfaWQ9MDFhMS4uLjthPTQ1MDAwMDA=']
+            expires_at: { type: string, format: date-time }
+        - type: object
+          title: SdkCheckout
+          required: [type, provider, client_secret, publishable_key]
+          properties:
+            type: { const: sdk }
+            provider: { const: stripe }
+            client_secret: { type: string, description: PaymentIntent client secret (Payment Sheet / Apple Pay) }
+            publishable_key: { type: string }
+            customer_id: { type: string }
+            ephemeral_key: { type: string }
+        - type: object
+          title: NoPaymentNeeded
+          required: [type]
+          properties:
+            type: { const: none, description: Wallet to'liq yopdi — booking allaqachon confirmed }
+
+    PaymeRequest:
+      type: object
+      required: [method, params, id]
+      properties:
+        jsonrpc: { type: string, const: '2.0' }
+        id: { type: integer }
+        method:
+          type: string
+          enum: [CheckPerformTransaction, CreateTransaction, PerformTransaction,
+                 CancelTransaction, CheckTransaction, GetStatement]
+        params:
+          type: object
+          properties:
+            id: { type: string, description: Payme tranzaksiya id }
+            time: { type: integer, format: int64, description: ms }
+            amount: { type: integer, format: int64, description: tiyin }
+            account:
+              type: object
+              properties:
+                booking_id: { type: string, format: uuid }
+            reason: { type: integer, description: CancelTransaction sababi }
+            from: { type: integer, format: int64 }
+            to: { type: integer, format: int64 }
+    PaymeResponse:
+      type: object
+      required: [id]
+      properties:
+        jsonrpc: { type: string, const: '2.0' }
+        id: { type: integer }
+        result:
+          type: object
+          additionalProperties: true
+          properties:
+            allow: { type: boolean }
+            transaction: { type: string, description: Bizning payments.id }
+            state: { type: integer, enum: [1, 2, -1, -2] }
+            create_time: { type: integer, format: int64 }
+            perform_time: { type: integer, format: int64 }
+            cancel_time: { type: integer, format: int64 }
+            reason: { type: [integer, 'null'] }
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: integer
+              description: |
+                -31001 summa noto'g'ri, -31003 tranzaksiya topilmadi, -31007 bekor qilib bo'lmaydi,
+                -31008 operatsiya mumkin emas, -31050..-31099 booking xatolari, -32504 auth, -32601 method yo'q
+            message:
+              type: object
+              properties:
+                uz: { type: string }
+                ru: { type: string }
+                en: { type: string }
+            data: { type: string }
+    ClickRequest:
+      type: object
+      required: [click_trans_id, service_id, merchant_trans_id, amount, action, error, sign_time, sign_string]
+      properties:
+        click_trans_id: { type: integer, format: int64 }
+        service_id: { type: integer }
+        click_paydoc_id: { type: integer, format: int64 }
+        merchant_trans_id: { type: string, description: booking id }
+        amount: { type: number, description: "so'm (decimal)", examples: [45000.00] }
+        action: { type: integer, enum: [0, 1] }
+        error: { type: integer }
+        error_note: { type: string }
+        sign_time: { type: string, examples: ['2026-10-18 13:45:10'] }
+        sign_string: { type: string, description: MD5 hex }
+    ClickResponse:
+      type: object
+      required: [click_trans_id, merchant_trans_id, error, error_note]
+      properties:
+        click_trans_id: { type: integer, format: int64 }
+        merchant_trans_id: { type: string }
+        merchant_prepare_id: { type: integer, description: Prepare javobida }
+        merchant_confirm_id: { type: integer, description: Complete javobida }
+        error: { type: integer, enum: [0, -1, -2, -3, -4, -5, -6, -7, -8, -9] }
+        error_note: { type: string }
+
+    # --- Host ---------------------------------------------------------------
+    HostOffer:
+      type: object
+      properties:
+        assignment_id: { type: string, format: uuid }
+        offer_expires_at: { type: string, format: date-time }
+        fee: { $ref: '#/components/schemas/Money' }
+        distance_m: { type: integer }
+        kit_required: { type: boolean }
+        match: { $ref: '#/components/schemas/MatchSummary' }
+    HostMatch:
+      type: object
+      properties:
+        assignment_id: { type: string, format: uuid }
+        assignment_status: { type: string, enum: [accepted, arrived, completed, no_show, cancelled] }
+        fee: { $ref: '#/components/schemas/Money' }
+        match: { $ref: '#/components/schemas/MatchSummary' }
+        checked_in_count: { type: integer }
+        venue_contact: { type: string, description: Faqat tayinlangan hostga ko'rinadi }
+    RosterEntry:
+      type: object
+      properties:
+        participant_id: { type: string, format: uuid }
+        display_name: { type: string }
+        avatar_url: { type: [string, 'null'], format: uri }
+        is_guest: { type: boolean }
+        level: { $ref: '#/components/schemas/SkillLevel' }
+        side_no: { type: [integer, 'null'] }
+        status: { type: string, enum: [confirmed, checked_in, no_show] }
+        checked_in_at: { type: [string, 'null'], format: date-time }
+    Roster:
+      type: object
+      properties:
+        match: { $ref: '#/components/schemas/MatchSummary' }
+        roster_version: { type: integer }
+        qr_public_key: { type: string, description: Ed25519 public key (base64url) }
+        sides:
+          type: array
+          items:
+            type: object
+            properties:
+              side_no: { type: integer }
+              label: { type: string, examples: [Oranges] }
+              bib_color: { type: string, examples: ['#FF7A00'] }
+        participants:
+          type: array
+          items: { $ref: '#/components/schemas/RosterEntry' }
+    CheckinEvent:
+      type: object
+      required: [client_event_id, action, method, occurred_at]
+      properties:
+        client_event_id: { type: string, format: uuid }
+        action: { type: string, enum: [check_in, undo, no_show] }
+        method: { type: string, enum: [qr, manual] }
+        qr_payload: { type: string }
+        participant_id: { type: string, format: uuid }
+        occurred_at: { type: string, format: date-time }
+        location: { $ref: '#/components/schemas/GeoPoint' }
+    UploadInit:
+      type: object
+      properties:
+        media_id: { type: string, format: uuid }
+        upload:
+          type: object
+          properties:
+            type: { const: s3_multipart }
+            upload_id: { type: string }
+            part_size_bytes: { type: integer, examples: [8388608] }
+            expires_at: { type: string, format: date-time }
+            parts:
+              type: array
+              items:
+                type: object
+                properties:
+                  part_number: { type: integer }
+                  url: { type: string, format: uri }
+
+    # --- Admin --------------------------------------------------------------
+    AdminMatchCreate:
+      type: object
+      required: [pitch_id, sport, starts_at, duration_min, format, players_per_side, min_players,
+                 max_players, price, lease_cost]
+      properties:
+        pitch_id: { type: string, format: uuid }
+        sport: { type: string, examples: [football] }
+        starts_at: { type: string, format: date-time }
+        duration_min: { type: integer, examples: [90] }
+        format: { type: string, examples: [7v7] }
+        players_per_side: { type: integer, examples: [7] }
+        min_players: { type: integer, examples: [10] }
+        max_players: { type: integer, examples: [14] }
+        price: { $ref: '#/components/schemas/Money' }
+        lease_cost: { $ref: '#/components/schemas/Money' }
+        host_fee: { $ref: '#/components/schemas/Money' }
+        level: { type: object, properties: { min: { $ref: '#/components/schemas/SkillLevel' }, max: { $ref: '#/components/schemas/SkillLevel' } } }
+        gender_policy: { type: string, enum: [any, male, female, mixed], default: any }
+        visibility: { type: string, enum: [public, unlisted, private], default: public }
+        title: { type: object, additionalProperties: { type: string }, examples: [{ uz-Latn: Kechki futbol, ru: Вечерний футбол }] }
+        cancellation_policy_code: { type: string, default: standard }

@@ -1,0 +1,33 @@
+# Lokal dev muhit: PostgreSQL 18 + PostGIS va Redis.
+# Faqat lokal ishlab chiqish uchun — parollar production'da ishlatilmaydi.
+name: matchup
+
+services:
+  db:
+    image: postgis/postgis:18-3.6
+    # Rasmiy postgis image'larida arm64 yo'q -> Apple Silicon'da Rosetta emulyatsiyasi orqali ishlaydi
+    platform: linux/amd64
+    environment:
+      POSTGRES_USER: matchup
+      POSTGRES_PASSWORD: matchup_dev_only
+      POSTGRES_DB: matchup
+      TZ: UTC
+    ports:
+      - "${MATCHUP_DB_PORT:-5432}:5432"
+    volumes:
+      # PG18 image'larida volume /var/lib/postgresql ga ulanadi (PGDATA = /var/lib/postgresql/18/docker)
+      - pgdata:/var/lib/postgresql
+      - ./db:/db:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U matchup -d matchup"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: valkey/valkey:8-alpine
+    ports:
+      - "${MATCHUP_REDIS_PORT:-6379}:6379"
+
+volumes:
+  pgdata:
