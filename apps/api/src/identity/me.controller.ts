@@ -4,7 +4,10 @@ import { sql } from 'drizzle-orm';
 import type { Request } from 'express';
 import { z } from 'zod';
 import { AppError } from '../common/errors';
-import { CurrentUser, ZBody, type AuthUser } from '../common/http';
+import { CurrentUser, ReqLocale, ZBody, type AuthUser } from '../common/http';
+import type { Locale } from '../common/i18n';
+import { money } from '../common/money';
+import { WalletService } from '../commerce/wallet.service';
 import { DB, type Db, one, pgError, PG, rows } from '../db/db';
 import { users } from '../db/schema';
 import { UsersService } from './users.service';
@@ -47,6 +50,7 @@ const Consents = z.object({
 export class MeController {
   constructor(
     private readonly users: UsersService,
+    private readonly wallet: WalletService,
     @Inject(DB) private readonly db: Db,
   ) {}
 
@@ -79,6 +83,12 @@ export class MeController {
       throw err;
     }
     return this.users.profile(user.id);
+  }
+
+  @Get('wallet')
+  async getWallet(@CurrentUser() user: AuthUser, @ReqLocale() locale: Locale) {
+    const balances = (await this.wallet.balances(user.id)).map((b) => money(b.balance, b.currency, locale));
+    return { balance: balances[0]!, balances };
   }
 
   @Put('sports/:sportCode')

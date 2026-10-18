@@ -288,6 +288,24 @@ paths:
               schema: { $ref: '#/components/schemas/DataSubjectRequest' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
 
+  /v1/me/wallet:
+    get:
+      tags: [Profile]
+      operationId: getMyWallet
+      summary: Hamyon balansi
+      description: |
+        Ichki hamyon (refund/promo kreditlari). `balance` — asosiy valyutada (foydalanuvchi shahri valyutasi,
+        shahar tanlanmagan bo'lsa davlat valyutasi); hamyon hali ochilmagan bo'lsa `0`. `formatted` — `Accept-Language` bo'yicha.
+      parameters:
+        - $ref: '#/components/parameters/AcceptLanguage'
+      responses:
+        '200':
+          description: Balans
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Wallet' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
   /v1/me/bookings:
     get:
       tags: [Bookings]
@@ -1517,6 +1535,17 @@ components:
         type: { type: string, enum: [export, erasure] }
         status: { type: string, enum: [received, in_progress, completed, rejected] }
         due_at: { type: string, format: date-time }
+    Wallet:
+      type: object
+      required: [balance, balances]
+      properties:
+        balance:
+          $ref: '#/components/schemas/Money'
+          description: Asosiy valyutadagi balans
+        balances:
+          type: array
+          description: Barcha valyutalardagi balanslar — asosiy valyuta har doim birinchi
+          items: { $ref: '#/components/schemas/Money' }
 
     # --- Catalog / Discovery ------------------------------------------------
     VenueSummary:

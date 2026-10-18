@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { AppError } from '../common/errors';
-import { DB, type Db, type Executor, one } from '../db/db';
+import { DB, type Db, type Executor, one, rows } from '../db/db';
 
 type WalletTxnType = 'refund_credit' | 'booking_debit' | 'promo_credit' | 'adjustment' | 'expiry';
 
@@ -16,6 +16,29 @@ export class WalletService {
       sql`SELECT balance FROM wallet_accounts WHERE user_id = ${userId} AND currency = ${currency}`,
     );
     return r?.balance ?? 0;
+  }
+
+  /** Asosiy valyuta: shahar valyutasi -> davlat valyutasi -> UZS. */
+  async primaryCurrency(userId: string, ex: Executor = this.db): Promise<string> {
+    const r = await one<{ currency: string }>(
+      ex,
+      sql`SELECT coalesce(ci.default_currency, co.default_currency, 'UZS') AS currency
+          FROM users u
+          LEFT JOIN cities ci ON ci.id = u.home_city_id
+          LEFT JOIN countries co ON co.code = u.country_code
+          WHERE u.id = ${userId}`,
+    );
+    return r?.currency ?? 'UZS';
+  }
+
+  /** Barcha valyutalardagi balanslar: asosiy valyuta birinchi (hamyon hali ochilmagan bo'lsa 0). */
+  async balances(userId: string, ex: Executor = this.db): Promise<{ currency: string; balance: number }[]> {
+    const primary = await this.primaryCurrency(userId, ex);
+    const others = await rows<{ currency: string; balance: number }>(
+      ex,
+      sql`SELECT currency, balance FROM wallet_accounts WHERE user_id = ${userId} AND currency <> ${primary} ORDER BY currency`,
+    );
+    return [{ currency: primary, balance: await this.balance(userId, primary, ex) }, ...others];
   }
 
   async credit(
