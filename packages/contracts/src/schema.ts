@@ -179,6 +179,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/me/wallet": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Hamyon balansi
+         * @description Ichki hamyon (refund/promo kreditlari). `balance` — asosiy valyutada (foydalanuvchi shahri valyutasi,
+         *     shahar tanlanmagan bo'lsa davlat valyutasi); hamyon hali ochilmagan bo'lsa `0`. `formatted` — `Accept-Language` bo'yicha.
+         */
+        get: operations["getMyWallet"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/me/bookings": {
         parameters: {
             query?: never;
@@ -965,6 +986,12 @@ export interface components {
             status?: "received" | "in_progress" | "completed" | "rejected";
             /** Format: date-time */
             due_at?: string;
+        };
+        Wallet: {
+            /** @description Asosiy valyutadagi balans */
+            balance: components["schemas"]["Money"];
+            /** @description Barcha valyutalardagi balanslar — asosiy valyuta har doim birinchi */
+            balances: components["schemas"]["Money"][];
         };
         VenueSummary: {
             /** Format: uuid */
@@ -1770,6 +1797,29 @@ export interface operations {
                 };
             };
             429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getMyWallet: {
+        parameters: {
+            query?: never;
+            header?: {
+                "Accept-Language"?: components["parameters"]["AcceptLanguage"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Balans */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Wallet"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
         };
     };
     listMyBookings: {
