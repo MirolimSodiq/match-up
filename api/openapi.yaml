@@ -47,7 +47,10 @@ tags:
   - name: Media
     description: Media yuklashni yakunlash
   - name: Admin
-    description: Ichki operatsiyalar (match yaratish, nashr, bekor qilish)
+    description: |
+      Ichki operatsiyalar paneli: venue/pitch katalogi, match'lar (yaratish, nashr, bekor qilish, jadval, tafsilot),
+      host'lar, to'lovlar, refund navbati, dashboard. Har bir mutatsiya `audit_logs` ga yoziladi.
+      Jadvallar offset pagination (`limit`, `offset` -> `total`) ishlatadi.
 
 security:
   - bearerAuth: []
@@ -1229,9 +1232,171 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
 
   # ===========================================================================
-  # ADMIN (MVP minimal)
+  # ADMIN — ichki operatsiyalar (faqat `admin` / `super_admin` roli)
   # ===========================================================================
+  /v1/admin/reference:
+    get:
+      tags: [Admin]
+      operationId: adminReference
+      summary: Formalar va filtrlar uchun ma'lumotnoma (shaharlar, sportlar, qulayliklar, sirt turlari, bekor qilish siyosatlari)
+      responses:
+        '200':
+          description: Ma'lumotnoma
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminReference' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /v1/admin/venues:
+    get:
+      tags: [Admin]
+      operationId: adminListVenues
+      summary: Venue'lar ro'yxati (pitch'lar va qulayliklar bilan)
+      parameters:
+        - { name: city_id, in: query, schema: { type: integer } }
+        - { name: q, in: query, description: Nom yoki slug bo'yicha qidiruv, schema: { type: string, maxLength: 100 } }
+        - { name: is_active, in: query, schema: { type: string, enum: ['true', 'false'] } }
+        - $ref: '#/components/parameters/AdminLimit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Venue'lar
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminVenueList' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Admin]
+      operationId: adminCreateVenue
+      summary: Venue yaratish
+      description: |
+        `location` (lat/lng) PostGIS `geography(Point, 4326)` ga yoziladi. `slug` berilmasa nomdan avtomatik yasaladi
+        (band bo'lsa `-2`, `-3` ...). `timezone` berilmasa — shahar vaqt zonasi. `amenities` — qulaylik kodlari.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminVenueCreate' }
+      responses:
+        '201':
+          description: Yaratildi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminVenue' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /v1/admin/venues/{venueId}:
+    parameters:
+      - $ref: '#/components/parameters/VenueId'
+    get:
+      tags: [Admin]
+      operationId: adminGetVenue
+      summary: Venue tafsiloti
+      responses:
+        '200':
+          description: Venue
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminVenue' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Admin]
+      operationId: adminUpdateVenue
+      summary: Venue'ni tahrirlash
+      description: |
+        Faqat yuborilgan maydonlar o'zgaradi; `amenities` berilsa ro'yxat to'liq almashtiriladi.
+        Joylashuv yoki shahar o'zgarsa, hali o'tmagan match'larning `location`/`city_id` (denormalizatsiya) ham yangilanadi.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminVenueUpdate' }
+      responses:
+        '200':
+          description: Yangilandi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminVenue' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /v1/admin/venues/{venueId}/pitches:
+    post:
+      tags: [Admin]
+      operationId: adminCreatePitch
+      summary: Venue'ga pitch qo'shish (pitch_sports bilan)
+      parameters:
+        - $ref: '#/components/parameters/VenueId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminPitchCreate' }
+      responses:
+        '201':
+          description: Yaratildi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminPitch' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /v1/admin/pitches/{pitchId}:
+    patch:
+      tags: [Admin]
+      operationId: adminUpdatePitch
+      summary: Pitch'ni tahrirlash (`sports` berilsa to'liq almashtiriladi)
+      parameters:
+        - $ref: '#/components/parameters/PitchId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminPitchUpdate' }
+      responses:
+        '200':
+          description: Yangilandi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminPitch' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   /v1/admin/matches:
+    get:
+      tags: [Admin]
+      operationId: adminListMatches
+      summary: Match'lar jadvali — barcha statuslar (draft ham), joylar va tushum bilan
+      description: |
+        Sana oralig'i — `starts_at` bo'yicha `[date_from, date_to)`. Tushum haqiqiy pul harakati bo'yicha:
+        `gross` — muvaffaqiyatli to'lovlar (hamyon bilan ham), `refunded` — bajarilgan va navbatdagi refund'lar.
+      parameters:
+        - name: status
+          in: query
+          description: Vergul bilan, masalan `open,full`
+          schema: { type: string, examples: ['open,full'] }
+        - $ref: '#/components/parameters/DateFrom'
+        - $ref: '#/components/parameters/DateTo'
+        - { name: city_id, in: query, schema: { type: integer } }
+        - { name: venue_id, in: query, schema: { type: string, format: uuid } }
+        - { name: pitch_id, in: query, schema: { type: string, format: uuid } }
+        - { name: sport, in: query, description: Vergul bilan sport kodlari, schema: { type: string, examples: [football] } }
+        - { name: q, in: query, description: 'Public code, venue nomi yoki sarlavha', schema: { type: string, maxLength: 100 } }
+        - { name: sort, in: query, schema: { type: string, enum: [starts_at, -starts_at], default: starts_at } }
+        - $ref: '#/components/parameters/AdminLimit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Match'lar
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminMatchList' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
     post:
       tags: [Admin]
       operationId: adminCreateMatch
@@ -1297,6 +1462,249 @@ paths:
                   refunds_queued: { type: integer }
         '409': { $ref: '#/components/responses/Conflict' }
 
+  /v1/admin/matches/{matchIdOrCode}:
+    get:
+      tags: [Admin]
+      operationId: adminGetMatch
+      summary: Match tafsiloti — roster, booking'lar, to'lovlar, refund'lar, host tayinlovi, ijara, audit
+      parameters:
+        - name: matchIdOrCode
+          in: path
+          required: true
+          description: UUID yoki public code (`MU-7F3K2`); draft'lar ham
+          schema: { type: string }
+      responses:
+        '200':
+          description: Tafsilot
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminMatchDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/admin/hosts:
+    get:
+      tags: [Admin]
+      operationId: adminListHosts
+      summary: Host'lar ro'yxati (dispatch statistikasi bilan)
+      parameters:
+        - { name: status, in: query, description: 'Vergul bilan: applicant, active, suspended, offboarded', schema: { type: string } }
+        - { name: city_id, in: query, schema: { type: integer } }
+        - { name: sport, in: query, schema: { type: string } }
+        - { name: q, in: query, description: Ism yoki telefon raqami, schema: { type: string, maxLength: 100 } }
+        - $ref: '#/components/parameters/AdminLimit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Host'lar
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminHostList' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Admin]
+      operationId: adminCreateHost
+      summary: Telefon raqami bo'yicha foydalanuvchini host qilish
+      description: |
+        `host` roli + `host_profiles` + `host_sports`. Foydalanuvchi hali ro'yxatdan o'tmagan bo'lsa yaratiladi
+        (Host ilovasiga shu raqam bilan OTP orqali kiradi). Standart holat — `applicant`; `approve: true` — darhol `active`.
+        Rol yangi access token'da (keyingi login/refresh) paydo bo'ladi.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminHostCreate' }
+      responses:
+        '201':
+          description: Host yaratildi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminHost' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /v1/admin/hosts/{userId}:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    get:
+      tags: [Admin]
+      operationId: adminGetHost
+      summary: Host profili
+      responses:
+        '200':
+          description: Host
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminHost' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Admin]
+      operationId: adminUpdateHost
+      summary: Host profilini tahrirlash (shahar, asosiy joylashuv, kit, sportlar)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminHostUpdate' }
+      responses:
+        '200':
+          description: Yangilandi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminHost' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /v1/admin/hosts/{userId}/approve:
+    post:
+      tags: [Admin]
+      operationId: adminApproveHost
+      summary: Host'ni tasdiqlash (applicant / suspended -> active)
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: Tasdiqlandi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminHost' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /v1/admin/hosts/{userId}/suspend:
+    post:
+      tags: [Admin]
+      operationId: adminSuspendHost
+      summary: Host'ni to'xtatish — kutilayotgan offer'lar va kelgusi tayinlovlar bekor qilinadi
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200':
+          description: To'xtatildi
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/AdminHost'
+                  - type: object
+                    required: [cancelled_assignments]
+                    properties:
+                      cancelled_assignments: { type: integer, description: Bekor qilingan offer/tayinlovlar soni }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /v1/admin/payments:
+    get:
+      tags: [Admin]
+      operationId: adminListPayments
+      summary: To'lovlar ro'yxati (filtrlar va valyuta bo'yicha jamilar bilan)
+      parameters:
+        - { name: status, in: query, description: Vergul bilan payment status'lari, schema: { type: string, examples: ['succeeded,refunded'] } }
+        - { name: provider, in: query, description: Vergul bilan provider'lar, schema: { type: string, examples: ['payme,click'] } }
+        - $ref: '#/components/parameters/DateFrom'
+        - $ref: '#/components/parameters/DateTo'
+        - { name: match_id, in: query, schema: { type: string, format: uuid } }
+        - { name: q, in: query, description: 'Telefon, match kodi, booking/to''lov id yoki provider tranzaksiya id', schema: { type: string, maxLength: 100 } }
+        - $ref: '#/components/parameters/AdminLimit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: To'lovlar (`created_at` bo'yicha, eng yangisi birinchi)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminPaymentList' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /v1/admin/refunds:
+    get:
+      tags: [Admin]
+      operationId: adminListRefunds
+      summary: Refund navbati
+      description: |
+        Standart — qo'lda bajariladigan navbat: `status=pending`, `destination=original_method`, eng eskisi birinchi.
+        Boshqa filtrlarda yakunlanganlari eng yangisi birinchi.
+      parameters:
+        - { name: status, in: query, schema: { type: string, default: pending, examples: ['succeeded'] } }
+        - { name: destination, in: query, schema: { type: string, default: original_method, examples: ['original_method,wallet'] } }
+        - { name: provider, in: query, schema: { type: string, examples: [payme] } }
+        - { name: q, in: query, schema: { type: string, maxLength: 100 } }
+        - $ref: '#/components/parameters/AdminLimit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Refund'lar
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminRefundList' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /v1/admin/refunds/{refundId}/complete:
+    post:
+      tags: [Admin]
+      operationId: adminCompleteRefund
+      summary: Provider kabinetida bajarilgan refund'ni "bajarildi" deb belgilash
+      description: |
+        Faqat `pending` + `original_method`. Refund -> `succeeded` (`provider_refund_id`, izoh, `processed_by`),
+        `payments.refunded_amount` oshadi (to'lov summasidan oshmaydi), to'lov status'i `refunded` yoki `partially_refunded`.
+        `RefundIssued` event va `audit_logs` yozuvi bilan bitta tranzaksiyada.
+      parameters:
+        - $ref: '#/components/parameters/RefundId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [provider_refund_id]
+              properties:
+                provider_refund_id: { type: string, minLength: 1, maxLength: 200, examples: [PAYME-RF-0001] }
+                note: { type: string, maxLength: 1000 }
+      responses:
+        '200':
+          description: Bajarildi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminRefund' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /v1/admin/dashboard:
+    get:
+      tags: [Admin]
+      operationId: adminDashboard
+      summary: Operatsion ko'rsatkichlar (sana oralig'i bo'yicha)
+      description: |
+        Davr — match `starts_at` bo'yicha `[date_from, date_to)` (standart: oxirgi 30 kun + keyingi 30 kun), draft'lar hisobga olinmaydi.
+        * `gmv` — muvaffaqiyatli to'lovlar; `net_revenue` = `gmv` - `refunds`
+        * `lease_cost` — bekor qilinmagan ijaralar (bekor qilingan match'niki ham); `host_payouts` — qabul qilingan / bajarilgan tayinlovlar
+        * `gross_margin` = `net_revenue` - `lease_cost` - `host_payouts`
+        * `fill_rate` = confirmed / max (bekor qilinmagan match'lar); `no_show_rate` = no_show / (checked_in + no_show)
+      parameters:
+        - $ref: '#/components/parameters/DateFrom'
+        - $ref: '#/components/parameters/DateTo'
+        - { name: city_id, in: query, schema: { type: integer } }
+        - { name: currency, in: query, schema: { type: string, pattern: '^[A-Z]{3}$', default: UZS } }
+      responses:
+        '200':
+          description: Ko'rsatkichlar
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminDashboard' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
 # =============================================================================
 components:
   securitySchemes:
@@ -1354,6 +1762,40 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
+    PitchId:
+      name: pitchId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    RefundId:
+      name: refundId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    AdminLimit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    Offset:
+      name: offset
+      in: query
+      description: Admin jadvallari offset pagination ishlatadi (javobda `total`)
+      schema: { type: integer, minimum: 0, default: 0 }
+    DateFrom:
+      name: date_from
+      in: query
+      description: ISO 8601, offset bilan (kiritiladi)
+      schema: { type: string, format: date-time }
+    DateTo:
+      name: date_to
+      in: query
+      description: ISO 8601, offset bilan (kiritilmaydi)
+      schema: { type: string, format: date-time }
 
   responses:
     AuthSuccess:
@@ -1906,3 +2348,668 @@ components:
         visibility: { type: string, enum: [public, unlisted, private], default: public }
         title: { type: object, additionalProperties: { type: string }, examples: [{ uz-Latn: Kechki futbol, ru: Вечерний футбол }] }
         cancellation_policy_code: { type: string, default: standard }
+
+    # --- Admin panel ----------------------------------------------------------
+    Translations:
+      type: object
+      description: Tarjimalar xaritasi (locale -> matn)
+      propertyNames: { enum: [uz-Latn, uz-Cyrl, ru, en] }
+      additionalProperties: { type: string, maxLength: 500 }
+      examples: [{ uz-Latn: Chilonzor tumani, ru: Чиланзарский район }]
+    UserRef:
+      type: object
+      required: [id, display_name, phone]
+      properties:
+        id: { type: string, format: uuid }
+        display_name: { type: [string, 'null'] }
+        phone: { type: [string, 'null'], examples: ['+998901234567'] }
+    CurrencyTotal:
+      type: object
+      required: [currency, count, amount]
+      properties:
+        currency: { type: string, examples: [UZS] }
+        count: { type: integer }
+        amount: { $ref: '#/components/schemas/Money' }
+        succeeded: { $ref: '#/components/schemas/Money' }
+        refunded: { $ref: '#/components/schemas/Money' }
+
+    AdminReference:
+      type: object
+      required: [cities, sports, amenities, surfaces, cancellation_policies]
+      properties:
+        cities:
+          type: array
+          items:
+            type: object
+            required: [id, slug, name, timezone, currency, center, is_active]
+            properties:
+              id: { type: integer }
+              slug: { type: string }
+              name: { type: string }
+              timezone: { type: string }
+              currency: { type: string }
+              center: { $ref: '#/components/schemas/GeoPoint' }
+              is_active: { type: boolean }
+        sports:
+          type: array
+          items:
+            type: object
+            required: [code, name, default_players_per_side]
+            properties:
+              code: { type: string }
+              name: { type: string }
+              default_players_per_side: { type: integer }
+        amenities:
+          type: array
+          items:
+            type: object
+            required: [code, name]
+            properties:
+              code: { type: string }
+              name: { type: string }
+              icon: { type: [string, 'null'] }
+        surfaces:
+          type: array
+          items: { $ref: '#/components/schemas/Surface' }
+        cancellation_policies:
+          type: array
+          items:
+            type: object
+            required: [code, name, is_default]
+            properties:
+              code: { type: string }
+              name: { type: string }
+              is_default: { type: boolean }
+    Surface:
+      type: string
+      enum: [artificial_turf, natural_grass, indoor_hard, indoor_parquet, sand, asphalt]
+
+    AdminPitch:
+      type: object
+      required: [id, venue_id, name, surface, is_indoor, length_m, width_m, max_players_per_side, sports, is_active, upcoming_matches]
+      properties:
+        id: { type: string, format: uuid }
+        venue_id: { type: string, format: uuid }
+        name: { type: string, examples: [Pitch A] }
+        surface: { $ref: '#/components/schemas/Surface' }
+        is_indoor: { type: boolean }
+        length_m: { type: [number, 'null'] }
+        width_m: { type: [number, 'null'] }
+        max_players_per_side: { type: [integer, 'null'] }
+        sports: { type: array, items: { type: string }, examples: [[football]] }
+        is_active: { type: boolean }
+        upcoming_matches: { type: integer }
+    AdminPitchCreate:
+      type: object
+      required: [name, surface, sports]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 60 }
+        surface: { $ref: '#/components/schemas/Surface' }
+        is_indoor: { type: boolean, default: false }
+        length_m: { type: [number, 'null'], exclusiveMinimum: 0, maximum: 999 }
+        width_m: { type: [number, 'null'], exclusiveMinimum: 0, maximum: 999 }
+        max_players_per_side: { type: [integer, 'null'], minimum: 1, maximum: 15 }
+        sports: { type: array, minItems: 1, maxItems: 10, items: { type: string } }
+        is_active: { type: boolean, default: true }
+    AdminPitchUpdate:
+      type: object
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 60 }
+        surface: { $ref: '#/components/schemas/Surface' }
+        is_indoor: { type: boolean }
+        length_m: { type: [number, 'null'] }
+        width_m: { type: [number, 'null'] }
+        max_players_per_side: { type: [integer, 'null'], minimum: 1, maximum: 15 }
+        sports: { type: array, minItems: 1, maxItems: 10, items: { type: string } }
+        is_active: { type: boolean }
+
+    AdminVenue:
+      type: object
+      required: [id, name, slug, city, address, address_text, description, location, timezone, partner_name, partner_phone,
+                 contract_ref, amenities, pitches, is_active, upcoming_matches, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        slug: { type: string, examples: [chilonzor-arena] }
+        city:
+          type: object
+          required: [id, name]
+          properties:
+            id: { type: integer }
+            name: { type: string }
+        address: { $ref: '#/components/schemas/Translations' }
+        address_text: { type: string, description: Accept-Language tilidagi manzil }
+        description: { $ref: '#/components/schemas/Translations' }
+        location: { $ref: '#/components/schemas/GeoPoint' }
+        timezone: { type: string }
+        partner_name: { type: [string, 'null'] }
+        partner_phone: { type: [string, 'null'] }
+        contract_ref: { type: [string, 'null'] }
+        is_active: { type: boolean }
+        amenities:
+          type: array
+          items:
+            type: object
+            required: [code, name]
+            properties:
+              code: { type: string }
+              name: { type: string }
+        pitches:
+          type: array
+          items: { $ref: '#/components/schemas/AdminPitch' }
+        upcoming_matches: { type: integer }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    AdminVenueCreate:
+      type: object
+      required: [city_id, name, location]
+      properties:
+        city_id: { type: integer }
+        name: { type: string, minLength: 2, maxLength: 120 }
+        slug: { type: string, pattern: '^[a-z0-9]+(-[a-z0-9]+)*$', maxLength: 80 }
+        address: { $ref: '#/components/schemas/Translations' }
+        description: { $ref: '#/components/schemas/Translations' }
+        location: { $ref: '#/components/schemas/GeoPoint' }
+        timezone: { type: string, description: IANA (standart — shahar vaqt zonasi), examples: [Asia/Tashkent] }
+        partner_name: { type: [string, 'null'] }
+        partner_phone: { type: [string, 'null'], pattern: '^\+[1-9]\d{6,14}$' }
+        contract_ref: { type: [string, 'null'] }
+        amenities: { type: array, items: { type: string }, examples: [[parking, shower]] }
+        is_active: { type: boolean, default: true }
+    AdminVenueUpdate:
+      type: object
+      minProperties: 1
+      properties:
+        city_id: { type: integer }
+        name: { type: string, minLength: 2, maxLength: 120 }
+        slug: { type: string, pattern: '^[a-z0-9]+(-[a-z0-9]+)*$' }
+        address: { $ref: '#/components/schemas/Translations' }
+        description: { $ref: '#/components/schemas/Translations' }
+        location: { $ref: '#/components/schemas/GeoPoint' }
+        timezone: { type: string }
+        partner_name: { type: [string, 'null'] }
+        partner_phone: { type: [string, 'null'] }
+        contract_ref: { type: [string, 'null'] }
+        amenities: { type: array, items: { type: string } }
+        is_active: { type: boolean }
+    AdminVenueList:
+      type: object
+      required: [items, total]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/AdminVenue' } }
+        total: { type: integer }
+
+    AdminMatch:
+      type: object
+      required: [id, public_code, sport, title, status, visibility, starts_at, ends_at, timezone, format, players_per_side, city,
+                 venue, pitch, price, slots, fill_rate, revenue, lease_cost, host_fee, host, published_at, cancelled_at,
+                 cancel_reason, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        public_code: { type: string, examples: [MU-7F3K2] }
+        sport: { type: string }
+        title: { type: string }
+        status: { $ref: '#/components/schemas/MatchStatus' }
+        visibility: { type: string, enum: [public, unlisted, private] }
+        starts_at: { type: string, format: date-time }
+        ends_at: { type: string, format: date-time }
+        timezone: { type: string }
+        format: { type: string }
+        players_per_side: { type: integer }
+        city: { type: object, required: [id, name], properties: { id: { type: integer }, name: { type: string } } }
+        venue: { type: object, required: [id, name], properties: { id: { type: string, format: uuid }, name: { type: string } } }
+        pitch: { type: object, required: [id, name], properties: { id: { type: string, format: uuid }, name: { type: string } } }
+        price: { $ref: '#/components/schemas/Money' }
+        slots:
+          type: object
+          required: [max, min_to_play, held, confirmed, taken, available]
+          properties:
+            max: { type: integer }
+            min_to_play: { type: integer }
+            held: { type: integer }
+            confirmed: { type: integer }
+            taken: { type: integer }
+            available: { type: integer }
+        fill_rate: { type: number, description: confirmed / max, examples: [0.714] }
+        revenue:
+          type: object
+          required: [gross, refunded, net]
+          properties:
+            gross: { $ref: '#/components/schemas/Money' }
+            refunded: { $ref: '#/components/schemas/Money' }
+            net: { $ref: '#/components/schemas/Money' }
+        lease_cost:
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+        host_fee: { $ref: '#/components/schemas/Money' }
+        host:
+          oneOf:
+            - type: object
+              required: [user_id, assignment_status]
+              properties:
+                user_id: { type: string, format: uuid }
+                display_name: { type: [string, 'null'] }
+                assignment_status: { type: string, enum: [offered, accepted, arrived, completed, no_show] }
+            - type: 'null'
+        published_at: { type: [string, 'null'], format: date-time }
+        cancelled_at: { type: [string, 'null'], format: date-time }
+        cancel_reason: { type: [string, 'null'] }
+        created_at: { type: string, format: date-time }
+    AdminMatchList:
+      type: object
+      required: [items, total]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/AdminMatch' } }
+        total: { type: integer }
+    AdminMatchDetail:
+      allOf:
+        - $ref: '#/components/schemas/AdminMatch'
+        - type: object
+          required: [description, level, gender_policy, min_age, booking_closes_at, min_players_deadline, completed_at,
+                     cancellation_policy, lease, sides, roster, bookings, payments, refunds, host_assignments, audit]
+          properties:
+            description: { type: string }
+            level:
+              type: object
+              required: [min, max]
+              properties:
+                min: { oneOf: [{ $ref: '#/components/schemas/SkillLevel' }, { type: 'null' }] }
+                max: { oneOf: [{ $ref: '#/components/schemas/SkillLevel' }, { type: 'null' }] }
+            gender_policy: { type: string }
+            min_age: { type: integer }
+            booking_closes_at: { type: string, format: date-time }
+            min_players_deadline: { type: string, format: date-time }
+            completed_at: { type: [string, 'null'], format: date-time }
+            cancellation_policy:
+              type: object
+              required: [code, summary]
+              properties:
+                code: { type: string }
+                summary: { type: string }
+            lease:
+              oneOf:
+                - type: object
+                  required: [id, status, starts_at, ends_at, cost, owner_invoice_ref, paid_to_owner_at]
+                  properties:
+                    id: { type: string, format: uuid }
+                    status: { type: string, enum: [reserved, confirmed, cancelled] }
+                    starts_at: { type: string, format: date-time }
+                    ends_at: { type: string, format: date-time }
+                    cost: { $ref: '#/components/schemas/Money' }
+                    owner_invoice_ref: { type: [string, 'null'] }
+                    paid_to_owner_at: { type: [string, 'null'], format: date-time }
+                - type: 'null'
+            sides:
+              type: array
+              items:
+                type: object
+                required: [side_no, label, bib_color, score]
+                properties:
+                  side_no: { type: integer }
+                  label: { type: string }
+                  bib_color: { type: [string, 'null'] }
+                  score: { type: [integer, 'null'] }
+            roster:
+              type: array
+              items:
+                type: object
+                required: [participant_id, booking_id, user, display_name, is_guest, side_no, status, source, checked_in_at, created_at]
+                properties:
+                  participant_id: { type: string, format: uuid }
+                  booking_id: { type: [string, 'null'], format: uuid }
+                  user:
+                    oneOf:
+                      - $ref: '#/components/schemas/UserRef'
+                      - type: 'null'
+                  display_name: { type: string }
+                  is_guest: { type: boolean }
+                  side_no: { type: [integer, 'null'] }
+                  status: { type: string, enum: [held, confirmed, checked_in, no_show, cancelled, expired] }
+                  source: { type: string }
+                  checked_in_at: { type: [string, 'null'], format: date-time }
+                  created_at: { type: string, format: date-time }
+            bookings:
+              type: array
+              items:
+                type: object
+                required: [id, user, seats, status, unit_price, wallet_applied, total, paid, created_at, confirmed_at, cancelled_at,
+                           cancel_reason, expires_at]
+                properties:
+                  id: { type: string, format: uuid }
+                  user: { $ref: '#/components/schemas/UserRef' }
+                  seats: { type: integer }
+                  status: { $ref: '#/components/schemas/BookingStatus' }
+                  unit_price: { $ref: '#/components/schemas/Money' }
+                  wallet_applied: { $ref: '#/components/schemas/Money' }
+                  total: { $ref: '#/components/schemas/Money' }
+                  paid: { $ref: '#/components/schemas/Money' }
+                  created_at: { type: string, format: date-time }
+                  confirmed_at: { type: [string, 'null'], format: date-time }
+                  cancelled_at: { type: [string, 'null'], format: date-time }
+                  cancel_reason: { type: [string, 'null'] }
+                  expires_at: { type: [string, 'null'], format: date-time }
+            payments:
+              type: array
+              items:
+                type: object
+                required: [id, booking_id, user_id, provider, amount, refunded, status, provider_transaction_id, created_at,
+                           succeeded_at, cancelled_at]
+                properties:
+                  id: { type: string, format: uuid }
+                  booking_id: { type: string, format: uuid }
+                  user_id: { type: string, format: uuid }
+                  provider: { type: string }
+                  amount: { $ref: '#/components/schemas/Money' }
+                  refunded: { $ref: '#/components/schemas/Money' }
+                  status: { $ref: '#/components/schemas/PaymentStatus' }
+                  provider_transaction_id: { type: [string, 'null'] }
+                  created_at: { type: string, format: date-time }
+                  succeeded_at: { type: [string, 'null'], format: date-time }
+                  cancelled_at: { type: [string, 'null'], format: date-time }
+            refunds:
+              type: array
+              items:
+                type: object
+                required: [id, booking_id, payment_id, amount, destination, status, reason, provider_refund_id, note, created_at,
+                           completed_at]
+                properties:
+                  id: { type: string, format: uuid }
+                  booking_id: { type: string, format: uuid }
+                  payment_id: { type: [string, 'null'], format: uuid }
+                  amount: { $ref: '#/components/schemas/Money' }
+                  destination: { type: string, enum: [original_method, wallet] }
+                  status: { type: string, enum: [pending, succeeded, failed] }
+                  reason: { type: string }
+                  provider_refund_id: { type: [string, 'null'] }
+                  note: { type: [string, 'null'] }
+                  created_at: { type: string, format: date-time }
+                  completed_at: { type: [string, 'null'], format: date-time }
+            host_assignments:
+              type: array
+              items:
+                type: object
+                required: [id, host, status, dispatch_round, fee, offered_at, offer_expires_at, responded_at, decline_reason,
+                           arrived_at, arrival_distance_m, completed_at]
+                properties:
+                  id: { type: string, format: uuid }
+                  host:
+                    type: object
+                    required: [user_id, display_name, phone]
+                    properties:
+                      user_id: { type: string, format: uuid }
+                      display_name: { type: string }
+                      phone: { type: [string, 'null'] }
+                  status: { type: string, enum: [offered, accepted, declined, expired, arrived, completed, no_show, cancelled] }
+                  dispatch_round: { type: integer }
+                  fee: { $ref: '#/components/schemas/Money' }
+                  offered_at: { type: string, format: date-time }
+                  offer_expires_at: { type: string, format: date-time }
+                  responded_at: { type: [string, 'null'], format: date-time }
+                  decline_reason: { type: [string, 'null'] }
+                  arrived_at: { type: [string, 'null'], format: date-time }
+                  arrival_distance_m: { type: [integer, 'null'] }
+                  completed_at: { type: [string, 'null'], format: date-time }
+            audit:
+              type: array
+              description: Shu match bo'yicha oxirgi 50 ta admin harakati
+              items:
+                type: object
+                required: [id, action, actor, changes, created_at]
+                properties:
+                  id: { type: integer }
+                  action: { type: string, examples: [match.cancel] }
+                  actor:
+                    oneOf:
+                      - type: object
+                        required: [id, display_name]
+                        properties:
+                          id: { type: string, format: uuid }
+                          display_name: { type: [string, 'null'] }
+                      - type: 'null'
+                  changes: { type: object, additionalProperties: true }
+                  created_at: { type: string, format: date-time }
+    PaymentStatus:
+      type: string
+      enum: [created, pending, authorized, succeeded, failed, cancelled, expired, refunded, partially_refunded]
+
+    HostStatus:
+      type: string
+      enum: [applicant, active, suspended, offboarded]
+    AdminHost:
+      type: object
+      required: [user_id, display_name, phone, user_status, status, city, base_location, max_travel_km, has_kit, kit_notes, sports,
+                 rating, verified_at, suspended_at, suspended_reason, created_at, stats]
+      properties:
+        user_id: { type: string, format: uuid }
+        display_name: { type: string }
+        phone: { type: [string, 'null'] }
+        user_status: { type: string, enum: [active, suspended, deleted] }
+        status: { $ref: '#/components/schemas/HostStatus' }
+        city: { type: object, required: [id, name], properties: { id: { type: integer }, name: { type: string } } }
+        base_location:
+          oneOf:
+            - $ref: '#/components/schemas/GeoPoint'
+            - type: 'null'
+        max_travel_km: { type: integer }
+        has_kit: { type: boolean }
+        kit_notes: { type: [string, 'null'] }
+        sports: { type: array, items: { type: string } }
+        rating:
+          type: object
+          required: [avg, count]
+          properties:
+            avg: { type: [number, 'null'] }
+            count: { type: integer }
+        verified_at: { type: [string, 'null'], format: date-time }
+        suspended_at: { type: [string, 'null'], format: date-time }
+        suspended_reason: { type: [string, 'null'] }
+        created_at: { type: string, format: date-time }
+        stats:
+          type: object
+          required: [completed_matches, no_show_count, offers_total, accepted_total, declined_total, expired_total, acceptance_rate,
+                     upcoming_matches, earned, last_match_at]
+          properties:
+            completed_matches: { type: integer }
+            no_show_count: { type: integer }
+            offers_total: { type: integer }
+            accepted_total: { type: integer }
+            declined_total: { type: integer }
+            expired_total: { type: integer }
+            acceptance_rate: { type: [number, 'null'], description: accepted / (accepted + declined + expired) }
+            upcoming_matches: { type: integer }
+            earned: { $ref: '#/components/schemas/Money' }
+            last_match_at: { type: [string, 'null'], format: date-time }
+    AdminHostProfile:
+      type: object
+      properties:
+        city_id: { type: integer }
+        base_location:
+          oneOf:
+            - $ref: '#/components/schemas/GeoPoint'
+            - type: 'null'
+        max_travel_km: { type: integer, minimum: 1, maximum: 100, description: 'Yaratishda standart: 10' }
+        has_kit: { type: boolean, description: 'Yaratishda standart: false' }
+        kit_notes: { type: [string, 'null'], maxLength: 500 }
+        sports: { type: array, minItems: 1, maxItems: 10, items: { type: string } }
+    AdminHostCreate:
+      allOf:
+        - $ref: '#/components/schemas/AdminHostProfile'
+        - type: object
+          required: [phone, city_id, sports]
+          properties:
+            phone: { type: string, examples: ['+998901234567'] }
+            display_name: { type: string, minLength: 2, maxLength: 40, description: Faqat yangi foydalanuvchi uchun }
+            approve: { type: boolean, default: false, description: true — darhol `active` }
+    AdminHostUpdate:
+      description: Faqat yuborilgan maydonlar o'zgaradi (kamida bittasi); `sports` berilsa to'liq almashtiriladi
+      allOf:
+        - $ref: '#/components/schemas/AdminHostProfile'
+      minProperties: 1
+    AdminHostList:
+      type: object
+      required: [items, total]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/AdminHost' } }
+        total: { type: integer }
+
+    AdminPayment:
+      type: object
+      required: [id, booking_id, booking_status, provider, amount, refunded, status, provider_transaction_id, failure_code,
+                 created_at, succeeded_at, cancelled_at, user, match]
+      properties:
+        id: { type: string, format: uuid }
+        booking_id: { type: string, format: uuid }
+        booking_status: { $ref: '#/components/schemas/BookingStatus' }
+        provider: { type: string, enum: [payme, click, uzum, stripe, paypal, wallet, manual] }
+        amount: { $ref: '#/components/schemas/Money' }
+        refunded: { $ref: '#/components/schemas/Money' }
+        status: { $ref: '#/components/schemas/PaymentStatus' }
+        provider_transaction_id: { type: [string, 'null'] }
+        failure_code: { type: [string, 'null'] }
+        created_at: { type: string, format: date-time }
+        succeeded_at: { type: [string, 'null'], format: date-time }
+        cancelled_at: { type: [string, 'null'], format: date-time }
+        user: { $ref: '#/components/schemas/UserRef' }
+        match:
+          type: object
+          required: [id, public_code, starts_at, venue_name]
+          properties:
+            id: { type: string, format: uuid }
+            public_code: { type: string }
+            starts_at: { type: string, format: date-time }
+            venue_name: { type: string }
+    AdminPaymentList:
+      type: object
+      required: [items, total, totals]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/AdminPayment' } }
+        total: { type: integer }
+        totals: { type: array, description: Filtr bo'yicha valyuta kesimidagi jamilar, items: { $ref: '#/components/schemas/CurrencyTotal' } }
+
+    AdminRefund:
+      type: object
+      required: [id, booking_id, amount, destination, status, reason, provider_refund_id, note, created_at, completed_at,
+                 initiated_by, processed_by, user, match, payment]
+      properties:
+        id: { type: string, format: uuid }
+        booking_id: { type: string, format: uuid }
+        amount: { $ref: '#/components/schemas/Money' }
+        destination: { type: string, enum: [original_method, wallet] }
+        status: { type: string, enum: [pending, succeeded, failed] }
+        reason: { type: string, examples: [match_cancelled] }
+        provider_refund_id: { type: [string, 'null'] }
+        note: { type: [string, 'null'] }
+        created_at: { type: string, format: date-time }
+        completed_at: { type: [string, 'null'], format: date-time }
+        initiated_by: { type: [string, 'null'], format: uuid }
+        processed_by:
+          oneOf:
+            - type: object
+              required: [id, display_name]
+              properties:
+                id: { type: string, format: uuid }
+                display_name: { type: [string, 'null'] }
+            - type: 'null'
+        user: { $ref: '#/components/schemas/UserRef' }
+        match:
+          type: object
+          required: [id, public_code, starts_at]
+          properties:
+            id: { type: string, format: uuid }
+            public_code: { type: string }
+            starts_at: { type: string, format: date-time }
+        payment:
+          oneOf:
+            - type: object
+              required: [id, provider, amount, refunded, status, provider_transaction_id]
+              properties:
+                id: { type: string, format: uuid }
+                provider: { type: string }
+                amount: { $ref: '#/components/schemas/Money' }
+                refunded: { $ref: '#/components/schemas/Money' }
+                status: { $ref: '#/components/schemas/PaymentStatus' }
+                provider_transaction_id: { type: [string, 'null'] }
+            - type: 'null'
+    AdminRefundList:
+      type: object
+      required: [items, total, totals]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/AdminRefund' } }
+        total: { type: integer }
+        totals: { type: array, items: { $ref: '#/components/schemas/CurrencyTotal' } }
+
+    AdminDashboard:
+      type: object
+      required: [range, matches, fill_rate, seats, gmv, refunds, net_revenue, lease_cost, host_payouts, gross_margin,
+                 gross_margin_pct, no_show_rate, attendance, cancellations, refund_queue, series]
+      properties:
+        range:
+          type: object
+          required: [date_from, date_to, city_id, currency]
+          properties:
+            date_from: { type: string, format: date-time }
+            date_to: { type: string, format: date-time }
+            city_id: { type: [integer, 'null'] }
+            currency: { type: string }
+        matches:
+          type: object
+          required: [total, by_status]
+          properties:
+            total: { type: integer, description: Draft'lardan tashqari }
+            by_status:
+              type: object
+              required: [open, full, in_progress, completed, cancelled]
+              properties:
+                open: { type: integer }
+                full: { type: integer }
+                in_progress: { type: integer }
+                completed: { type: integer }
+                cancelled: { type: integer }
+        fill_rate: { type: [number, 'null'], examples: [0.68] }
+        seats: { type: object, required: [confirmed, capacity], properties: { confirmed: { type: integer }, capacity: { type: integer } } }
+        gmv: { $ref: '#/components/schemas/Money' }
+        refunds: { $ref: '#/components/schemas/Money' }
+        net_revenue: { $ref: '#/components/schemas/Money' }
+        lease_cost: { $ref: '#/components/schemas/Money' }
+        host_payouts: { $ref: '#/components/schemas/Money' }
+        gross_margin: { $ref: '#/components/schemas/Money' }
+        gross_margin_pct: { type: [number, 'null'], description: gross_margin / net_revenue }
+        no_show_rate: { type: [number, 'null'] }
+        attendance: { type: object, required: [checked_in, no_show], properties: { checked_in: { type: integer }, no_show: { type: integer } } }
+        cancellations:
+          type: object
+          required: [matches, match_rate, by_reason, bookings, booking_rate]
+          properties:
+            matches: { type: integer }
+            match_rate: { type: [number, 'null'] }
+            by_reason:
+              type: array
+              items:
+                type: object
+                required: [reason, count]
+                properties:
+                  reason: { type: string }
+                  count: { type: integer }
+            bookings: { type: integer, description: To'langan va keyin bekor qilingan booking'lar }
+            booking_rate: { type: [number, 'null'] }
+        refund_queue:
+          type: object
+          description: Qo'lda bajariladigan refund navbati (davrdan qat'i nazar)
+          required: [count, amount]
+          properties:
+            count: { type: integer }
+            amount: { $ref: '#/components/schemas/Money' }
+        series:
+          type: array
+          description: Kunlik (shahar vaqt zonasi bo'yicha)
+          items:
+            type: object
+            required: [date, matches, cancelled, fill_rate, gmv]
+            properties:
+              date: { type: string, format: date }
+              matches: { type: integer }
+              cancelled: { type: integer }
+              fill_rate: { type: [number, 'null'] }
+              gmv: { $ref: '#/components/schemas/Money' }

@@ -1,13 +1,18 @@
-import { Controller, HttpCode, Module, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import { Controller, Get, HttpCode, Module, Param, ParseUUIDPipe, Post } from '@nestjs/common';
 import { z } from 'zod';
-import { CurrentUser, IdempotencyKey, ReqLocale, Roles, ZBody, type AuthUser } from '../common/http';
+import { CurrentUser, IdempotencyKey, ReqLocale, Roles, ZBody, ZQuery, type AuthUser } from '../common/http';
 import type { Locale } from '../common/i18n';
 import { CommerceModule } from '../commerce/commerce.module';
 import { MatchesModule } from '../matches/matches.controller';
 import { AdminService } from './admin.service';
-
-const Money = z.object({ amount: z.number().int().min(0), currency: z.string().regex(/^[A-Z]{3}$/) });
-const Level = z.enum(['beginner', 'intermediate', 'advanced', 'pro']);
+import { AdminFinanceController } from './finance.controller';
+import { AdminFinanceService } from './finance.service';
+import { AdminHostsController } from './hosts.controller';
+import { AdminHostsService } from './hosts.service';
+import { AdminMatchesQuery } from './matches.query';
+import { Code, csv, DateTime, Level, Money, Page } from './schemas';
+import { AdminVenuesController } from './venues.controller';
+import { AdminVenuesService } from './venues.service';
 
 const CreateMatch = z.object({
   pitch_id: z.uuid(),
@@ -34,10 +39,37 @@ const CancelMatch = z.object({
   wallet_bonus_pct: z.number().int().min(0).max(100).default(0),
 });
 
+const MatchList = z.object({
+  status: csv(z.enum(['draft', 'open', 'full', 'in_progress', 'completed', 'cancelled'])).optional(),
+  date_from: DateTime.optional(),
+  date_to: DateTime.optional(),
+  city_id: z.coerce.number().int().positive().optional(),
+  venue_id: z.uuid().optional(),
+  pitch_id: z.uuid().optional(),
+  sport: csv(Code).optional(),
+  q: z.string().trim().max(100).optional(),
+  sort: z.enum(['starts_at', '-starts_at']).default('starts_at'),
+  ...Page,
+});
+
 @Roles('admin')
 @Controller('v1/admin')
 export class AdminController {
-  constructor(private readonly admin: AdminService) {}
+  constructor(
+    private readonly admin: AdminService,
+    private readonly query: AdminMatchesQuery,
+  ) {}
+
+  @Get('matches')
+  list(@ZQuery(MatchList) q: z.infer<typeof MatchList>, @ReqLocale() locale: Locale) {
+    return this.query.list(q, locale);
+  }
+
+  /** UUID yoki public_code (MU-XXXXX) — draft'lar ham. */
+  @Get('matches/:matchId')
+  detail(@Param('matchId') id: string, @ReqLocale() locale: Locale) {
+    return this.query.detail(id, locale);
+  }
 
   @Post('matches')
   @HttpCode(201)
@@ -60,8 +92,8 @@ export class AdminController {
 
 @Module({
   imports: [CommerceModule, MatchesModule],
-  controllers: [AdminController],
-  providers: [AdminService],
+  controllers: [AdminController, AdminVenuesController, AdminHostsController, AdminFinanceController],
+  providers: [AdminService, AdminMatchesQuery, AdminVenuesService, AdminHostsService, AdminFinanceService],
   exports: [AdminService],
 })
 export class AdminModule {}

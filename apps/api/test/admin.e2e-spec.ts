@@ -102,7 +102,8 @@ describe('Admin: match yaratish/nashr/bekor qilish, dispatch, oversell', () => {
   });
 
   it('OVERSELL: 6 joyli match, 10 ta parallel booking -> aniq 6 ta 201, 4 ta 409 MATCH_FULL', async () => {
-    const id = await createAndPublish(matchBody(pitch1, inHours(50), { format: '3v3', players_per_side: 3, min_players: 4, max_players: 6 }));
+    // 74h: seed'dagi MU-YUN5 (bugun+2 kun 20:00, shu pitch) bilan kunning istalgan vaqtida ustma-ust tushmaydi
+    const id = await createAndPublish(matchBody(pitch1, inHours(74), { format: '3v3', players_per_side: 3, min_players: 4, max_players: 6 }));
     const players = [];
     for (let i = 13; i <= 22; i++) players.push(await login(ctx, `+9989020000${i}`));
     const sigs = await Promise.all(players.map((p) => signatureId(ctx, p, id)));

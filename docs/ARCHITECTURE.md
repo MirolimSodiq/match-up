@@ -79,7 +79,7 @@ matchup/
 │   ├── api/            # NestJS modular monolith
 │   ├── player/         # Expo (React Native) — o'yinchi app
 │   ├── host/           # Expo — host app (offline-first)
-│   └── admin/          # Next.js + Refine — ichki panel
+│   └── admin/          # Next.js (App Router) + TanStack Query/Table — ichki panel, BFF (httpOnly cookie)
 ├── services/
 │   └── media-worker/   # Python: FFmpeg transcode, keyin AI highlight
 ├── packages/
@@ -514,7 +514,7 @@ POST /v1/host/matches/01a1…/checkins
 
 **QR check-in xavfsizligi:** chipta `{participant_id, match_id, exp}` — server private key bilan **Ed25519** imzolanadi. Host app roster bilan birga public key'ni oladi → stadionda internet bo'lmasa ham imzoni tekshiradi va check-in'ni lokal yozadi, keyin batch yuboradi. Skrinshot bilan kirish: chipta faqat o'sha match uchun, roster'da `checked_in` bo'lgach ikkinchi skan `duplicate`.
 
-**Admin (MVP minimal):** `POST /v1/admin/matches` (lease bilan birga, ustma-ust lease → `409 LEASE_OVERLAP`), `POST /v1/admin/matches/{id}/publish`, `POST /v1/admin/matches/{id}/cancel` (barcha booking'larga 100% refund, ixtiyoriy wallet bonus).
+**Admin:** `POST /v1/admin/matches` (lease bilan birga, ustma-ust lease → `409 LEASE_OVERLAP`), `POST /v1/admin/matches/{id}/publish`, `POST /v1/admin/matches/{id}/cancel` (barcha booking'larga 100% refund, ixtiyoriy wallet bonus). Ichki panel uchun: venue/pitch katalogi (`/venues`, `/pitches`), match jadvali va tafsiloti (roster, booking, to'lov, refund, host, audit), host'lar (telefon bo'yicha host qilish, tasdiqlash, suspend), to'lovlar, refund navbati (`original_method` refund'lari provider kabinetida qo'lda bajariladi → `POST /v1/admin/refunds/{id}/complete` `provider_refund_id` bilan, `payments.refunded_amount` yangilanadi), dashboard (match'lar, to'lish, GMV, ijara, host to'lovlari, yalpi marja, no-show, bekor qilishlar). Jadvallar offset pagination (`limit`, `offset` → `total`). Har bir mutatsiya `audit_logs` ga (ip, request_id bilan) yoziladi.
 
 ---
 

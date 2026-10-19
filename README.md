@@ -10,6 +10,7 @@ Pickup sports platformasi (Plei / Birgo uslubida): o'yinchilar tayyor havaskor o
 | [api/openapi.yaml](api/openapi.yaml) | API kontrakti (OpenAPI 3.1) |
 | [apps/api](apps/api) | **Backend** — NestJS modular monolith (TypeScript) |
 | [apps/player](apps/player) | **O'yinchi ilovasi** — Expo (React Native, TypeScript) |
+| [apps/admin](apps/admin) | **Admin panel** — Next.js (App Router), Tailwind, TanStack Query/Table; BFF orqali OTP login (faqat `admin` roli) |
 | [packages/contracts](packages/contracts) | `api/openapi.yaml` dan generatsiya qilingan API tiplari (openapi-typescript) |
 | [db/migrations/](db/migrations/) | SQL migratsiyalar — sxemaning yagona haqiqat manbai |
 | [db/queries/](db/queries/), [db/tests/](db/tests/) | Kritik SQL va DB darajasidagi testlar (oversell race, constraint'lar) |
@@ -25,7 +26,7 @@ Pickup sports platformasi (Plei / Birgo uslubida): o'yinchilar tayyor havaskor o
 | Booking | ✅ | atomik seat hold, idempotency, mehmonlar, bekor qilish (policy bo'yicha refund), QR chipta (Ed25519) |
 | To'lovlar | ✅ Payme, Click, Wallet | Payme Merchant API (6 metod), Click SHOP API, hamyon; late payment / qayta hold |
 | Host panel | ✅ | dispatch offer'lar, accept/decline, roster, geofence, offline QR check-in, yakunlash |
-| Admin | ✅ | match yaratish (lease bilan), nashr, bekor qilish (100% refund + bonus) |
+| Admin | ✅ | match yaratish (lease bilan), nashr, bekor qilish (100% refund + bonus); venue/pitch, match jadvali va tafsiloti, host'lar, to'lovlar, refund navbati, dashboard, `audit_logs` |
 | Background job'lar | ✅ | hold expiry, host dispatch, minimumga yetmagan match'larni bekor qilish, outbox relay (BullMQ) |
 | Keyingi iteratsiya | ⏳ | social login (Google/Apple/Telegram), Uzum, Stripe, highlight video yuklash (S3), push xabarnomalar, WebSocket, provider refund'lari |
 
@@ -52,6 +53,14 @@ cd apps/api && corepack pnpm dev
 ```
 
 API: `http://localhost:3000` (`GET /health`). Dev rejimida OTP kodlari server logiga yoziladi (`[DEV OTP]`).
+
+Admin panel (`http://localhost:3100`, seed admin: `+998901110001`):
+
+```bash
+cd apps/admin && cp .env.example .env.local && corepack pnpm dev
+```
+
+`.env.local` dagi `API_URL` — API manzili. Brauzer API'ga to'g'ridan-to'g'ri murojaat qilmaydi: token'lar Next route handler'larida (BFF, `/api/auth/*`, `/api/proxy/*`) httpOnly cookie'da saqlanadi.
 
 ## Testlar
 

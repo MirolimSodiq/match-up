@@ -147,7 +147,11 @@ export class AdminService {
       let refunds = 0;
       for (const b of bookings) {
         await this.seats.release(tx, b.id, 'cancelled', 'match_cancelled');
-        if (b.status !== 'confirmed') continue;
+        if (b.status !== 'confirmed') {
+          // Hali to'lanmagan checkout — to'lov jadvalida ham yopiladi (BookingsService.cancel bilan bir xil)
+          await tx.execute(sql`UPDATE payments SET status = 'cancelled', cancelled_at = now() WHERE booking_id = ${b.id} AND status = 'created'`);
+          continue;
+        }
         const paid = b.total_amount + b.wallet_applied_amount;
         const toWallet = p.refund_destination === 'wallet' || b.total_amount === 0;
         const payment = await one<{ id: string }>(

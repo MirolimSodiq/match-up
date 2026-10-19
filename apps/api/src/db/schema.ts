@@ -359,12 +359,14 @@ export const matches = pgTable("matches", {
 	competitionId: uuid("competition_id"),
 	roundLabel: text("round_label"),
 }, (table) => [
-	index("matches_city_time_idx").using("btree", table.cityId.asc().nullsLast().op("int4_ops"), table.startsAt.asc().nullsLast().op("timestamptz_ops")).where(sql`((status = ANY (ARRAY['open'::match_status, 'full'::match_status])) AND (visibility = 'public'::match_visibility))`),
+	index("matches_city_time_idx").using("btree", table.cityId.asc().nullsLast().op("timestamptz_ops"), table.startsAt.asc().nullsLast().op("int4_ops")).where(sql`((status = ANY (ARRAY['open'::match_status, 'full'::match_status])) AND (visibility = 'public'::match_visibility))`),
 	index("matches_competition_idx").using("btree", table.competitionId.asc().nullsLast().op("uuid_ops")).where(sql`(competition_id IS NOT NULL)`),
 	index("matches_deadline_idx").using("btree", table.minPlayersDeadline.asc().nullsLast().op("timestamptz_ops")).where(sql`(status = 'open'::match_status)`),
-	index("matches_discovery_gix").using("gist", table.location.asc().nullsLast().op("gist_timestamptz_ops"), table.startsAt.asc().nullsLast().op("gist_geography_ops")).where(sql`((status = ANY (ARRAY['open'::match_status, 'full'::match_status])) AND (visibility = 'public'::match_visibility))`),
+	index("matches_discovery_gix").using("gist", table.location.asc().nullsLast().op("gist_timestamptz_ops"), table.startsAt.asc().nullsLast().op("gist_timestamptz_ops")).where(sql`((status = ANY (ARRAY['open'::match_status, 'full'::match_status])) AND (visibility = 'public'::match_visibility))`),
 	index("matches_lease_idx").using("btree", table.leaseId.asc().nullsLast().op("uuid_ops")),
-	index("matches_sport_time_idx").using("btree", table.sportId.asc().nullsLast().op("timestamptz_ops"), table.startsAt.asc().nullsLast().op("int2_ops")),
+	index("matches_pitch_idx").using("btree", table.pitchId.asc().nullsLast().op("uuid_ops")),
+	index("matches_sport_time_idx").using("btree", table.sportId.asc().nullsLast().op("int2_ops"), table.startsAt.asc().nullsLast().op("int2_ops")),
+	index("matches_starts_at_idx").using("btree", table.startsAt.asc().nullsLast().op("timestamptz_ops")),
 	foreignKey({
 			columns: [table.cancellationPolicyId],
 			foreignColumns: [cancellationPolicies.id],
@@ -681,6 +683,7 @@ export const payments = pgTable("payments", {
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
 	index("payments_booking_idx").using("btree", table.bookingId.asc().nullsLast().op("uuid_ops")),
+	index("payments_created_idx").using("btree", table.createdAt.desc().nullsFirst().op("timestamptz_ops")),
 	uniqueIndex("payments_one_success_per_booking").using("btree", table.bookingId.asc().nullsLast().op("uuid_ops")).where(sql`(status = ANY (ARRAY['succeeded'::payment_status, 'partially_refunded'::payment_status, 'refunded'::payment_status]))`),
 	index("payments_open_idx").using("btree", table.createdAt.asc().nullsLast().op("timestamptz_ops")).where(sql`(status = ANY (ARRAY['created'::payment_status, 'pending'::payment_status, 'authorized'::payment_status]))`),
 	foreignKey({
@@ -738,8 +741,12 @@ export const refunds = pgTable("refunds", {
 	initiatedBy: uuid("initiated_by"),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	completedAt: timestamp("completed_at", { withTimezone: true, mode: 'string' }),
+	note: text(),
+	processedBy: uuid("processed_by"),
 }, (table) => [
 	index("refunds_booking_idx").using("btree", table.bookingId.asc().nullsLast().op("uuid_ops")),
+	index("refunds_payment_idx").using("btree", table.paymentId.asc().nullsLast().op("uuid_ops")),
+	index("refunds_queue_idx").using("btree", table.createdAt.asc().nullsLast().op("timestamptz_ops")).where(sql`((status = 'pending'::refund_status) AND (destination = 'original_method'::refund_destination))`),
 	foreignKey({
 			columns: [table.bookingId],
 			foreignColumns: [bookings.id],
@@ -759,6 +766,11 @@ export const refunds = pgTable("refunds", {
 			columns: [table.paymentId],
 			foreignColumns: [payments.id],
 			name: "refunds_payment_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.processedBy],
+			foreignColumns: [users.id],
+			name: "refunds_processed_by_fkey"
 		}),
 	check("refunds_amount_check", sql`amount > 0`),
 	check("refunds_original_needs_payment", sql`(destination = 'wallet'::refund_destination) OR (payment_id IS NOT NULL)`),
@@ -909,6 +921,8 @@ export const hostProfiles = pgTable("host_profiles", {
 	verifiedBy: uuid("verified_by"),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	suspendedAt: timestamp("suspended_at", { withTimezone: true, mode: 'string' }),
+	suspendedReason: text("suspended_reason"),
 }, (table) => [
 	index("host_profiles_location_gix").using("gist", table.baseLocation.asc().nullsLast().op("gist_geography_ops")).where(sql`(status = 'active'::host_status)`),
 	foreignKey({
@@ -926,6 +940,7 @@ export const hostProfiles = pgTable("host_profiles", {
 			foreignColumns: [users.id],
 			name: "host_profiles_verified_by_fkey"
 		}),
+	check("host_profiles_suspension_consistent", sql`(status <> 'suspended'::host_status) OR (suspended_at IS NOT NULL)`),
 ]);
 
 export const hostPayouts = pgTable("host_payouts", {
