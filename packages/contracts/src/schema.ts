@@ -794,7 +794,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/admin/matches": {
+    "/v1/admin/reference": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Formalar va filtrlar uchun ma'lumotnoma (shaharlar, sportlar, qulayliklar, sirt turlari, bekor qilish siyosatlari) */
+        get: operations["adminReference"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/venues": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Venue'lar ro'yxati (pitch'lar va qulayliklar bilan) */
+        get: operations["adminListVenues"];
+        put?: never;
+        /**
+         * Venue yaratish
+         * @description `location` (lat/lng) PostGIS `geography(Point, 4326)` ga yoziladi. `slug` berilmasa nomdan avtomatik yasaladi
+         *     (band bo'lsa `-2`, `-3` ...). `timezone` berilmasa — shahar vaqt zonasi. `amenities` — qulaylik kodlari.
+         */
+        post: operations["adminCreateVenue"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/venues/{venueId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                venueId: components["parameters"]["VenueId"];
+            };
+            cookie?: never;
+        };
+        /** Venue tafsiloti */
+        get: operations["adminGetVenue"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Venue'ni tahrirlash
+         * @description Faqat yuborilgan maydonlar o'zgaradi; `amenities` berilsa ro'yxat to'liq almashtiriladi.
+         *     Joylashuv yoki shahar o'zgarsa, hali o'tmagan match'larning `location`/`city_id` (denormalizatsiya) ham yangilanadi.
+         */
+        patch: operations["adminUpdateVenue"];
+        trace?: never;
+    };
+    "/v1/admin/venues/{venueId}/pitches": {
         parameters: {
             query?: never;
             header?: never;
@@ -802,6 +865,45 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
+        put?: never;
+        /** Venue'ga pitch qo'shish (pitch_sports bilan) */
+        post: operations["adminCreatePitch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/pitches/{pitchId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Pitch'ni tahrirlash (`sports` berilsa to'liq almashtiriladi) */
+        patch: operations["adminUpdatePitch"];
+        trace?: never;
+    };
+    "/v1/admin/matches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Match'lar jadvali — barcha statuslar (draft ham), joylar va tushum bilan
+         * @description Sana oralig'i — `starts_at` bo'yicha `[date_from, date_to)`. Tushum haqiqiy pul harakati bo'yicha:
+         *     `gross` — muvaffaqiyatli to'lovlar (hamyon bilan ham), `refunded` — bajarilgan va navbatdagi refund'lar.
+         */
+        get: operations["adminListMatches"];
         put?: never;
         /**
          * Ijaraga olingan slot asosida match yaratish (draft)
@@ -842,6 +944,184 @@ export interface paths {
         put?: never;
         /** Match'ni bekor qilish — barcha booking'lar 100% refund */
         post: operations["adminCancelMatch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/matches/{matchIdOrCode}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Match tafsiloti — roster, booking'lar, to'lovlar, refund'lar, host tayinlovi, ijara, audit */
+        get: operations["adminGetMatch"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/hosts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Host'lar ro'yxati (dispatch statistikasi bilan) */
+        get: operations["adminListHosts"];
+        put?: never;
+        /**
+         * Telefon raqami bo'yicha foydalanuvchini host qilish
+         * @description `host` roli + `host_profiles` + `host_sports`. Foydalanuvchi hali ro'yxatdan o'tmagan bo'lsa yaratiladi
+         *     (Host ilovasiga shu raqam bilan OTP orqali kiradi). Standart holat — `applicant`; `approve: true` — darhol `active`.
+         *     Rol yangi access token'da (keyingi login/refresh) paydo bo'ladi.
+         */
+        post: operations["adminCreateHost"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/hosts/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                userId: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        /** Host profili */
+        get: operations["adminGetHost"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Host profilini tahrirlash (shahar, asosiy joylashuv, kit, sportlar) */
+        patch: operations["adminUpdateHost"];
+        trace?: never;
+    };
+    "/v1/admin/hosts/{userId}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Host'ni tasdiqlash (applicant / suspended -> active) */
+        post: operations["adminApproveHost"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/hosts/{userId}/suspend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Host'ni to'xtatish — kutilayotgan offer'lar va kelgusi tayinlovlar bekor qilinadi */
+        post: operations["adminSuspendHost"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/payments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** To'lovlar ro'yxati (filtrlar va valyuta bo'yicha jamilar bilan) */
+        get: operations["adminListPayments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/refunds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Refund navbati
+         * @description Standart — qo'lda bajariladigan navbat: `status=pending`, `destination=original_method`, eng eskisi birinchi.
+         *     Boshqa filtrlarda yakunlanganlari eng yangisi birinchi.
+         */
+        get: operations["adminListRefunds"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/refunds/{refundId}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Provider kabinetida bajarilgan refund'ni "bajarildi" deb belgilash
+         * @description Faqat `pending` + `original_method`. Refund -> `succeeded` (`provider_refund_id`, izoh, `processed_by`),
+         *     `payments.refunded_amount` oshadi (to'lov summasidan oshmaydi), to'lov status'i `refunded` yoki `partially_refunded`.
+         *     `RefundIssued` event va `audit_logs` yozuvi bilan bitta tranzaksiyada.
+         */
+        post: operations["adminCompleteRefund"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/dashboard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Operatsion ko'rsatkichlar (sana oralig'i bo'yicha)
+         * @description Davr — match `starts_at` bo'yicha `[date_from, date_to)` (standart: oxirgi 30 kun + keyingi 30 kun), draft'lar hisobga olinmaydi.
+         *     * `gmv` — muvaffaqiyatli to'lovlar; `net_revenue` = `gmv` - `refunds`
+         *     * `lease_cost` — bekor qilinmagan ijaralar (bekor qilingan match'niki ham); `host_payouts` — qabul qilingan / bajarilgan tayinlovlar
+         *     * `gross_margin` = `net_revenue` - `lease_cost` - `host_payouts`
+         *     * `fill_rate` = confirmed / max (bekor qilinmagan match'lar); `no_show_rate` = no_show / (checked_in + no_show)
+         */
+        get: operations["adminDashboard"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1409,6 +1689,627 @@ export interface components {
             /** @default standard */
             cancellation_policy_code: string;
         };
+        /**
+         * @description Tarjimalar xaritasi (locale -> matn)
+         * @example {
+         *       "uz-Latn": "Chilonzor tumani",
+         *       "ru": "Чиланзарский район"
+         *     }
+         */
+        Translations: {
+            [key: string]: string;
+        };
+        UserRef: {
+            /** Format: uuid */
+            id: string;
+            display_name: string | null;
+            /** @example +998901234567 */
+            phone: string | null;
+        };
+        CurrencyTotal: {
+            /** @example UZS */
+            currency: string;
+            count: number;
+            amount: components["schemas"]["Money"];
+            succeeded?: components["schemas"]["Money"];
+            refunded?: components["schemas"]["Money"];
+        };
+        AdminReference: {
+            cities: {
+                id: number;
+                slug: string;
+                name: string;
+                timezone: string;
+                currency: string;
+                center: components["schemas"]["GeoPoint"];
+                is_active: boolean;
+            }[];
+            sports: {
+                code: string;
+                name: string;
+                default_players_per_side: number;
+            }[];
+            amenities: {
+                code: string;
+                name: string;
+                icon?: string | null;
+            }[];
+            surfaces: components["schemas"]["Surface"][];
+            cancellation_policies: {
+                code: string;
+                name: string;
+                is_default: boolean;
+            }[];
+        };
+        /** @enum {string} */
+        Surface: "artificial_turf" | "natural_grass" | "indoor_hard" | "indoor_parquet" | "sand" | "asphalt";
+        AdminPitch: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            venue_id: string;
+            /** @example Pitch A */
+            name: string;
+            surface: components["schemas"]["Surface"];
+            is_indoor: boolean;
+            length_m: number | null;
+            width_m: number | null;
+            max_players_per_side: number | null;
+            /**
+             * @example [
+             *       "football"
+             *     ]
+             */
+            sports: string[];
+            is_active: boolean;
+            upcoming_matches: number;
+        };
+        AdminPitchCreate: {
+            name: string;
+            surface: components["schemas"]["Surface"];
+            /** @default false */
+            is_indoor: boolean;
+            length_m?: number | null;
+            width_m?: number | null;
+            max_players_per_side?: number | null;
+            sports: string[];
+            /** @default true */
+            is_active: boolean;
+        };
+        AdminPitchUpdate: {
+            name?: string;
+            surface?: components["schemas"]["Surface"];
+            is_indoor?: boolean;
+            length_m?: number | null;
+            width_m?: number | null;
+            max_players_per_side?: number | null;
+            sports?: string[];
+            is_active?: boolean;
+        };
+        AdminVenue: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** @example chilonzor-arena */
+            slug: string;
+            city: {
+                id: number;
+                name: string;
+            };
+            address: components["schemas"]["Translations"];
+            /** @description Accept-Language tilidagi manzil */
+            address_text: string;
+            description: components["schemas"]["Translations"];
+            location: components["schemas"]["GeoPoint"];
+            timezone: string;
+            partner_name: string | null;
+            partner_phone: string | null;
+            contract_ref: string | null;
+            is_active: boolean;
+            amenities: {
+                code: string;
+                name: string;
+            }[];
+            pitches: components["schemas"]["AdminPitch"][];
+            upcoming_matches: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        AdminVenueCreate: {
+            city_id: number;
+            name: string;
+            slug?: string;
+            address?: components["schemas"]["Translations"];
+            description?: components["schemas"]["Translations"];
+            location: components["schemas"]["GeoPoint"];
+            /**
+             * @description IANA (standart — shahar vaqt zonasi)
+             * @example Asia/Tashkent
+             */
+            timezone?: string;
+            partner_name?: string | null;
+            partner_phone?: string | null;
+            contract_ref?: string | null;
+            /**
+             * @example [
+             *       "parking",
+             *       "shower"
+             *     ]
+             */
+            amenities?: string[];
+            /** @default true */
+            is_active: boolean;
+        };
+        AdminVenueUpdate: {
+            city_id?: number;
+            name?: string;
+            slug?: string;
+            address?: components["schemas"]["Translations"];
+            description?: components["schemas"]["Translations"];
+            location?: components["schemas"]["GeoPoint"];
+            timezone?: string;
+            partner_name?: string | null;
+            partner_phone?: string | null;
+            contract_ref?: string | null;
+            amenities?: string[];
+            is_active?: boolean;
+        };
+        AdminVenueList: {
+            items: components["schemas"]["AdminVenue"][];
+            total: number;
+        };
+        AdminMatch: {
+            /** Format: uuid */
+            id: string;
+            /** @example MU-7F3K2 */
+            public_code: string;
+            sport: string;
+            title: string;
+            status: components["schemas"]["MatchStatus"];
+            /** @enum {string} */
+            visibility: "public" | "unlisted" | "private";
+            /** Format: date-time */
+            starts_at: string;
+            /** Format: date-time */
+            ends_at: string;
+            timezone: string;
+            format: string;
+            players_per_side: number;
+            city: {
+                id: number;
+                name: string;
+            };
+            venue: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+            };
+            pitch: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+            };
+            price: components["schemas"]["Money"];
+            slots: {
+                max: number;
+                min_to_play: number;
+                held: number;
+                confirmed: number;
+                taken: number;
+                available: number;
+            };
+            /**
+             * @description confirmed / max
+             * @example 0.714
+             */
+            fill_rate: number;
+            revenue: {
+                gross: components["schemas"]["Money"];
+                refunded: components["schemas"]["Money"];
+                net: components["schemas"]["Money"];
+            };
+            lease_cost: components["schemas"]["Money"] | null;
+            host_fee: components["schemas"]["Money"];
+            host: {
+                /** Format: uuid */
+                user_id: string;
+                display_name?: string | null;
+                /** @enum {string} */
+                assignment_status: "offered" | "accepted" | "arrived" | "completed" | "no_show";
+            } | null;
+            /** Format: date-time */
+            published_at: string | null;
+            /** Format: date-time */
+            cancelled_at: string | null;
+            cancel_reason: string | null;
+            /** Format: date-time */
+            created_at: string;
+        };
+        AdminMatchList: {
+            items: components["schemas"]["AdminMatch"][];
+            total: number;
+        };
+        AdminMatchDetail: components["schemas"]["AdminMatch"] & {
+            description: string;
+            level: {
+                min: components["schemas"]["SkillLevel"] | null;
+                max: components["schemas"]["SkillLevel"] | null;
+            };
+            gender_policy: string;
+            min_age: number;
+            /** Format: date-time */
+            booking_closes_at: string;
+            /** Format: date-time */
+            min_players_deadline: string;
+            /** Format: date-time */
+            completed_at: string | null;
+            cancellation_policy: {
+                code: string;
+                summary: string;
+            };
+            lease: {
+                /** Format: uuid */
+                id: string;
+                /** @enum {string} */
+                status: "reserved" | "confirmed" | "cancelled";
+                /** Format: date-time */
+                starts_at: string;
+                /** Format: date-time */
+                ends_at: string;
+                cost: components["schemas"]["Money"];
+                owner_invoice_ref: string | null;
+                /** Format: date-time */
+                paid_to_owner_at: string | null;
+            } | null;
+            sides: {
+                side_no: number;
+                label: string;
+                bib_color: string | null;
+                score: number | null;
+            }[];
+            roster: {
+                /** Format: uuid */
+                participant_id: string;
+                /** Format: uuid */
+                booking_id: string | null;
+                user: components["schemas"]["UserRef"] | null;
+                display_name: string;
+                is_guest: boolean;
+                side_no: number | null;
+                /** @enum {string} */
+                status: "held" | "confirmed" | "checked_in" | "no_show" | "cancelled" | "expired";
+                source: string;
+                /** Format: date-time */
+                checked_in_at: string | null;
+                /** Format: date-time */
+                created_at: string;
+            }[];
+            bookings: {
+                /** Format: uuid */
+                id: string;
+                user: components["schemas"]["UserRef"];
+                seats: number;
+                status: components["schemas"]["BookingStatus"];
+                unit_price: components["schemas"]["Money"];
+                wallet_applied: components["schemas"]["Money"];
+                total: components["schemas"]["Money"];
+                paid: components["schemas"]["Money"];
+                /** Format: date-time */
+                created_at: string;
+                /** Format: date-time */
+                confirmed_at: string | null;
+                /** Format: date-time */
+                cancelled_at: string | null;
+                cancel_reason: string | null;
+                /** Format: date-time */
+                expires_at: string | null;
+            }[];
+            payments: {
+                /** Format: uuid */
+                id: string;
+                /** Format: uuid */
+                booking_id: string;
+                /** Format: uuid */
+                user_id: string;
+                provider: string;
+                amount: components["schemas"]["Money"];
+                refunded: components["schemas"]["Money"];
+                status: components["schemas"]["PaymentStatus"];
+                provider_transaction_id: string | null;
+                /** Format: date-time */
+                created_at: string;
+                /** Format: date-time */
+                succeeded_at: string | null;
+                /** Format: date-time */
+                cancelled_at: string | null;
+            }[];
+            refunds: {
+                /** Format: uuid */
+                id: string;
+                /** Format: uuid */
+                booking_id: string;
+                /** Format: uuid */
+                payment_id: string | null;
+                amount: components["schemas"]["Money"];
+                /** @enum {string} */
+                destination: "original_method" | "wallet";
+                /** @enum {string} */
+                status: "pending" | "succeeded" | "failed";
+                reason: string;
+                provider_refund_id: string | null;
+                note: string | null;
+                /** Format: date-time */
+                created_at: string;
+                /** Format: date-time */
+                completed_at: string | null;
+            }[];
+            host_assignments: {
+                /** Format: uuid */
+                id: string;
+                host: {
+                    /** Format: uuid */
+                    user_id: string;
+                    display_name: string;
+                    phone: string | null;
+                };
+                /** @enum {string} */
+                status: "offered" | "accepted" | "declined" | "expired" | "arrived" | "completed" | "no_show" | "cancelled";
+                dispatch_round: number;
+                fee: components["schemas"]["Money"];
+                /** Format: date-time */
+                offered_at: string;
+                /** Format: date-time */
+                offer_expires_at: string;
+                /** Format: date-time */
+                responded_at: string | null;
+                decline_reason: string | null;
+                /** Format: date-time */
+                arrived_at: string | null;
+                arrival_distance_m: number | null;
+                /** Format: date-time */
+                completed_at: string | null;
+            }[];
+            /** @description Shu match bo'yicha oxirgi 50 ta admin harakati */
+            audit: {
+                id: number;
+                /** @example match.cancel */
+                action: string;
+                actor: {
+                    /** Format: uuid */
+                    id: string;
+                    display_name: string | null;
+                } | null;
+                changes: {
+                    [key: string]: unknown;
+                };
+                /** Format: date-time */
+                created_at: string;
+            }[];
+        };
+        /** @enum {string} */
+        PaymentStatus: "created" | "pending" | "authorized" | "succeeded" | "failed" | "cancelled" | "expired" | "refunded" | "partially_refunded";
+        /** @enum {string} */
+        HostStatus: "applicant" | "active" | "suspended" | "offboarded";
+        AdminHost: {
+            /** Format: uuid */
+            user_id: string;
+            display_name: string;
+            phone: string | null;
+            /** @enum {string} */
+            user_status: "active" | "suspended" | "deleted";
+            status: components["schemas"]["HostStatus"];
+            city: {
+                id: number;
+                name: string;
+            };
+            base_location: components["schemas"]["GeoPoint"] | null;
+            max_travel_km: number;
+            has_kit: boolean;
+            kit_notes: string | null;
+            sports: string[];
+            rating: {
+                avg: number | null;
+                count: number;
+            };
+            /** Format: date-time */
+            verified_at: string | null;
+            /** Format: date-time */
+            suspended_at: string | null;
+            suspended_reason: string | null;
+            /** Format: date-time */
+            created_at: string;
+            stats: {
+                completed_matches: number;
+                no_show_count: number;
+                offers_total: number;
+                accepted_total: number;
+                declined_total: number;
+                expired_total: number;
+                /** @description accepted / (accepted + declined + expired) */
+                acceptance_rate: number | null;
+                upcoming_matches: number;
+                earned: components["schemas"]["Money"];
+                /** Format: date-time */
+                last_match_at: string | null;
+            };
+        };
+        AdminHostProfile: {
+            city_id?: number;
+            base_location?: components["schemas"]["GeoPoint"] | null;
+            /** @description Yaratishda standart: 10 */
+            max_travel_km?: number;
+            /** @description Yaratishda standart: false */
+            has_kit?: boolean;
+            kit_notes?: string | null;
+            sports?: string[];
+        };
+        AdminHostCreate: components["schemas"]["AdminHostProfile"] & {
+            /** @example +998901234567 */
+            phone: string;
+            /** @description Faqat yangi foydalanuvchi uchun */
+            display_name?: string;
+            /**
+             * @description true — darhol `active`
+             * @default false
+             */
+            approve: boolean;
+        };
+        /** @description Faqat yuborilgan maydonlar o'zgaradi (kamida bittasi); `sports` berilsa to'liq almashtiriladi */
+        AdminHostUpdate: components["schemas"]["AdminHostProfile"];
+        AdminHostList: {
+            items: components["schemas"]["AdminHost"][];
+            total: number;
+        };
+        AdminPayment: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            booking_id: string;
+            booking_status: components["schemas"]["BookingStatus"];
+            /** @enum {string} */
+            provider: "payme" | "click" | "uzum" | "stripe" | "paypal" | "wallet" | "manual";
+            amount: components["schemas"]["Money"];
+            refunded: components["schemas"]["Money"];
+            status: components["schemas"]["PaymentStatus"];
+            provider_transaction_id: string | null;
+            failure_code: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            succeeded_at: string | null;
+            /** Format: date-time */
+            cancelled_at: string | null;
+            user: components["schemas"]["UserRef"];
+            match: {
+                /** Format: uuid */
+                id: string;
+                public_code: string;
+                /** Format: date-time */
+                starts_at: string;
+                venue_name: string;
+            };
+        };
+        AdminPaymentList: {
+            items: components["schemas"]["AdminPayment"][];
+            total: number;
+            /** @description Filtr bo'yicha valyuta kesimidagi jamilar */
+            totals: components["schemas"]["CurrencyTotal"][];
+        };
+        AdminRefund: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            booking_id: string;
+            amount: components["schemas"]["Money"];
+            /** @enum {string} */
+            destination: "original_method" | "wallet";
+            /** @enum {string} */
+            status: "pending" | "succeeded" | "failed";
+            /** @example match_cancelled */
+            reason: string;
+            provider_refund_id: string | null;
+            note: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            completed_at: string | null;
+            /** Format: uuid */
+            initiated_by: string | null;
+            processed_by: {
+                /** Format: uuid */
+                id: string;
+                display_name: string | null;
+            } | null;
+            user: components["schemas"]["UserRef"];
+            match: {
+                /** Format: uuid */
+                id: string;
+                public_code: string;
+                /** Format: date-time */
+                starts_at: string;
+            };
+            payment: {
+                /** Format: uuid */
+                id: string;
+                provider: string;
+                amount: components["schemas"]["Money"];
+                refunded: components["schemas"]["Money"];
+                status: components["schemas"]["PaymentStatus"];
+                provider_transaction_id: string | null;
+            } | null;
+        };
+        AdminRefundList: {
+            items: components["schemas"]["AdminRefund"][];
+            total: number;
+            totals: components["schemas"]["CurrencyTotal"][];
+        };
+        AdminDashboard: {
+            range: {
+                /** Format: date-time */
+                date_from: string;
+                /** Format: date-time */
+                date_to: string;
+                city_id: number | null;
+                currency: string;
+            };
+            matches: {
+                /** @description Draft'lardan tashqari */
+                total: number;
+                by_status: {
+                    open: number;
+                    full: number;
+                    in_progress: number;
+                    completed: number;
+                    cancelled: number;
+                };
+            };
+            /** @example 0.68 */
+            fill_rate: number | null;
+            seats: {
+                confirmed: number;
+                capacity: number;
+            };
+            gmv: components["schemas"]["Money"];
+            refunds: components["schemas"]["Money"];
+            net_revenue: components["schemas"]["Money"];
+            lease_cost: components["schemas"]["Money"];
+            host_payouts: components["schemas"]["Money"];
+            gross_margin: components["schemas"]["Money"];
+            /** @description gross_margin / net_revenue */
+            gross_margin_pct: number | null;
+            no_show_rate: number | null;
+            attendance: {
+                checked_in: number;
+                no_show: number;
+            };
+            cancellations: {
+                matches: number;
+                match_rate: number | null;
+                by_reason: {
+                    reason: string;
+                    count: number;
+                }[];
+                /** @description To'langan va keyin bekor qilingan booking'lar */
+                bookings: number;
+                booking_rate: number | null;
+            };
+            /** @description Qo'lda bajariladigan refund navbati (davrdan qat'i nazar) */
+            refund_queue: {
+                count: number;
+                amount: components["schemas"]["Money"];
+            };
+            /** @description Kunlik (shahar vaqt zonasi bo'yicha) */
+            series: {
+                /** Format: date */
+                date: string;
+                matches: number;
+                cancelled: number;
+                fill_rate: number | null;
+                gmv: components["schemas"]["Money"];
+            }[];
+        };
     };
     responses: {
         /** @description Muvaffaqiyatli kirish */
@@ -1498,6 +2399,16 @@ export interface components {
         VenueId: string;
         BookingId: string;
         AssignmentId: string;
+        PitchId: string;
+        UserId: string;
+        RefundId: string;
+        AdminLimit: number;
+        /** @description Admin jadvallari offset pagination ishlatadi (javobda `total`) */
+        Offset: number;
+        /** @description ISO 8601, offset bilan (kiritiladi) */
+        DateFrom: string;
+        /** @description ISO 8601, offset bilan (kiritilmaydi) */
+        DateTo: string;
     };
     requestBodies: never;
     headers: never;
@@ -2876,6 +3787,232 @@ export interface operations {
             409: components["responses"]["Conflict"];
         };
     };
+    adminReference: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Ma'lumotnoma */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminReference"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    adminListVenues: {
+        parameters: {
+            query?: {
+                city_id?: number;
+                /** @description Nom yoki slug bo'yicha qidiruv */
+                q?: string;
+                is_active?: "true" | "false";
+                limit?: components["parameters"]["AdminLimit"];
+                /** @description Admin jadvallari offset pagination ishlatadi (javobda `total`) */
+                offset?: components["parameters"]["Offset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Venue'lar */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminVenueList"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    adminCreateVenue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminVenueCreate"];
+            };
+        };
+        responses: {
+            /** @description Yaratildi */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminVenue"];
+                };
+            };
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    adminGetVenue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                venueId: components["parameters"]["VenueId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Venue */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminVenue"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    adminUpdateVenue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                venueId: components["parameters"]["VenueId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminVenueUpdate"];
+            };
+        };
+        responses: {
+            /** @description Yangilandi */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminVenue"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    adminCreatePitch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                venueId: components["parameters"]["VenueId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminPitchCreate"];
+            };
+        };
+        responses: {
+            /** @description Yaratildi */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminPitch"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    adminUpdatePitch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pitchId: components["parameters"]["PitchId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminPitchUpdate"];
+            };
+        };
+        responses: {
+            /** @description Yangilandi */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminPitch"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    adminListMatches: {
+        parameters: {
+            query?: {
+                /** @description Vergul bilan, masalan `open,full` */
+                status?: string;
+                /** @description ISO 8601, offset bilan (kiritiladi) */
+                date_from?: components["parameters"]["DateFrom"];
+                /** @description ISO 8601, offset bilan (kiritilmaydi) */
+                date_to?: components["parameters"]["DateTo"];
+                city_id?: number;
+                venue_id?: string;
+                pitch_id?: string;
+                /** @description Vergul bilan sport kodlari */
+                sport?: string;
+                /** @description Public code, venue nomi yoki sarlavha */
+                q?: string;
+                sort?: "starts_at" | "-starts_at";
+                limit?: components["parameters"]["AdminLimit"];
+                /** @description Admin jadvallari offset pagination ishlatadi (javobda `total`) */
+                offset?: components["parameters"]["Offset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Match'lar */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminMatchList"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
     adminCreateMatch: {
         parameters: {
             query?: never;
@@ -2965,6 +4102,326 @@ export interface operations {
                 };
             };
             409: components["responses"]["Conflict"];
+        };
+    };
+    adminGetMatch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID yoki public code (`MU-7F3K2`); draft'lar ham */
+                matchIdOrCode: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Tafsilot */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminMatchDetail"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    adminListHosts: {
+        parameters: {
+            query?: {
+                /** @description Vergul bilan: applicant, active, suspended, offboarded */
+                status?: string;
+                city_id?: number;
+                sport?: string;
+                /** @description Ism yoki telefon raqami */
+                q?: string;
+                limit?: components["parameters"]["AdminLimit"];
+                /** @description Admin jadvallari offset pagination ishlatadi (javobda `total`) */
+                offset?: components["parameters"]["Offset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Host'lar */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminHostList"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    adminCreateHost: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminHostCreate"];
+            };
+        };
+        responses: {
+            /** @description Host yaratildi */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminHost"];
+                };
+            };
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    adminGetHost: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                userId: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Host */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminHost"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    adminUpdateHost: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                userId: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminHostUpdate"];
+            };
+        };
+        responses: {
+            /** @description Yangilandi */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminHost"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    adminApproveHost: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                userId: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Tasdiqlandi */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminHost"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    adminSuspendHost: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                userId: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description To'xtatildi */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminHost"] & {
+                        /** @description Bekor qilingan offer/tayinlovlar soni */
+                        cancelled_assignments: number;
+                    };
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    adminListPayments: {
+        parameters: {
+            query?: {
+                /** @description Vergul bilan payment status'lari */
+                status?: string;
+                /** @description Vergul bilan provider'lar */
+                provider?: string;
+                /** @description ISO 8601, offset bilan (kiritiladi) */
+                date_from?: components["parameters"]["DateFrom"];
+                /** @description ISO 8601, offset bilan (kiritilmaydi) */
+                date_to?: components["parameters"]["DateTo"];
+                match_id?: string;
+                /** @description Telefon, match kodi, booking/to'lov id yoki provider tranzaksiya id */
+                q?: string;
+                limit?: components["parameters"]["AdminLimit"];
+                /** @description Admin jadvallari offset pagination ishlatadi (javobda `total`) */
+                offset?: components["parameters"]["Offset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description To'lovlar (`created_at` bo'yicha, eng yangisi birinchi) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminPaymentList"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    adminListRefunds: {
+        parameters: {
+            query?: {
+                status?: string;
+                destination?: string;
+                provider?: string;
+                q?: string;
+                limit?: components["parameters"]["AdminLimit"];
+                /** @description Admin jadvallari offset pagination ishlatadi (javobda `total`) */
+                offset?: components["parameters"]["Offset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Refund'lar */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminRefundList"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    adminCompleteRefund: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                refundId: components["parameters"]["RefundId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @example PAYME-RF-0001 */
+                    provider_refund_id: string;
+                    note?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Bajarildi */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminRefund"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    adminDashboard: {
+        parameters: {
+            query?: {
+                /** @description ISO 8601, offset bilan (kiritiladi) */
+                date_from?: components["parameters"]["DateFrom"];
+                /** @description ISO 8601, offset bilan (kiritilmaydi) */
+                date_to?: components["parameters"]["DateTo"];
+                city_id?: number;
+                currency?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Ko'rsatkichlar */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminDashboard"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
         };
     };
 }

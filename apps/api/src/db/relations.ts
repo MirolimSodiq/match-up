@@ -84,7 +84,12 @@ export const usersRelations = relations(users, ({one, many}) => ({
 		relationName: "bookings_userId_users_id"
 	}),
 	payments: many(payments),
-	refunds: many(refunds),
+	refunds_initiatedBy: many(refunds, {
+		relationName: "refunds_initiatedBy_users_id"
+	}),
+	refunds_processedBy: many(refunds, {
+		relationName: "refunds_processedBy_users_id"
+	}),
 	walletAccounts: many(walletAccounts),
 	consents: many(consents),
 	dataSubjectRequests_handledBy: many(dataSubjectRequests, {
@@ -463,13 +468,19 @@ export const refundsRelations = relations(refunds, ({one, many}) => ({
 		fields: [refunds.currency],
 		references: [currencies.code]
 	}),
-	user: one(users, {
+	user_initiatedBy: one(users, {
 		fields: [refunds.initiatedBy],
-		references: [users.id]
+		references: [users.id],
+		relationName: "refunds_initiatedBy_users_id"
 	}),
 	payment: one(payments, {
 		fields: [refunds.paymentId],
 		references: [payments.id]
+	}),
+	user_processedBy: one(users, {
+		fields: [refunds.processedBy],
+		references: [users.id],
+		relationName: "refunds_processedBy_users_id"
 	}),
 	walletTransactions: many(walletTransactions),
 }));
