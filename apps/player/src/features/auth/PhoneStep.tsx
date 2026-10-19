@@ -2,12 +2,11 @@ import { useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 import { useMutation } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { AuthLayout, Button, colors, ErrorText, fontFamily, Notice, radius, space, states } from '@matchup/ui';
 import { api, call } from '@/api/client';
 import { useSession } from '@/auth/session';
-import { colors, fontFamily, radius, space, states } from '@/components/theme';
-import { Button, ErrorText, Notice } from '@/components/ui';
 import { formatPhoneDigits, phoneDigits, toE164, UZ_PREFIX } from '@/features/phone';
-import { AuthLayout } from './AuthLayout';
+import { LanguagePicker } from '@/features/LanguagePicker';
 
 export interface OtpChallenge {
   phone: string;
@@ -34,7 +33,12 @@ export function PhoneStep({ onSent }: { onSent: (c: OtpChallenge) => void }) {
   };
 
   return (
-    <AuthLayout heroTitle={t('auth.heroTitle')} heroSubtitle={t('auth.tagline')} sheetTitle={t('auth.phoneSheetTitle')}>
+    <AuthLayout
+      heroTitle={t('auth.heroTitle')}
+      heroSubtitle={t('auth.tagline')}
+      sheetTitle={t('auth.phoneSheetTitle')}
+      topRight={<LanguagePicker variant="hero" />}
+    >
       {endedReason ? (
         <Notice tone="warning" icon="shield-outline">
           {endedReason === 'token_reused' ? t('auth.endedTokenReused') : t('auth.endedExpired')}

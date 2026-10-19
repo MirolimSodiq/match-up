@@ -9,16 +9,16 @@ Expo (React Native, TypeScript) — o'yinchi ilovasi: login, discovery, waiver, 
 | Server state | TanStack Query (`src/api/queries.ts`) |
 | i18n | i18next: `uz-Latn`, `ru`, `en` (`src/i18n/locales`); har so'rovda `Accept-Language` |
 | Token'lar | `expo-secure-store` (web dev preview'da `localStorage`) |
-| Dizayn | Och asos + sport ranglari: barcha rang, shrift, radius, soya va holatlar `src/components/theme.ts` da; ekranlarda hex rang yo'q |
+| Dizayn | [`@matchup/ui`](../../packages/ui) — och asos + sport ranglari: barcha rang, shrift, radius, soya va holatlar tokenlarda (`@matchup/ui/tokens`); ekranlarda hex rang yo'q |
 
 ## Dizayn tizimi
 
 - **Asos** — och fon `#F6F7FB` (tepasida yumshoq rangli gradient), oq va och kulrang konteynerlar (radius 16–20), asosiy pill tugma — to'q navy `#161B33`, matn `#12141A` / `#5F6675`.
 - **Sport ranglari** (`sportColors(sport)`): futbol — ko'k `#1F4FD8`, basketbol — to'q sariq `#C2410C`, voleybol — binafsha `#6D28D9`. O'yin bloklari, match detail, booking va QR chipta shu rangda, oq matn va xira sport teksturasi (`SportTexture`: maydon chiziqlari / to'p choklari) bilan.
-- Kontrast (WCAG AA) `theme.ts` boshida hisoblab yozilgan: oq matn barcha sport ranglarida ≥ 5.2; sport fonidagi kichik pill'lar oqartirilmaydi, aksincha `sportShade` (to'qroq qatlam) bilan ≥ 7.
+- Kontrast (WCAG AA) `packages/ui/src/tokens/index.ts` boshida hisoblab yozilgan: oq matn barcha sport ranglarida ≥ 5.2; sport fonidagi kichik pill'lar oqartirilmaydi, aksincha `sportShade` (to'qroq qatlam) bilan ≥ 7.
 - **Shriftlar**: katta UPPERCASE sarlavha, vaqt va summalar — Oswald (`@expo-google-fonts/oswald`, lotin + kirill, `o'`/`g'` va `ПРОФИЛЬ` tekshirilgan); matn — Inter (`@expo-google-fonts/inter`).
 - **Navigatsiya**: pastda suzuvchi shisha pill tab bar (`expo-blur`, faqat ikonalar, faol ikona to'q pill ichida); match detail, waiver, checkout va QR chipta — native bottom sheet (modal); booking — sport rangidagi sahifa.
-- Umumiy komponentlar `src/components/ui.tsx` da: `PageTitle`, `SheetScreen`/`SheetHeader`, `Button` (primary/secondary/light/glass/ghost/danger, uzun matn sig'masa biroz kichrayadi), `IconButton`, `Card`, `Chip` (ikonali), `Badge`, `Notice`, `ListRow` (✓ / bo'sh doira / "+" / toggle), `Group`, `SegmentedControl`, `Avatar`, `Toast` (to'q pill), `DashedLine`.
+- Umumiy komponentlar `@matchup/ui` da (Host ilovasi bilan umumiy): `PageTitle`, `SheetScreen`/`SheetHeader`, `Button` (primary/secondary/light/glass/ghost/danger, uzun matn sig'masa biroz kichrayadi), `IconButton`, `Card`, `Chip` (ikonali), `Badge`, `Notice`, `ListRow` (✓ / bo'sh doira / "+" / toggle), `Group`, `SegmentedControl`, `Avatar`, `Toast` (to'q pill), `DashedLine`.
 - Discovery va "Bandlarim" — sana bo'yicha timeline (`groupByDay` + `DayGroup` + `MatchBlock`): chapda hafta kuni va sana doirada, o'ngda sport rangidagi bloklar.
 - QR kod doim oq quti ichida, atrofida tinch zona bilan (skaner uchun); status bar — och ekranlarda to'q, login hero va booking sahifasida oq.
 

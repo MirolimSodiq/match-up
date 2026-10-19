@@ -2,7 +2,7 @@ import { Platform } from 'react-native';
 import * as Linking from 'expo-linking';
 import { router } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
-import { colors } from '@/components/theme';
+import { colors } from '@matchup/ui';
 
 /** Provider sahifasidan ilovaga qaytish manzili (dev: exp://…/--/booking/return, prod: matchup://booking/return). */
 export const paymentReturnUrl = () => Linking.createURL('booking/return');

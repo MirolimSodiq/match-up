@@ -1,6 +1,6 @@
 import { StyleSheet, View } from 'react-native';
-import { colors, space } from '@/components/theme';
-import { DashedLine } from '@/components/ui';
+import { colors, space } from '../tokens';
+import { DashedLine } from './primitives';
 
 const NOTCH = 22;
 

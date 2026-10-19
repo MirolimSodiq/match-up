@@ -9,9 +9,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView, type WebViewNavigation } from 'react-native-webview';
 import type { ShouldStartLoadRequest } from 'react-native-webview/lib/WebViewTypes';
 import { useTranslation } from 'react-i18next';
+import { Badge, Button, colors, EmptyState, IconButton, Notice, radius, space, type } from '@matchup/ui';
 import { qk, useBooking } from '@/api/queries';
-import { colors, radius, space, type } from '@/components/theme';
-import { Badge, Button, EmptyState, IconButton, Notice } from '@/components/ui';
 import { checkoutUrlFor, isPaymentReturn, openCheckout } from '@/features/payment';
 
 const HTTP = /^https?:\/\//i;

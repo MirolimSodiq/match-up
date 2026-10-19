@@ -4,12 +4,10 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useTranslation } from 'react-i18next';
+import { Button, colors, ErrorText, ErrorView, Footer, Loading, Markdown, SheetScreen, space, type } from '@matchup/ui';
 import { api, call } from '@/api/client';
 import { isApiError } from '@/api/errors';
 import { qk, useRequiredWaiver } from '@/api/queries';
-import { Markdown } from '@/components/Markdown';
-import { colors, space, type } from '@/components/theme';
-import { Button, ErrorText, ErrorView, Footer, Loading, SheetScreen } from '@/components/ui';
 
 /** Pastki chegaraga shuncha px qolganda "oxirigacha o'qildi" hisoblanadi. */
 const END_THRESHOLD = 24;

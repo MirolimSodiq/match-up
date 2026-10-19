@@ -2,14 +2,13 @@ import { useEffect, useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 import { useMutation } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { AuthLayout, Button, colors, ErrorText, fontFamily, IconButton, radius, space, states } from '@matchup/ui';
 import { api, call } from '@/api/client';
 import { useSession } from '@/auth/session';
-import { colors, fontFamily, radius, space, states } from '@/components/theme';
-import { Button, ErrorText, IconButton } from '@/components/ui';
 import { prettyPhone } from '@/features/phone';
+import { LanguagePicker } from '@/features/LanguagePicker';
 import { currentLocale } from '@/i18n';
 import { deviceInfo } from '@/lib/device';
-import { AuthLayout } from './AuthLayout';
 import type { OtpChallenge } from './PhoneStep';
 
 const CODE_LENGTH = 6;
@@ -59,6 +58,7 @@ export function OtpStep({ challenge, onBack }: { challenge: OtpChallenge; onBack
       sheetTitle={t('auth.otpTitle')}
       sheetSubtitle={t('auth.otpSubtitle', { phone: prettyPhone(challenge.phone) })}
       topLeft={<IconButton icon="chevron-back" label={t('auth.changePhone')} variant="glass" onPress={onBack} />}
+      topRight={<LanguagePicker variant="hero" />}
     >
       <View style={styles.cells}>
         {Array.from({ length: CODE_LENGTH }, (_, i) => (

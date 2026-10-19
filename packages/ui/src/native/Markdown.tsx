@@ -1,6 +1,6 @@
 import { Fragment } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { colors, fontFamily, space, type } from './theme';
+import { colors, fontFamily, space, type } from '../tokens';
 
 /** Huquqiy matn uchun o'qishga qulayroq o'lcham (och fonda to'q). */
 const doc = { ...type.body, fontSize: 16, lineHeight: 25 };

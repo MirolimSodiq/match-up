@@ -1,0 +1,10 @@
+{
+  "_comment": "Haqiqiy chipta: lokal backend GET /v1/bookings/{id}/ticket (2026-10-19). public_key — roster.qr_public_key bilan bir xil (apps/api/keys/ticket-public.pem, raw 32 bayt, base64url).",
+  "public_key": "lw89iZmb_XrnIqFCqhQ3T8FbsEeyjgzjfhs_ShEMQF0",
+  "match_id": "01a15444-ca04-79d5-ade3-0cd89067e2de",
+  "participant_id": "01a15444-ec67-7e1d-922a-285c603e8803",
+  "holder_name": "Player 1",
+  "exp": 1792438500,
+  "expires_at": "2026-10-19T19:35:00.000Z",
+  "qr_payload": "mu1.eyJwIjoiMDFhMTU0NDQtZWM2Ny03ZTFkLTkyMmEtMjg1YzYwM2U4ODAzIiwibSI6IjAxYTE1NDQ0LWNhMDQtNzlkNS1hZGUzLTBjZDg5MDY3ZTJkZSIsImUiOjE3OTI0Mzg1MDB9.iXszeAq6nc54kSM6oUEpqSJ80WGbrG1yxr3aTfmDqX3YxHS2fBSfcaoHCiGNWOXQ5Qx-XA6V78fv4bN6tr52Cw"
+}

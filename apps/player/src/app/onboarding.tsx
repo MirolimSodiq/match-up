@@ -5,12 +5,10 @@ import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 import type { ConsentInput, SkillLevel } from '@matchup/contracts';
+import { Button, Card, Chip, colors, Divider, ErrorText, ErrorView, fontFamily, Footer, IconButton, ListRow, Loading, radius, ScreenGlow, space, sportColors, SportIcon, type } from '@matchup/ui';
 import { api, call } from '@/api/client';
 import { useCities, useSports } from '@/api/queries';
 import { useSession } from '@/auth/session';
-import { colors, fontFamily, radius, space, sportColors, type } from '@/components/theme';
-import { Button, Card, Chip, Divider, ErrorText, ErrorView, Footer, IconButton, ListRow, Loading, ScreenGlow } from '@/components/ui';
-import { SportIcon } from '@/features/MatchCard';
 import { currentLocale } from '@/i18n';
 
 const LEVELS: SkillLevel[] = ['beginner', 'intermediate', 'advanced', 'pro'];

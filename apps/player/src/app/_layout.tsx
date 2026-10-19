@@ -1,18 +1,20 @@
 import '@/i18n';
-import { Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from '@expo-google-fonts/inter';
-import { Oswald_600SemiBold, Oswald_700Bold, useFonts } from '@expo-google-fonts/oswald';
-import { useEffect, useState } from 'react';
+import { type PropsWithChildren, useEffect, useMemo, useState } from 'react';
 import { AppState, Platform, StyleSheet, View } from 'react-native';
 import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { SplashScreen, Stack, ThemeProvider } from 'expo-router';
+import { DefaultTheme, SplashScreen, Stack, type Theme, ThemeProvider } from 'expo-router';
+import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
 import * as SystemUI from 'expo-system-ui';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
+import { Button, colors, ErrorView, fontAssets, fontFamily, navigationColors, ToastProvider, type UIConfig, UIProvider } from '@matchup/ui';
 import { ApiError } from '@/api/errors';
 import { SessionProvider, useSession } from '@/auth/session';
-import { colors, fontFamily, navigationTheme } from '@/components/theme';
-import { Button, ErrorView, ToastProvider } from '@/components/ui';
+import { errorMessage } from '@/i18n/errors';
+
+/** React Navigation mavzusi: header va ekran foni och. */
+const navigationTheme: Theme = { ...DefaultTheme, colors: { ...DefaultTheme.colors, ...navigationColors } };
 
 void SplashScreen.preventAutoHideAsync();
 // Klaviatura, modal va o'tishlar ortidagi ildiz fon ham ilova fonida bo'lsin
@@ -34,14 +36,7 @@ function makeQueryClient() {
 export default function RootLayout() {
   const [queryClient] = useState(makeQueryClient);
   // Shrift yuklanmasa ham ilova ishlaydi (tizim shriftiga qaytadi)
-  const [fontsLoaded, fontError] = useFonts({
-    Oswald_600SemiBold,
-    Oswald_700Bold,
-    Inter_400Regular,
-    Inter_500Medium,
-    Inter_600SemiBold,
-    Inter_700Bold,
-  });
+  const [fontsLoaded, fontError] = useFonts(fontAssets);
 
   // Ilova fonga o'tganda polling to'xtaydi, qaytganda (masalan, Payme ilovasidan) so'rovlar yangilanadi
   useEffect(() => {
@@ -55,15 +50,28 @@ export default function RootLayout() {
       <ThemeProvider value={navigationTheme}>
         <QueryClientProvider client={queryClient}>
           <SessionProvider>
-            <ToastProvider>
-              <StatusBar style="dark" />
-              {fontsLoaded || fontError ? <RootNavigator /> : null}
-            </ToastProvider>
+            <LocalizedUI>
+              <ToastProvider>
+                <StatusBar style="dark" />
+                {fontsLoaded || fontError ? <RootNavigator /> : null}
+              </ToastProvider>
+            </LocalizedUI>
           </SessionProvider>
         </QueryClientProvider>
       </ThemeProvider>
     </SafeAreaProvider>
   );
+}
+
+/** Dizayn tizimi komponentlaridagi umumiy matnlar va xato tarjimasi — joriy tilda. */
+function LocalizedUI({ children }: PropsWithChildren) {
+  const { t, i18n } = useTranslation();
+  const value = useMemo<UIConfig>(
+    () => ({ closeLabel: t('common.close'), retryLabel: t('common.retry'), formatError: (err) => errorMessage(t, err) }),
+    // `t` til bilan birga yangilanadi; `i18n.language` — aniqlik uchun
+    [t, i18n.language],
+  );
+  return <UIProvider value={value}>{children}</UIProvider>;
 }
 
 function RootNavigator() {

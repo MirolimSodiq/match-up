@@ -1,7 +1,7 @@
 import { useId } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Svg, { Circle, Defs, G, Line, LinearGradient, Mask, Path, Rect, Stop } from 'react-native-svg';
-import { colors } from '@/components/theme';
+import { colors } from '../tokens';
 
 /**
  * Sport rangidagi blok fonidagi xira tekstura (dekor; ekran o'quvchilardan yashirilgan):
