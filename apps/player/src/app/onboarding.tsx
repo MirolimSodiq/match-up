@@ -1,14 +1,16 @@
 import { useState } from 'react';
-import { Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useMutation } from '@tanstack/react-query';
+import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 import type { ConsentInput, SkillLevel } from '@matchup/contracts';
 import { api, call } from '@/api/client';
 import { useCities, useSports } from '@/api/queries';
 import { useSession } from '@/auth/session';
-import { colors, font, radius, space } from '@/components/theme';
-import { Body, Button, Card, Chip, ErrorText, ErrorView, Footer, H2, Loading, Muted, Screen } from '@/components/ui';
+import { colors, fontFamily, radius, space, sportColors, type } from '@/components/theme';
+import { Button, Card, Chip, Divider, ErrorText, ErrorView, Footer, IconButton, ListRow, Loading, ScreenGlow } from '@/components/ui';
+import { SportIcon } from '@/features/MatchCard';
 import { currentLocale } from '@/i18n';
 
 const LEVELS: SkillLevel[] = ['beginner', 'intermediate', 'advanced', 'pro'];
@@ -71,33 +73,42 @@ export default function OnboardingScreen() {
   }
 
   return (
-    <View style={[styles.flex, { paddingTop: insets.top }]}>
-      <View style={styles.header}>
-        {step > 1 ? (
-          <Pressable onPress={() => setStep(step - 1)} hitSlop={12}>
-            <Text style={styles.back}>‹ {t('common.back')}</Text>
-          </Pressable>
-        ) : (
-          <View />
-        )}
-        <Muted>{t('onboarding.step', { step, total: TOTAL })}</Muted>
-      </View>
-      <View style={styles.progress}>
-        <View style={[styles.progressFill, { width: `${(step / TOTAL) * 100}%` }]} />
+    <View style={styles.flex}>
+      {/* Login hero'sidan (oq status bar) keyin — och fon */}
+      <StatusBar style="dark" />
+      <ScreenGlow />
+      <View style={[styles.header, { paddingTop: insets.top + space.sm }]}>
+        <View style={styles.headerSide}>
+          {step > 1 ? <IconButton icon="chevron-back" label={t('common.back')} variant="light" onPress={() => setStep(step - 1)} /> : null}
+        </View>
+        <View
+          style={styles.progress}
+          accessible
+          accessibilityRole="progressbar"
+          accessibilityLabel={t('onboarding.step', { step, total: TOTAL })}
+          accessibilityValue={{ min: 1, max: TOTAL, now: step }}
+        >
+          {Array.from({ length: TOTAL }, (_, i) => (
+            <View key={i} style={[styles.progressBar, i < step && styles.progressBarDone]} />
+          ))}
+        </View>
+        <Text style={type.caption} numberOfLines={1}>
+          {t('onboarding.step', { step, total: TOTAL })}
+        </Text>
       </View>
 
-      <Screen>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         {step === 1 ? (
           <>
-            <H2>{t('onboarding.nameTitle')}</H2>
-            <Muted>{t('onboarding.nameHint')}</Muted>
+            <StepTitle title={t('onboarding.nameTitle')} hint={t('onboarding.nameHint')} />
             <TextInput
               testID="name-input"
               style={styles.input}
               value={name}
               onChangeText={setName}
               placeholder={t('onboarding.namePlaceholder')}
-              placeholderTextColor={colors.faint}
+              placeholderTextColor={colors.textMuted}
+              selectionColor={colors.primary}
               autoFocus
               autoCapitalize="words"
               textContentType="givenName"
@@ -111,37 +122,48 @@ export default function OnboardingScreen() {
 
         {step === 2 ? (
           <>
-            <H2>{t('onboarding.cityTitle')}</H2>
-            <Muted>{t('onboarding.cityHint')}</Muted>
-            {cities.data.map((c) => (
-              <Card key={c.id} onPress={() => setCityId(c.id)} style={[styles.option, cityId === c.id && styles.optionSelected]}>
-                <Body style={cityId === c.id ? styles.optionTextSelected : undefined}>{c.name}</Body>
-              </Card>
-            ))}
+            <StepTitle title={t('onboarding.cityTitle')} hint={t('onboarding.cityHint')} />
+            <Card tone="white" style={styles.list}>
+              {cities.data.map((c, i) => (
+                <View key={c.id}>
+                  {i > 0 ? <Divider /> : null}
+                  <ListRow
+                    icon="business-outline"
+                    title={c.name ?? ''}
+                    accessory={cityId === c.id ? 'check' : 'radio'}
+                    onPress={() => setCityId(c.id)}
+                  />
+                </View>
+              ))}
+            </Card>
           </>
         ) : null}
 
         {step === 3 ? (
           <>
-            <H2>{t('onboarding.sportsTitle')}</H2>
-            <Muted>{t('onboarding.sportsHint')}</Muted>
+            <StepTitle title={t('onboarding.sportsTitle')} hint={t('onboarding.sportsHint')} />
             {sports.data.map((s) => {
               const code = s.code ?? '';
               const selected = levels[code];
+              const sc = sportColors(code);
               return (
-                <Card key={code}>
+                <Card key={code} tone="white" style={styles.sport}>
                   <View style={styles.sportHeader}>
-                    <Text style={font.h3}>{s.name}</Text>
+                    <View style={[styles.sportIcon, { backgroundColor: sc.base }]}>
+                      <SportIcon sport={code} size={20} color={colors.onSport} />
+                    </View>
+                    <Text style={[type.h3, styles.flexShrink]}>{s.name}</Text>
                     {selected ? (
-                      <Pressable
-                        hitSlop={8}
+                      <IconButton
+                        icon="close"
+                        label={t('common.close')}
+                        variant="muted"
+                        size={32}
                         onPress={() => {
                           const { [code]: _, ...rest } = levels;
                           setLevels(rest);
                         }}
-                      >
-                        <Text style={styles.clear}>✕</Text>
-                      </Pressable>
+                      />
                     ) : null}
                   </View>
                   <View style={styles.chips}>
@@ -157,40 +179,38 @@ export default function OnboardingScreen() {
 
         {step === 4 ? (
           <>
-            <H2>{t('onboarding.consentsTitle')}</H2>
-            <Muted>{t('onboarding.consentsHint')}</Muted>
-            <Card style={{ gap: space.md }}>
-              <ConsentRow
-                label={t('onboarding.consentTerms')}
-                tag={t('common.required')}
-                value={consents.terms}
-                onChange={(v) => setConsents({ ...consents, terms: v })}
+            <StepTitle title={t('onboarding.consentsTitle')} hint={t('onboarding.consentsHint')} />
+            <Card tone="white" style={styles.list}>
+              <ListRow
+                title={t('onboarding.consentTerms')}
+                subtitle={t('common.required')}
+                toggle={{ value: consents.terms, onChange: (v) => setConsents({ ...consents, terms: v }) }}
               />
-              <ConsentRow
-                label={t('onboarding.consentPrivacy')}
-                tag={t('common.required')}
-                value={consents.privacy}
-                onChange={(v) => setConsents({ ...consents, privacy: v })}
+              <Divider />
+              <ListRow
+                title={t('onboarding.consentPrivacy')}
+                subtitle={t('common.required')}
+                toggle={{ value: consents.privacy, onChange: (v) => setConsents({ ...consents, privacy: v }) }}
               />
-              <ConsentRow
-                label={t('onboarding.consentMarketing')}
-                tag={t('common.optional')}
-                value={consents.marketing}
-                onChange={(v) => setConsents({ ...consents, marketing: v })}
+              <Divider />
+              <ListRow
+                title={t('onboarding.consentMarketing')}
+                subtitle={t('common.optional')}
+                toggle={{ value: consents.marketing, onChange: (v) => setConsents({ ...consents, marketing: v }) }}
               />
-              <ConsentRow
-                label={t('onboarding.consentMedia')}
-                tag={t('common.optional')}
-                value={consents.media}
-                onChange={(v) => setConsents({ ...consents, media: v })}
+              <Divider />
+              <ListRow
+                title={t('onboarding.consentMedia')}
+                subtitle={t('common.optional')}
+                toggle={{ value: consents.media, onChange: (v) => setConsents({ ...consents, media: v }) }}
               />
             </Card>
           </>
         ) : null}
         <ErrorText error={finish.error} />
-      </Screen>
+      </ScrollView>
 
-      <Footer>
+      <Footer transparent>
         <Button
           testID="onboarding-next"
           title={step < TOTAL ? t('common.continue') : t('onboarding.finish')}
@@ -203,52 +223,43 @@ export default function OnboardingScreen() {
   );
 }
 
-function ConsentRow({ label, tag, value, onChange }: { label: string; tag: string; value: boolean; onChange: (v: boolean) => void }) {
-  // Butun qator bosiladi — faqat kichik switch emas
+function StepTitle({ title, hint }: { title: string; hint: string }) {
   return (
-    <Pressable
-      accessibilityRole="switch"
-      accessibilityState={{ checked: value }}
-      onPress={() => onChange(!value)}
-      style={styles.consent}
-    >
-      <View style={{ flex: 1 }}>
-        <Body>{label}</Body>
-        <Muted>{tag}</Muted>
-      </View>
-      <Switch value={value} onValueChange={onChange} trackColor={{ true: colors.primary, false: colors.border }} />
-    </Pressable>
+    <View style={styles.stepTitle}>
+      <Text style={type.display} accessibilityRole="header">
+        {title}
+      </Text>
+      <Text style={type.small}>{hint}</Text>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.bg },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: space.lg,
-    paddingVertical: space.md,
-  },
-  back: { color: colors.primary, fontSize: 15, fontWeight: '600' },
-  progress: { height: 4, backgroundColor: colors.border, marginHorizontal: space.lg, borderRadius: 2 },
-  progressFill: { height: 4, backgroundColor: colors.primary, borderRadius: 2 },
+  flexShrink: { flex: 1 },
+  header: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.lg, paddingBottom: space.sm },
+  headerSide: { width: 40 },
+  scroll: { flex: 1 },
+  progress: { flex: 1, flexDirection: 'row', gap: 6 },
+  progressBar: { flex: 1, height: 5, borderRadius: radius.pill, backgroundColor: colors.surfaceSunken },
+  progressBarDone: { backgroundColor: colors.primary },
+  content: { padding: space.lg, gap: space.md },
+  stepTitle: { gap: space.xs, marginBottom: space.sm },
   input: {
-    backgroundColor: colors.card,
-    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    borderRadius: radius.pill,
     borderWidth: 1,
     borderColor: colors.border,
-    paddingHorizontal: space.lg,
-    paddingVertical: 14,
+    paddingHorizontal: space.xl,
+    paddingVertical: 15,
+    fontFamily: fontFamily.medium,
     fontSize: 18,
     color: colors.text,
   },
-  error: { color: colors.danger, fontSize: 14 },
-  option: { paddingVertical: space.lg },
-  optionSelected: { borderColor: colors.primary, borderWidth: 2, backgroundColor: colors.primarySoft },
-  optionTextSelected: { fontWeight: '700', color: colors.primaryDark },
-  sportHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  clear: { color: colors.muted, fontSize: 16 },
+  error: { fontFamily: fontFamily.medium, color: colors.danger, fontSize: 14 },
+  list: { paddingVertical: space.xs, gap: 0 },
+  sport: { gap: space.md },
+  sportHeader: { flexDirection: 'row', alignItems: 'center', gap: space.md },
+  sportIcon: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
-  consent: { flexDirection: 'row', alignItems: 'center', gap: space.md },
 });

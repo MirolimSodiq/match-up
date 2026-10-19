@@ -1,31 +1,179 @@
-export const colors = {
-  primary: '#0E7C66',
-  primaryDark: '#0A5E4E',
-  primarySoft: '#E3F3EF',
-  accent: '#FF7A00',
-  accentSoft: '#FFF1E5',
-  danger: '#D93025',
-  dangerSoft: '#FDECEA',
-  warning: '#B26A00',
-  warningSoft: '#FFF6E0',
-  info: '#1F6FEB',
-  infoSoft: '#E8F0FE',
-  bg: '#F5F6F8',
-  card: '#FFFFFF',
-  border: '#E3E6EA',
-  text: '#111827',
-  muted: '#6B7280',
-  faint: '#9CA3AF',
+import { Platform, type TextStyle, type ViewStyle } from 'react-native';
+import { DefaultTheme, type Theme } from 'expo-router';
+
+/**
+ * Match Up dizayn tizimi — och asos + sport ranglari.
+ * Ekranlarda hex rang yozilmaydi: hamma narsa shu fayldagi tokenlardan olinadi.
+ *
+ * Kontrast (WCAG 2.1, hisoblangan):
+ *   text      #12141A / bg #F6F7FB — 17.2
+ *   textMuted #5F6675 / bg #F6F7FB — 5.4, / surfaceMuted #EEF1F6 — 5.1, / oq — 5.8
+ *   oq / primary #161B33 — 17.0
+ *   oq / futbol #1F4FD8 — 6.6 (80% oq — 4.7), oq / basketbol #C2410C — 5.2, oq / voleybol #6D28D9 — 7.1 (80% — 4.9)
+ *   danger #B91C1C / oq — 6.5, success #15803D / oq — 5.0
+ */
+const palette = {
+  ink: '#12141A',
+  navy: '#161B33',
+  navySoft: '#232A4A',
   white: '#FFFFFF',
+  bg: '#F6F7FB',
+  gray100: '#EEF1F6',
+  gray200: '#E3E7EE',
+  gray300: '#CDD3DD',
+  gray500: '#5F6675',
+  red: '#B91C1C',
+  green: '#15803D',
+  amber: '#B45309',
 } as const;
 
-export const space = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 } as const;
-export const radius = { sm: 8, md: 12, lg: 16, pill: 999 } as const;
+const alpha = (hex: string, a: number) => {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+};
 
-export const font = {
-  h1: { fontSize: 28, fontWeight: '700' as const, color: colors.text },
-  h2: { fontSize: 20, fontWeight: '700' as const, color: colors.text },
-  h3: { fontSize: 16, fontWeight: '600' as const, color: colors.text },
-  body: { fontSize: 15, color: colors.text, lineHeight: 21 },
-  small: { fontSize: 13, color: colors.muted, lineHeight: 18 },
+export const colors = {
+  // Fon va konteynerlar
+  bg: palette.bg,
+  surface: palette.white,
+  surfaceMuted: palette.gray100,
+  surfaceSunken: palette.gray200,
+  border: palette.gray200,
+  borderStrong: palette.gray300,
+  overlay: alpha(palette.navy, 0.45),
+  glass: alpha(palette.white, 0.78),
+  glassBorder: alpha(palette.white, 0.9),
+
+  // Matn
+  text: palette.ink,
+  textMuted: palette.gray500,
+  textInverse: palette.white,
+
+  // Asosiy pill tugma — to'q navy
+  primary: palette.navy,
+  primarySoft: palette.navySoft,
+  onPrimary: palette.white,
+  /** To'q (navy/hero) fonda ikkinchi darajali matn — kontrast 10+ */
+  onPrimaryMuted: alpha(palette.white, 0.74),
+  heroGlass: alpha(palette.white, 0.12),
+  heroGlassBorder: alpha(palette.white, 0.2),
+
+  success: palette.green,
+  successSoft: alpha(palette.green, 0.1),
+  danger: palette.red,
+  dangerSoft: alpha(palette.red, 0.08),
+  warning: palette.amber,
+  warningSoft: alpha(palette.amber, 0.1),
+
+  // Sport rangidagi ekran/kartalar ichida
+  onSport: palette.white,
+  sportGlass: alpha(palette.white, 0.14),
+  sportGlassStrong: alpha(palette.white, 0.22),
+  sportGlassBorder: alpha(palette.white, 0.24),
+  /** Sport fonidagi kichik pill'lar uchun to'qroq qatlam — oq matn kontrasti oshadi (oqartirmaydi). */
+  sportShade: alpha(palette.ink, 0.22),
+  sportTexture: palette.white,
+
+  // QR maydoni — doim oq, to'q modullar (skaner ishonchli o'qishi uchun)
+  qrSurface: palette.white,
+  qrInk: palette.ink,
+
+  // Provayder belgilari
+  payme: '#33CCCC',
+  click: '#0073FF',
+  wallet: palette.navy,
+} as const;
+
+export interface SportColors {
+  /** To'yingan fon rangi (karta, detal ekrani). */
+  base: string;
+  /** Pastki gradient uchun to'qroq ton. */
+  deep: string;
+  /** Ikkinchi darajali matn (yorliq) — kontrast AA'dan past tushmaydi. */
+  muted: string;
+  /** Och fonda kichik belgi/tekst uchun. */
+  tint: string;
+}
+
+/** Bitta sport — bitta rang, ilovaning hamma joyida bir xil. */
+const SPORTS: Record<string, SportColors> = {
+  football: { base: '#1F4FD8', deep: '#1838A8', muted: alpha(palette.white, 0.8), tint: alpha('#1F4FD8', 0.1) },
+  // Yorqin to'q sariq (#F2622E) oq matn bilan 3.2 — AA emas; shuning uchun chuqurroq ton
+  basketball: { base: '#C2410C', deep: '#9A3412', muted: palette.white, tint: alpha('#C2410C', 0.1) },
+  volleyball: { base: '#6D28D9', deep: '#5B21B6', muted: alpha(palette.white, 0.8), tint: alpha('#6D28D9', 0.1) },
+};
+const DEFAULT_SPORT: SportColors = { base: '#0F766E', deep: '#115E59', muted: palette.white, tint: alpha('#0F766E', 0.1) };
+
+export const sportColors = (sport: string | undefined | null): SportColors => (sport && SPORTS[sport]) || DEFAULT_SPORT;
+
+export const gradients = {
+  /** Ekran tepasidagi yumshoq rangli "nur". */
+  screenTop: [alpha('#8EA2FF', 0.22), alpha('#FFC6A8', 0.12), alpha(palette.bg, 0)] as const,
+  /** Login hero — to'q. */
+  hero: ['#0E1430', '#1B1F4D', '#2A1F5C'] as const,
+  /** Profil "hamyon" banneri. */
+  promo: [palette.navy, '#26205A'] as const,
+};
+
+export const space = { xxs: 2, xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 } as const;
+export const radius = { sm: 10, md: 16, lg: 20, xl: 28, pill: 999 } as const;
+
+/**
+ * Display — Oswald (siqilgan, lotin + kirill), faqat UPPERCASE sarlavha/vaqt/summa uchun.
+ * Matn — Inter (lotin + kirill).
+ */
+export const fontFamily = {
+  display: 'Oswald_700Bold',
+  displaySemi: 'Oswald_600SemiBold',
+  regular: 'Inter_400Regular',
+  medium: 'Inter_500Medium',
+  semibold: 'Inter_600SemiBold',
+  bold: 'Inter_700Bold',
+} as const;
+
+export const type = {
+  display: { fontFamily: fontFamily.display, fontSize: 34, lineHeight: 40, textTransform: 'uppercase', color: colors.text },
+  displayL: { fontFamily: fontFamily.display, fontSize: 44, lineHeight: 50, textTransform: 'uppercase', color: colors.text },
+  /** Detal ekranidagi katta vaqt. */
+  clock: { fontFamily: fontFamily.display, fontSize: 76, lineHeight: 84, color: colors.onSport },
+  title: { fontFamily: fontFamily.bold, fontSize: 20, lineHeight: 26, color: colors.text },
+  h3: { fontFamily: fontFamily.semibold, fontSize: 17, lineHeight: 22, color: colors.text },
+  section: { fontFamily: fontFamily.bold, fontSize: 17, lineHeight: 22, color: colors.text },
+  body: { fontFamily: fontFamily.regular, fontSize: 15, lineHeight: 22, color: colors.text },
+  bodyStrong: { fontFamily: fontFamily.semibold, fontSize: 15, lineHeight: 22, color: colors.text },
+  small: { fontFamily: fontFamily.regular, fontSize: 13, lineHeight: 18, color: colors.textMuted },
+  smallStrong: { fontFamily: fontFamily.semibold, fontSize: 13, lineHeight: 18, color: colors.text },
+  caption: { fontFamily: fontFamily.medium, fontSize: 12, lineHeight: 16, color: colors.textMuted },
+  button: { fontFamily: fontFamily.semibold, fontSize: 16 },
+} satisfies Record<string, TextStyle>;
+
+/** Interaktiv holatlar — barcha tugma, chip va kartalar uchun bir xil. */
+export const states = {
+  pressedOpacity: 0.85,
+  pressedScale: 0.98,
+  disabledOpacity: 0.4,
+  focusBorder: colors.primary,
+} as const;
+
+type Shadow = Pick<ViewStyle, 'shadowColor' | 'shadowOpacity' | 'shadowRadius' | 'shadowOffset' | 'elevation'>;
+
+/** Yumshoq soya (och mavzu): suzuvchi tab bar, faol segment, bottom sheet. */
+export function shadow(level: 1 | 2 | 3 = 1): Shadow {
+  const s = { 1: [0.06, 6, 2, 2], 2: [0.1, 14, 6, 6], 3: [0.16, 24, 10, 12] }[level] as [number, number, number, number];
+  if (Platform.OS === 'android') return { elevation: s[3] };
+  return { shadowColor: palette.navy, shadowOpacity: s[0], shadowRadius: s[1], shadowOffset: { width: 0, height: s[2] } };
+}
+
+/** React Navigation mavzusi: header va ekran foni och. */
+export const navigationTheme: Theme = {
+  ...DefaultTheme,
+  colors: {
+    ...DefaultTheme.colors,
+    primary: colors.primary,
+    background: colors.bg,
+    card: colors.bg,
+    text: colors.text,
+    border: colors.border,
+    notification: colors.danger,
+  },
 };

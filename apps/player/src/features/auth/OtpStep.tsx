@@ -1,22 +1,21 @@
 import { useEffect, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { StyleSheet, Text, TextInput, View } from 'react-native';
 import { useMutation } from '@tanstack/react-query';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 import { api, call } from '@/api/client';
 import { useSession } from '@/auth/session';
-import { colors, radius, space } from '@/components/theme';
-import { Body, Button, ErrorText, H2 } from '@/components/ui';
+import { colors, fontFamily, radius, space, states } from '@/components/theme';
+import { Button, ErrorText, IconButton } from '@/components/ui';
 import { prettyPhone } from '@/features/phone';
 import { currentLocale } from '@/i18n';
 import { deviceInfo } from '@/lib/device';
+import { AuthLayout } from './AuthLayout';
 import type { OtpChallenge } from './PhoneStep';
 
 const CODE_LENGTH = 6;
 
 export function OtpStep({ challenge, onBack }: { challenge: OtpChallenge; onBack: () => void }) {
   const { t } = useTranslation();
-  const insets = useSafeAreaInsets();
   const { signIn } = useSession();
   const [challengeId, setChallengeId] = useState(challenge.challengeId);
   const [code, setCode] = useState('');
@@ -55,73 +54,68 @@ export function OtpStep({ challenge, onBack }: { challenge: OtpChallenge; onBack
   };
 
   return (
-    <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <View style={[styles.container, { paddingTop: insets.top + space.lg, paddingBottom: insets.bottom + space.lg }]}>
-        <Pressable onPress={onBack} hitSlop={12}>
-          <Text style={styles.link}>‹ {t('auth.changePhone')}</Text>
-        </Pressable>
-        <View style={{ gap: space.sm }}>
-          <H2>{t('auth.otpTitle')}</H2>
-          <Body style={{ color: colors.muted }}>{t('auth.otpSubtitle', { phone: prettyPhone(challenge.phone) })}</Body>
-        </View>
-
-        <View style={styles.cells}>
-          {Array.from({ length: CODE_LENGTH }, (_, i) => (
-            <View key={i} style={[styles.cell, i === code.length && styles.cellActive]}>
-              <Text style={styles.cellText}>{code[i] ?? ''}</Text>
-            </View>
-          ))}
-          {/* Katakchalar ustidagi shaffof input: tap, SMS'dan avtomatik to'ldirish (oneTimeCode) va paste ishlaydi */}
-          <TextInput
-            testID="otp-input"
-            value={code}
-            onChangeText={onChange}
-            keyboardType="number-pad"
-            textContentType="oneTimeCode"
-            autoComplete="sms-otp"
-            autoFocus
-            caretHidden
-            maxLength={CODE_LENGTH}
-            style={styles.overlayInput}
-          />
-        </View>
-
-        <ErrorText error={verify.error ?? resend.error} />
-        <Button
-          testID="verify"
-          title={t('auth.verify')}
-          onPress={() => verify.mutate(code)}
-          disabled={code.length !== CODE_LENGTH}
-          loading={verify.isPending}
-        />
-        <Button
-          variant="ghost"
-          title={left > 0 ? t('auth.resendIn', { seconds: left }) : t('auth.resend')}
-          disabled={left > 0}
-          loading={resend.isPending}
-          onPress={() => resend.mutate()}
+    <AuthLayout
+      heroTitle={t('auth.heroTitle')}
+      sheetTitle={t('auth.otpTitle')}
+      sheetSubtitle={t('auth.otpSubtitle', { phone: prettyPhone(challenge.phone) })}
+      topLeft={<IconButton icon="chevron-back" label={t('auth.changePhone')} variant="glass" onPress={onBack} />}
+    >
+      <View style={styles.cells}>
+        {Array.from({ length: CODE_LENGTH }, (_, i) => (
+          <View key={i} style={[styles.cell, i < code.length && styles.cellFilled, i === code.length && styles.cellActive]}>
+            <Text style={styles.cellText}>{code[i] ?? ''}</Text>
+          </View>
+        ))}
+        {/* Katakchalar ustidagi shaffof input: tap, SMS'dan avtomatik to'ldirish (oneTimeCode) va paste ishlaydi */}
+        <TextInput
+          testID="otp-input"
+          accessibilityLabel={t('auth.otpTitle')}
+          value={code}
+          onChangeText={onChange}
+          keyboardType="number-pad"
+          textContentType="oneTimeCode"
+          autoComplete="sms-otp"
+          autoFocus
+          caretHidden
+          maxLength={CODE_LENGTH}
+          style={styles.overlayInput}
         />
       </View>
-    </KeyboardAvoidingView>
+
+      <ErrorText error={verify.error ?? resend.error} />
+      <Button
+        testID="verify"
+        title={t('auth.verify')}
+        onPress={() => verify.mutate(code)}
+        disabled={code.length !== CODE_LENGTH}
+        loading={verify.isPending}
+      />
+      <Button
+        variant="ghost"
+        title={left > 0 ? t('auth.resendIn', { seconds: left }) : t('auth.resend')}
+        disabled={left > 0}
+        loading={resend.isPending}
+        onPress={() => resend.mutate()}
+      />
+    </AuthLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colors.bg },
-  container: { flex: 1, paddingHorizontal: space.xl, gap: space.lg },
-  link: { color: colors.primary, fontSize: 15, fontWeight: '600' },
-  cells: { flexDirection: 'row', justifyContent: 'space-between', marginTop: space.md },
+  cells: { flexDirection: 'row', justifyContent: 'space-between', gap: space.sm },
   cell: {
-    width: 48,
-    height: 58,
+    flex: 1,
+    maxWidth: 54,
+    height: 60,
     borderRadius: radius.md,
     borderWidth: 1.5,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
+    borderColor: colors.surfaceMuted,
+    backgroundColor: colors.surfaceMuted,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  cellActive: { borderColor: colors.primary },
-  cellText: { fontSize: 24, fontWeight: '700', color: colors.text },
+  cellFilled: { backgroundColor: colors.surface, borderColor: colors.borderStrong },
+  cellActive: { backgroundColor: colors.surface, borderColor: states.focusBorder },
+  cellText: { fontFamily: fontFamily.display, fontSize: 28, color: colors.text },
   overlayInput: { ...StyleSheet.absoluteFill, opacity: 0.02, color: 'transparent', fontSize: 1 },
 });

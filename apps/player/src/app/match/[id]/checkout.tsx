@@ -1,6 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useTranslation } from 'react-i18next';
@@ -8,9 +8,12 @@ import type { PaymentProvider } from '@matchup/contracts';
 import { api, call } from '@/api/client';
 import { ApiError, isApiError } from '@/api/errors';
 import { qk, useMatch, usePaymentMethods, useRequiredWaiver } from '@/api/queries';
-import { colors, font, radius, space } from '@/components/theme';
-import { Body, Button, Card, Divider, ErrorText, ErrorView, Footer, Loading, Muted, Notice, Row, Screen } from '@/components/ui';
+import { colors, fontFamily, radius, space, sportColors, states, type } from '@/components/theme';
+import { Button, ErrorText, ErrorView, Footer, Loading, Notice, SheetScreen } from '@/components/ui';
+import { SportIcon } from '@/features/MatchCard';
+import { Perforation } from '@/features/Perforation';
 import { paymentReturnUrl, PROVIDER_COLORS, rememberCheckout } from '@/features/payment';
+import { SportTexture } from '@/features/SportTexture';
 import { currentLocale } from '@/i18n';
 import { formatDay, formatTime } from '@/lib/datetime';
 import { uuid } from '@/lib/device';
@@ -70,17 +73,19 @@ export default function CheckoutScreen() {
     },
     // Javob kelmay qolgan bo'lsa (tarmoq) — o'sha Idempotency-Key bilan xavfsiz qayta yuboramiz
     retry: (count, err) => isApiError(err, 'NETWORK') && count < 2,
-    onSuccess: async ({ booking, checkout }) => {
+    onSuccess: ({ booking, checkout }) => {
       queryClient.setQueryData(qk.booking(booking.id), booking);
       void queryClient.invalidateQueries({ queryKey: ['match'] });
       void queryClient.invalidateQueries({ queryKey: ['my-bookings'] });
       void queryClient.invalidateQueries({ queryKey: qk.wallet });
+      // Match va to'lov sheet'lari yopiladi — band ekrani tab'lar ustida oddiy sahifa bo'lib ochiladi
+      router.dismissAll();
       if (checkout.type === 'redirect') {
         rememberCheckout(booking.id, checkout.url);
-        router.replace({ pathname: '/booking/[id]', params: { id: booking.id, pay: '1' } });
+        router.push({ pathname: '/booking/[id]', params: { id: booking.id, pay: '1' } });
       } else {
         // type: none — hamyon to'liq yopdi, booking allaqachon confirmed
-        router.replace({ pathname: '/booking/[id]', params: { id: booking.id } });
+        router.push({ pathname: '/booking/[id]', params: { id: booking.id } });
       }
     },
     onError: (err) => {
@@ -89,78 +94,106 @@ export default function CheckoutScreen() {
     },
   });
 
-  if (match.isPending || waiver.isPending || methods.isPending) return <Loading />;
+  const close = () => router.back();
+  if (match.isPending || waiver.isPending || methods.isPending) {
+    return (
+      <SheetScreen onClose={close}>
+        <Loading />
+      </SheetScreen>
+    );
+  }
   const error = match.error ?? waiver.error ?? methods.error;
   if (error) {
     return (
-      <ErrorView
-        error={error}
-        onRetry={() => void Promise.all([match.refetch(), waiver.refetch(), methods.refetch()])}
-      />
+      <SheetScreen onClose={close}>
+        <ErrorView error={error} onRetry={() => void Promise.all([match.refetch(), waiver.refetch(), methods.refetch()])} />
+      </SheetScreen>
     );
   }
   const m = match.data!;
+  const sc = sportColors(m.sport);
   const list = methods.data?.methods ?? [];
 
   return (
-    <View style={styles.flex}>
-      <Screen>
-        <Card>
-          <Muted>{t('checkout.order')}</Muted>
-          <Text style={font.h3}>{m.title || m.venue.name}</Text>
-          <Body>
-            {formatDay(m.starts_at, m.timezone, locale)}, {formatTime(m.starts_at, m.timezone)}
-          </Body>
-          <Muted>{m.venue.name}</Muted>
-          <Divider />
-          <Row label={t('checkout.seat')} value={money(m.price)} />
-          <Row label={t('checkout.total')} value={money(m.price)} strong />
-        </Card>
+    <SheetScreen title={t('checkout.title')} onClose={close}>
+      <ScrollView style={styles.flex} contentContainerStyle={styles.content}>
+        {/* Buyurtma — sport rangidagi "chek" */}
+        <View style={[styles.order, { backgroundColor: sc.base }]}>
+          <SportTexture sport={m.sport} />
+          <View style={styles.orderTop}>
+            <View style={styles.pill}>
+              <SportIcon sport={m.sport} size={14} color={colors.onSport} />
+              <Text style={styles.pillText}>{m.format}</Text>
+            </View>
+            {m.public_code ? <Text style={[styles.code, { color: sc.muted }]}>{m.public_code}</Text> : null}
+          </View>
+          <Text style={styles.orderTitle}>{m.title || m.venue.name}</Text>
+          <Text style={[styles.orderMeta, { color: sc.muted }]}>
+            {formatDay(m.starts_at, m.timezone, locale)} · {formatTime(m.starts_at, m.timezone)}–{formatTime(m.ends_at, m.timezone)}
+          </Text>
+          {m.venue.name ? <Text style={[styles.orderMeta, { color: sc.muted }]}>{m.venue.name}</Text> : null}
+          <Perforation notchColor={colors.surface} edgeColor={colors.surface} lineColor={colors.sportGlassBorder} />
+          <View style={styles.totalRow}>
+            <View>
+              <Text style={[styles.orderMeta, { color: sc.muted }]}>{t('checkout.total')}</Text>
+              <Text style={styles.orderMeta}>{t('checkout.seat')}</Text>
+            </View>
+            <Text style={styles.total}>{money(m.price)}</Text>
+          </View>
+        </View>
 
-        <Text style={[font.h3, { marginTop: space.sm }]}>{t('checkout.method')}</Text>
+        <Text style={styles.section}>{t('checkout.method')}</Text>
         {list.length === 0 ? <Notice tone="warning">{t('checkout.noMethods')}</Notice> : null}
-        {list.map((pm) => {
-          const p = pm.provider!;
-          const isWallet = p === 'wallet';
-          const disabled = isWallet && !walletEnough;
-          const active = provider === p;
-          return (
-            <Pressable
-              key={p}
-              testID={`method-${p}`}
-              accessibilityRole="radio"
-              accessibilityState={{ checked: active, disabled }}
-              disabled={disabled}
-              onPress={() => setSelected(p)}
-              style={[styles.method, active && styles.methodActive, disabled && styles.methodDisabled]}
-            >
-              <View style={[styles.methodIcon, { backgroundColor: PROVIDER_COLORS[p] ?? colors.muted }]}>
-                {isWallet ? (
-                  <Ionicons name="wallet-outline" size={20} color={colors.white} />
-                ) : (
-                  <Text style={styles.methodLetter}>{(pm.display_name ?? p).slice(0, 1)}</Text>
-                )}
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={font.h3}>{pm.display_name ?? p}</Text>
-                {isWallet ? (
-                  <Muted>
-                    {t('checkout.balance', { amount: money(balance) })}
-                    {disabled ? ` · ${t('checkout.insufficient')}` : ''}
-                  </Muted>
-                ) : null}
-              </View>
-              <Ionicons
-                name={active ? 'radio-button-on' : 'radio-button-off'}
-                size={22}
-                color={active ? colors.primary : colors.faint}
-              />
-            </Pressable>
-          );
-        })}
-        <Muted style={{ textAlign: 'center' }}>{t('checkout.holdNote')}</Muted>
-      </Screen>
-      <Footer>
+        <View style={styles.methods}>
+          {list.map((pm, i) => {
+            const p = pm.provider!;
+            const isWallet = p === 'wallet';
+            const disabled = isWallet && !walletEnough;
+            const active = provider === p;
+            return (
+              <Pressable
+                key={p}
+                testID={`method-${p}`}
+                accessibilityRole="radio"
+                accessibilityState={{ checked: active, disabled }}
+                disabled={disabled}
+                onPress={() => setSelected(p)}
+                style={({ pressed }) => [
+                  styles.method,
+                  i > 0 && styles.methodBorder,
+                  disabled && styles.methodDisabled,
+                  pressed && !disabled && { opacity: states.pressedOpacity },
+                ]}
+              >
+                <View style={[styles.methodIcon, { backgroundColor: PROVIDER_COLORS[p] ?? colors.surfaceSunken }]}>
+                  {isWallet ? (
+                    <Ionicons name="wallet" size={19} color={colors.onPrimary} />
+                  ) : (
+                    <Text style={styles.methodLetter}>{(pm.display_name ?? p).slice(0, 1)}</Text>
+                  )}
+                </View>
+                <View style={styles.flex}>
+                  <Text style={type.bodyStrong}>{pm.display_name ?? p}</Text>
+                  {isWallet ? (
+                    <Text style={[type.small, disabled && { color: colors.danger }]}>
+                      {t('checkout.balance', { amount: money(balance) })}
+                      {disabled ? ` · ${t('checkout.insufficient')}` : ''}
+                    </Text>
+                  ) : null}
+                </View>
+                <View style={[styles.radio, active && styles.radioActive]}>
+                  {active ? <Ionicons name="checkmark" size={16} color={colors.onPrimary} /> : null}
+                </View>
+              </Pressable>
+            );
+          })}
+        </View>
+        <View style={styles.holdNote}>
+          <Ionicons name="lock-closed" size={13} color={colors.textMuted} />
+          <Text style={[type.small, styles.flexShrink]}>{t('checkout.holdNote')}</Text>
+        </View>
+      </ScrollView>
+      <Footer transparent>
         <ErrorText error={book.error} />
         <Button
           testID="pay"
@@ -170,24 +203,48 @@ export default function CheckoutScreen() {
           onPress={() => provider && book.mutate({ provider, idempotencyKey: uuid() })}
         />
       </Footer>
-    </View>
+    </SheetScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colors.bg },
-  method: {
+  flex: { flex: 1 },
+  flexShrink: { flexShrink: 1 },
+  content: { paddingHorizontal: space.lg, paddingBottom: space.xl, gap: space.md },
+  order: { borderRadius: radius.lg, padding: space.lg, gap: 4, overflow: 'hidden' },
+  orderTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: space.xs },
+  pill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space.md,
-    backgroundColor: colors.card,
-    borderRadius: radius.lg,
-    padding: space.lg,
-    borderWidth: 1.5,
-    borderColor: colors.border,
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+    backgroundColor: colors.sportShade,
   },
-  methodActive: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
-  methodDisabled: { opacity: 0.5 },
-  methodIcon: { width: 40, height: 40, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
-  methodLetter: { color: colors.white, fontWeight: '800', fontSize: 18 },
+  pillText: { fontFamily: fontFamily.semibold, fontSize: 12, color: colors.onSport },
+  code: { fontFamily: fontFamily.semibold, fontSize: 12, letterSpacing: 0.6 },
+  orderTitle: { fontFamily: fontFamily.bold, fontSize: 20, lineHeight: 26, color: colors.onSport },
+  orderMeta: { fontFamily: fontFamily.medium, fontSize: 13, lineHeight: 18, color: colors.onSport },
+  totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' },
+  total: { fontFamily: fontFamily.display, fontSize: 30, lineHeight: 36, textTransform: 'uppercase', color: colors.onSport },
+  section: { ...type.section, marginTop: space.sm },
+  methods: { backgroundColor: colors.surfaceMuted, borderRadius: radius.lg, paddingHorizontal: space.lg },
+  method: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.md, minHeight: 64 },
+  methodBorder: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.borderStrong },
+  methodDisabled: { opacity: states.disabledOpacity + 0.15 },
+  methodIcon: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  methodLetter: { fontFamily: fontFamily.bold, fontSize: 18, color: colors.text },
+  radio: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radioActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  holdNote: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs, marginTop: space.xs },
 });

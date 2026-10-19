@@ -9,12 +9,13 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "uz.matchup.player"
+      "bundleIdentifier": "uz.matchup.player",
+      "backgroundColor": "#F6F7FB"
     },
     "android": {
       "package": "uz.matchup.player",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#161B33",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -22,7 +23,8 @@
       "predictiveBackGestureEnabled": false
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.png",
+      "backgroundColor": "#F6F7FB"
     },
     "plugins": [
       "expo-router",
@@ -35,10 +37,25 @@
           "locationWhenInUsePermission": "Match Up yaqin atrofdagi o'yinlarni ko'rsatish uchun joylashuvingizdan foydalanadi."
         }
       ],
-      "expo-font"
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#161B33",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 160
+        }
+      ],
+      [
+        "expo-calendar",
+        {
+          "calendarPermission": "Match Up o'yin vaqtini kalendaringizga qo'shish uchun ruxsat so'raydi."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "backgroundColor": "#F6F7FB"
   }
 }
