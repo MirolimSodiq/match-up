@@ -30,6 +30,7 @@ export type BookingCreate = Schemas['BookingCreate'];
 export type BookingStatus = Schemas['BookingStatus'];
 export type Booking = Schemas['Booking'];
 export type Checkout = Schemas['Checkout'];
+export type Wallet = Schemas['Wallet'];
 
 type Json<T> = T extends { content: { 'application/json': infer B } } ? B : never;
 

@@ -9,6 +9,18 @@ Expo (React Native, TypeScript) — o'yinchi ilovasi: login, discovery, waiver, 
 | Server state | TanStack Query (`src/api/queries.ts`) |
 | i18n | i18next: `uz-Latn`, `ru`, `en` (`src/i18n/locales`); har so'rovda `Accept-Language` |
 | Token'lar | `expo-secure-store` (web dev preview'da `localStorage`) |
+| Dizayn | Och asos + sport ranglari: barcha rang, shrift, radius, soya va holatlar `src/components/theme.ts` da; ekranlarda hex rang yo'q |
+
+## Dizayn tizimi
+
+- **Asos** — och fon `#F6F7FB` (tepasida yumshoq rangli gradient), oq va och kulrang konteynerlar (radius 16–20), asosiy pill tugma — to'q navy `#161B33`, matn `#12141A` / `#5F6675`.
+- **Sport ranglari** (`sportColors(sport)`): futbol — ko'k `#1F4FD8`, basketbol — to'q sariq `#C2410C`, voleybol — binafsha `#6D28D9`. O'yin bloklari, match detail, booking va QR chipta shu rangda, oq matn va xira sport teksturasi (`SportTexture`: maydon chiziqlari / to'p choklari) bilan.
+- Kontrast (WCAG AA) `theme.ts` boshida hisoblab yozilgan: oq matn barcha sport ranglarida ≥ 5.2; sport fonidagi kichik pill'lar oqartirilmaydi, aksincha `sportShade` (to'qroq qatlam) bilan ≥ 7.
+- **Shriftlar**: katta UPPERCASE sarlavha, vaqt va summalar — Oswald (`@expo-google-fonts/oswald`, lotin + kirill, `o'`/`g'` va `ПРОФИЛЬ` tekshirilgan); matn — Inter (`@expo-google-fonts/inter`).
+- **Navigatsiya**: pastda suzuvchi shisha pill tab bar (`expo-blur`, faqat ikonalar, faol ikona to'q pill ichida); match detail, waiver, checkout va QR chipta — native bottom sheet (modal); booking — sport rangidagi sahifa.
+- Umumiy komponentlar `src/components/ui.tsx` da: `PageTitle`, `SheetScreen`/`SheetHeader`, `Button` (primary/secondary/light/glass/ghost/danger, uzun matn sig'masa biroz kichrayadi), `IconButton`, `Card`, `Chip` (ikonali), `Badge`, `Notice`, `ListRow` (✓ / bo'sh doira / "+" / toggle), `Group`, `SegmentedControl`, `Avatar`, `Toast` (to'q pill), `DashedLine`.
+- Discovery va "Bandlarim" — sana bo'yicha timeline (`groupByDay` + `DayGroup` + `MatchBlock`): chapda hafta kuni va sana doirada, o'ngda sport rangidagi bloklar.
+- QR kod doim oq quti ichida, atrofida tinch zona bilan (skaner uchun); status bar — och ekranlarda to'q, login hero va booking sahifasida oq.
 
 ## Ishga tushirish
 
@@ -40,7 +52,7 @@ curl -s localhost:3000/v1/webhooks/payme -H "Authorization: Basic $(printf 'Payc
 curl -s localhost:3000/v1/webhooks/payme -H "Authorization: Basic $(printf 'Paycom:payme_test_key' | base64)" -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":2,"method":"PerformTransaction","params":{"id":"dev-<BOOKING_ID>"}}'
 ```
 
-Booking ekrani holatni har 2 soniyada so'raydi va `confirmed` bo'lgach to'lov brauzerini o'zi yopadi.
+To'lov sahifasi native'da ilova ichidagi WebView'da (`/booking/[id]/pay`) ochiladi. `return_url` ga yo'naltirish ushlanadi. `payme://`, `click://` va bank ilovalari havolalari tizimga beriladi, sahifa ochilmasa — tashqi brauzerga fallback. Ekran holatni har 2 soniyada so'raydi va `confirmed` bo'lgach o'zi yopiladi. Web build'da sahifa avvalgidek yangi oynada ochiladi.
 
 ## Tekshiruv
 
@@ -56,6 +68,7 @@ corepack pnpm --filter @matchup/contracts generate
 
 ## Ma'lum cheklovlar
 
-- API'da hamyon balansi uchun alohida endpoint yo'q — profil balansni `GET /v1/payment-methods?match_id=…` orqali oladi.
 - `GET /v1/bookings/{id}` checkout URL'ni qaytarmaydi — "To'lov sahifasini ochish" faqat shu sessiyada yaratilgan booking uchun ishlaydi.
 - Stripe (`checkout.type = sdk`), social login, push va WebSocket — keyingi iteratsiya.
+- "Kalendarga qo'shish" tizim oynasi orqali (`expo-calendar/legacy`, ruxsat so'ramaydi); web build'da tugma yashirilgan.
+- Lint sozlanmagan (ESLint konfiguratsiyasi yo'q) — tekshiruv `typecheck` va `expo-doctor` orqali.

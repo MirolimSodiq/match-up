@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import type { Booking, paths } from '@matchup/contracts';
+import type { paths } from '@matchup/contracts';
 import { api, call } from './client';
 
 export type MatchSearch = NonNullable<paths['/v1/matches']['get']['parameters']['query']>;
@@ -94,19 +94,7 @@ export function useTicket(bookingId: string, enabled: boolean) {
   });
 }
 
-/**
- * Hamyon balansi. API'da alohida `/me/wallet` yo'q — balans `GET /v1/payment-methods?match_id`
- * javobida keladi, shuning uchun istalgan ko'rinadigan match (avvalo o'z booking'imiz) orqali so'raymiz.
- */
-export function useWalletBalance(fallbackMatchId: string | undefined) {
-  return useQuery({
-    queryKey: [...qk.wallet, fallbackMatchId ?? null],
-    queryFn: async () => {
-      const mine = await call(api.GET('/v1/me/bookings', { params: { query: { scope: 'upcoming', limit: 1 } } }));
-      const matchId = (mine.items[0] as Booking | undefined)?.match_id ?? fallbackMatchId;
-      if (!matchId) return null;
-      const pm = await call(api.GET('/v1/payment-methods', { params: { query: { match_id: matchId } } }));
-      return pm.wallet_balance ?? null;
-    },
-  });
+/** Hamyon balansi (asosiy valyutada, `formatted` — Accept-Language bo'yicha). */
+export function useWallet() {
+  return useQuery({ queryKey: qk.wallet, queryFn: () => call(api.GET('/v1/me/wallet')) });
 }

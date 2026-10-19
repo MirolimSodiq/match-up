@@ -1,6 +1,9 @@
 import { Fragment } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { colors, font, space } from './theme';
+import { colors, fontFamily, space, type } from './theme';
+
+/** Huquqiy matn uchun o'qishga qulayroq o'lcham (och fonda to'q). */
+const doc = { ...type.body, fontSize: 16, lineHeight: 25 };
 
 /**
  * Huquqiy matnlar uchun minimal Markdown: sarlavhalar (#), ro'yxatlar (-, *, 1.), paragraflar va **qalin**.
@@ -16,7 +19,7 @@ export function Markdown({ source }: { source: string }) {
         if (heading && lines.length === 1) {
           const level = heading[1]!.length;
           return (
-            <Text key={i} style={level <= 2 ? font.h2 : font.h3}>
+            <Text key={i} style={level <= 2 ? type.title : type.h3}>
               <Inline text={heading[2]!} />
             </Text>
           );
@@ -30,7 +33,7 @@ export function Markdown({ source }: { source: string }) {
                 return (
                   <View key={j} style={styles.item}>
                     <Text style={styles.bullet}>{bullet}</Text>
-                    <Text style={[font.body, styles.itemText]}>
+                    <Text style={[doc, styles.itemText]}>
                       <Inline text={m[2]!} />
                     </Text>
                   </View>
@@ -40,7 +43,7 @@ export function Markdown({ source }: { source: string }) {
           );
         }
         return (
-          <Text key={i} style={font.body}>
+          <Text key={i} style={doc}>
             {lines.map((l, j) => (
               <Fragment key={j}>
                 {j > 0 ? '\n' : null}
@@ -75,7 +78,8 @@ const styles = StyleSheet.create({
   root: { gap: space.md },
   list: { gap: space.xs },
   item: { flexDirection: 'row', gap: space.sm },
-  bullet: { ...font.body, color: colors.muted, minWidth: 16 },
+  bullet: { ...doc, color: colors.textMuted, minWidth: 16 },
   itemText: { flex: 1 },
-  bold: { fontWeight: '700' },
+  // Maxsus shriftda fontWeight boshqa faylga o'tmaydi — qalin variant nomi bilan
+  bold: { fontFamily: fontFamily.bold },
 });

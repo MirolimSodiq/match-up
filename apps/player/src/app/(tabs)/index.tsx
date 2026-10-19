@@ -1,13 +1,13 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { type ReactElement, useMemo, useState } from 'react';
-import { ActivityIndicator, FlatList, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { router } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import type { MatchSummary } from '@matchup/contracts';
 import { type MatchSearch, useCities, useMatchSearch, useMe, useSports } from '@/api/queries';
-import { colors, radius, space } from '@/components/theme';
-import { Button, Chip, EmptyState, ErrorView, Loading, Notice } from '@/components/ui';
-import { MatchCard } from '@/features/MatchCard';
+import { colors, fontFamily, radius, shadow, space, states, type } from '@/components/theme';
+import { Chip, EmptyState, ErrorView, Loading, Notice, PageTitle, ScreenGlow, TAB_BAR_SPACE } from '@/components/ui';
+import { type DayBucket, DayGroup, groupByDay, MatchBlock, SportIcon } from '@/features/MatchCard';
 import { type OriginMode, useDiscoveryOrigin } from '@/features/useDiscoveryOrigin';
 import { currentLocale } from '@/i18n';
 import { dayRange, shortWeekday, zonedParts } from '@/lib/datetime';
@@ -50,128 +50,237 @@ export default function DiscoverScreen() {
   }, [origin, sport, day, tz]);
 
   const search = useMatchSearch(query);
-  const items = useMemo(() => search.data?.pages.flatMap((p) => p.items) ?? [], [search.data]);
-  const sportNames = useMemo(() => new Map(sports.data?.map((s) => [s.code ?? '', s.name ?? ''])), [sports.data]);
-
   const days = useMemo(() => {
+    const items = search.data?.pages.flatMap((p) => p.items) ?? [];
+    return groupByDay(items, (m) => ({ startsAt: m.starts_at, timeZone: m.timezone }));
+  }, [search.data]);
+
+  const dateStrip = useMemo(() => {
     const now = new Date();
     return Array.from({ length: DAYS_AHEAD }, (_, i) => {
       const { date } = dayRange(tz, i, now);
-      const label =
-        i === 0 ? t('discover.today') : i === 1 ? t('discover.tomorrow') : `${shortWeekday(date, tz, locale)} ${zonedParts(date, tz).day}`;
-      return { offset: i, label };
+      return { offset: i, weekday: shortWeekday(date, tz, locale), num: zonedParts(date, tz).day };
     });
-  }, [tz, t, locale]);
+  }, [tz, locale]);
 
   const openCode = () => {
     const c = code.trim().toUpperCase();
     if (c) router.push({ pathname: '/match/[id]', params: { id: c } });
   };
 
+  const locationLabel = mode === 'near' ? t('discover.nearMe') : t('discover.cityCenter', { city: city?.name ?? '' });
+
   const header = (
     <View style={styles.header}>
-      <View style={styles.search}>
-        <Ionicons name="search" size={18} color={colors.muted} />
+      <View style={[styles.search, shadow(1)]}>
+        <Ionicons name="search" size={18} color={colors.textMuted} />
         <TextInput
           style={styles.searchInput}
           value={code}
           onChangeText={setCode}
           placeholder={t('discover.codePlaceholder')}
-          placeholderTextColor={colors.faint}
+          placeholderTextColor={colors.textMuted}
+          selectionColor={colors.primary}
           autoCapitalize="characters"
           autoCorrect={false}
           returnKeyType="search"
           onSubmitEditing={openCode}
         />
-        {code ? <Button title={t('discover.find')} variant="ghost" onPress={openCode} style={styles.findButton} /> : null}
+        {code ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t('discover.find')}
+            onPress={openCode}
+            style={({ pressed }) => [styles.findButton, pressed && { opacity: states.pressedOpacity }]}
+          >
+            <Ionicons name="arrow-forward" size={18} color={colors.onPrimary} />
+          </Pressable>
+        ) : null}
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
-        <Chip label={`📍 ${t('discover.nearMe')}`} selected={mode === 'near'} onPress={() => setMode('near')} />
-        {city ? (
-          <Chip label={t('discover.cityCenter', { city: city.name })} selected={mode === 'city'} onPress={() => setMode('city')} />
-        ) : null}
-      </ScrollView>
-
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
-        <Chip label={t('discover.allSports')} selected={!sport} onPress={() => setSport(undefined)} />
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.strip}>
+        <Chip
+          icon={<SportIcon sport="all" size={16} color={!sport ? colors.onPrimary : colors.text} />}
+          label={t('discover.allSports')}
+          selected={!sport}
+          onPress={() => setSport(undefined)}
+        />
         {sports.data?.map((s) => (
-          <Chip key={s.code} label={s.name ?? s.code ?? ''} selected={sport === s.code} onPress={() => setSport(s.code)} />
+          <Chip
+            key={s.code}
+            icon={<SportIcon sport={s.code ?? ''} size={16} color={sport === s.code ? colors.onPrimary : colors.text} />}
+            label={s.name ?? s.code ?? ''}
+            selected={sport === s.code}
+            onPress={() => setSport(s.code)}
+          />
         ))}
       </ScrollView>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
-        <Chip label={t('discover.anyDate')} selected={day === undefined} onPress={() => setDay(undefined)} />
-        {days.map((d) => (
-          <Chip key={d.offset} label={d.label} selected={day === d.offset} onPress={() => setDay(d.offset)} />
+      {/* Sana qatori: hafta kuni + sana doirada; tanlangani — to'q doira */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.strip}>
+        <DateItem label={t('discover.allDays')} a11y={t('discover.anyDate')} active={day === undefined} onPress={() => setDay(undefined)}>
+          <Ionicons name="infinite" size={18} color={day === undefined ? colors.onPrimary : colors.text} />
+        </DateItem>
+        {dateStrip.map((d) => (
+          <DateItem
+            key={d.offset}
+            label={d.offset === 0 ? t('discover.today') : d.weekday}
+            active={day === d.offset}
+            onPress={() => setDay(d.offset)}
+          >
+            <Text style={[styles.dateNum, day === d.offset && { color: colors.onPrimary }]}>{d.num}</Text>
+          </DateItem>
         ))}
       </ScrollView>
 
       {origin?.fallback && city ? (
-        <Notice tone="warning">
+        <Notice tone="warning" icon="location-outline">
           {origin.fallback === 'far' ? t('discover.farFromCity', { city: city.name }) : t('discover.locationDenied')}
         </Notice>
       ) : null}
     </View>
   );
 
-  const renderItem = ({ item }: { item: MatchSummary }) => (
-    <MatchCard
-      match={item}
-      sportName={sportNames.get(item.sport)}
-      onPress={() => router.push({ pathname: '/match/[id]', params: { id: item.id } })}
-    />
+  const renderDay = ({ item }: { item: DayBucket<MatchSummary> }) => (
+    <DayGroup date={item.date} timeZone={item.timeZone} today={item.today}>
+      {item.items.map((m) => (
+        <MatchBlock key={m.id} match={m} onPress={() => router.push({ pathname: '/match/[id]', params: { id: m.id } })} />
+      ))}
+    </DayGroup>
   );
 
   let empty: ReactElement;
   if (!query || search.isPending) empty = <Loading />;
   else if (search.error) empty = <ErrorView error={search.error} onRetry={() => void search.refetch()} />;
-  else empty = <EmptyState title={t('discover.empty')} hint={t('discover.emptyHint')} />;
-
-  if (cities.error) return <ErrorView error={cities.error} onRetry={() => void cities.refetch()} />;
+  else empty = <EmptyState icon="calendar-clear-outline" title={t('discover.empty')} hint={t('discover.emptyHint')} />;
 
   return (
-    <FlatList
-      style={styles.list}
-      contentContainerStyle={styles.listContent}
-      data={items}
-      keyExtractor={(m) => m.id}
-      renderItem={renderItem}
-      ListHeaderComponent={header}
-      ListEmptyComponent={empty}
-      ListFooterComponent={search.isFetchingNextPage ? <ActivityIndicator style={{ margin: space.lg }} /> : undefined}
-      onEndReached={() => {
-        if (search.hasNextPage && !search.isFetchingNextPage) void search.fetchNextPage();
-      }}
-      onEndReachedThreshold={0.4}
-      refreshControl={
-        <RefreshControl
-          refreshing={search.isRefetching && !search.isFetchingNextPage}
-          onRefresh={() => void search.refetch()}
-          tintColor={colors.primary}
+    <View style={styles.root}>
+      <ScreenGlow />
+      <PageTitle
+        title={t('discover.title')}
+        right={
+          <Pressable
+            accessibilityRole="button"
+            accessibilityHint={mode === 'near' ? t('discover.cityCenter', { city: city?.name ?? '' }) : t('discover.nearMe')}
+            onPress={() => setMode(mode === 'near' ? 'city' : 'near')}
+            style={({ pressed }) => [styles.location, shadow(1), pressed && { opacity: states.pressedOpacity }]}
+          >
+            <Ionicons name={mode === 'near' ? 'navigate' : 'business'} size={14} color={colors.text} />
+            <Text style={styles.locationText} numberOfLines={1}>
+              {locationLabel}
+            </Text>
+            <Ionicons name="swap-horizontal" size={14} color={colors.textMuted} />
+          </Pressable>
+        }
+      />
+      {cities.error ? (
+        <ErrorView error={cities.error} onRetry={() => void cities.refetch()} />
+      ) : (
+        <FlatList
+          style={styles.list}
+          contentContainerStyle={styles.listContent}
+          data={days}
+          keyExtractor={(d) => d.key}
+          renderItem={renderDay}
+          ListHeaderComponent={header}
+          ListEmptyComponent={empty}
+          ListFooterComponent={search.isFetchingNextPage ? <ActivityIndicator color={colors.primary} style={{ margin: space.lg }} /> : undefined}
+          onEndReached={() => {
+            if (search.hasNextPage && !search.isFetchingNextPage) void search.fetchNextPage();
+          }}
+          onEndReachedThreshold={0.4}
+          refreshControl={
+            <RefreshControl
+              refreshing={search.isRefetching && !search.isFetchingNextPage}
+              onRefresh={() => void search.refetch()}
+              tintColor={colors.primary}
+            />
+          }
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
         />
-      }
-      keyboardShouldPersistTaps="handled"
-    />
+      )}
+    </View>
+  );
+}
+
+function DateItem({
+  label,
+  a11y,
+  active,
+  onPress,
+  children,
+}: {
+  label: string;
+  a11y?: string;
+  active: boolean;
+  onPress: () => void;
+  children: ReactElement;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={a11y}
+      accessibilityState={{ selected: active }}
+      onPress={onPress}
+      style={({ pressed }) => [styles.dateItem, pressed && { opacity: states.pressedOpacity }]}
+    >
+      <Text style={[styles.dateWeekday, active && { color: colors.text }]}>{label}</Text>
+      <View style={[styles.dateCircle, active && styles.dateCircleActive]}>{children}</View>
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  list: { flex: 1, backgroundColor: colors.bg },
-  listContent: { padding: space.lg, gap: space.md },
-  header: { gap: space.md, marginBottom: space.xs },
+  root: { flex: 1, backgroundColor: colors.bg },
+  list: { flex: 1 },
+  listContent: { paddingHorizontal: space.lg, paddingBottom: TAB_BAR_SPACE + space.lg, gap: space.xl },
+  header: { gap: space.lg },
+  location: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    maxWidth: 180,
+    paddingHorizontal: space.md,
+    paddingVertical: 9,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surface,
+    marginBottom: 6,
+  },
+  locationText: { fontFamily: fontFamily.medium, fontSize: 13, color: colors.text, flexShrink: 1 },
   search: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
-    backgroundColor: colors.card,
-    borderRadius: radius.md,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surface,
+    paddingLeft: space.lg,
+    paddingRight: 5,
+    minHeight: 50,
+  },
+  searchInput: { flex: 1, fontFamily: fontFamily.regular, fontSize: 15, color: colors.text, paddingVertical: 12 },
+  findButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  strip: { gap: space.sm, paddingRight: space.lg },
+  dateItem: { alignItems: 'center', gap: 6, minWidth: 44 },
+  dateWeekday: { ...type.caption, fontFamily: fontFamily.semibold, textTransform: 'uppercase' },
+  dateCircle: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
-    paddingLeft: space.md,
-    minHeight: 46,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  searchInput: { flex: 1, fontSize: 15, color: colors.text, paddingVertical: 10 },
-  findButton: { minHeight: 40, paddingHorizontal: space.md },
-  chips: { gap: space.sm, paddingRight: space.lg },
+  dateCircleActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  dateNum: { fontFamily: fontFamily.semibold, fontSize: 15, color: colors.text },
 });

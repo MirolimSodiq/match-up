@@ -1,5 +1,6 @@
 import { type ComponentRef, useEffect, useRef, useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useTranslation } from 'react-i18next';
@@ -7,8 +8,8 @@ import { api, call } from '@/api/client';
 import { isApiError } from '@/api/errors';
 import { qk, useRequiredWaiver } from '@/api/queries';
 import { Markdown } from '@/components/Markdown';
-import { colors, space } from '@/components/theme';
-import { Button, ErrorText, ErrorView, Footer, H2, Loading, Muted } from '@/components/ui';
+import { colors, space, type } from '@/components/theme';
+import { Button, ErrorText, ErrorView, Footer, Loading, SheetScreen } from '@/components/ui';
 
 /** Pastki chegaraga shuncha px qolganda "oxirigacha o'qildi" hisoblanadi. */
 const END_THRESHOLD = 24;
@@ -34,7 +35,7 @@ export default function WaiverScreen() {
 
   /**
    * Matn oxiridagi belgi ScrollView'ning ko'rinadigan pastki chegarasiga yetdimi — oynadagi koordinatalar
-   * bo'yicha, shuning uchun shaffof header ostidagi inset'lar (iOS 26) natijaga ta'sir qilmaydi.
+   * bo'yicha, shuning uchun sheet ichidagi inset'lar natijaga ta'sir qilmaydi.
    * Qisqa matnda oxiri skrollsiz ham ko'rinadi — shunda darhol faollashadi.
    */
   const check = () => {
@@ -73,59 +74,67 @@ export default function WaiverScreen() {
     },
   });
 
-  if (waiver.isPending || waiver.data?.signed) return <Loading />;
-  if (waiver.error) return <ErrorView error={waiver.error} onRetry={() => void waiver.refetch()} />;
-  if (!template) return <Loading />;
+  if (waiver.isPending || waiver.data?.signed || (!waiver.error && !template)) {
+    return (
+      <SheetScreen onClose={() => router.back()}>
+        <Loading />
+      </SheetScreen>
+    );
+  }
+  if (waiver.error || !template) {
+    return (
+      <SheetScreen onClose={() => router.back()}>
+        <ErrorView error={waiver.error} onRetry={() => void waiver.refetch()} />
+      </SheetScreen>
+    );
+  }
 
   return (
-    <View style={styles.flex}>
+    <SheetScreen
+      title={t('waiver.title')}
+      subtitle={`${t('waiver.version', { version: template.version })} · ${template.locale}`}
+      onClose={() => router.back()}
+    >
       <ScrollView
         key={template.document_sha256}
         ref={scrollRef}
         testID="waiver-scroll"
-        style={styles.flex}
-        contentInsetAdjustmentBehavior="automatic"
+        style={styles.scroll}
         contentContainerStyle={styles.content}
         scrollEventThrottle={16}
         onLayout={check}
         onContentSizeChange={check}
         onScroll={check}
       >
-        <H2>{template.title}</H2>
-        <Muted>
-          {t('waiver.version', { version: template.version })} · {template.locale}
-        </Muted>
-        <View style={styles.body}>
-          <Markdown source={template.body_md ?? ''} />
-        </View>
+        {template.title ? <Text style={type.title}>{template.title}</Text> : null}
+        <Markdown source={template.body_md ?? ''} />
         <View ref={endRef} collapsable={false} style={styles.end} />
       </ScrollView>
-      <Footer>
-        {!reachedEnd ? <Muted style={styles.hint}>{t('waiver.scrollHint')}</Muted> : null}
+
+      <Footer transparent>
+        {!reachedEnd ? (
+          <View style={styles.hint}>
+            <Ionicons name="arrow-down" size={14} color={colors.textMuted} />
+            <Text style={type.small}>{t('waiver.scrollHint')}</Text>
+          </View>
+        ) : null}
         <ErrorText error={sign.error} />
         <Button
           testID="waiver-agree"
           title={t('waiver.agree')}
+          icon="checkmark-done"
           disabled={!reachedEnd}
           loading={sign.isPending}
           onPress={() => sign.mutate()}
         />
       </Footer>
-    </View>
+    </SheetScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colors.bg },
-  content: { padding: space.lg, gap: space.sm },
-  body: {
-    marginTop: space.md,
-    backgroundColor: colors.card,
-    borderRadius: 16,
-    padding: space.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-  },
-  hint: { textAlign: 'center' },
+  scroll: { flex: 1 },
+  content: { paddingHorizontal: space.lg, paddingBottom: space.xl, gap: space.md },
+  hint: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs },
   end: { height: 1 },
 });
