@@ -4,10 +4,9 @@ import { ActivityIndicator, FlatList, Pressable, RefreshControl, ScrollView, Sty
 import { router } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import type { MatchSummary } from '@matchup/contracts';
+import { Chip, colors, EmptyState, ErrorView, fontFamily, Loading, Notice, PageTitle, radius, ScreenGlow, shadow, space, SportIcon, states, TAB_BAR_SPACE, type } from '@matchup/ui';
 import { type MatchSearch, useCities, useMatchSearch, useMe, useSports } from '@/api/queries';
-import { colors, fontFamily, radius, shadow, space, states, type } from '@/components/theme';
-import { Chip, EmptyState, ErrorView, Loading, Notice, PageTitle, ScreenGlow, TAB_BAR_SPACE } from '@/components/ui';
-import { type DayBucket, DayGroup, groupByDay, MatchBlock, SportIcon } from '@/features/MatchCard';
+import { type DayBucket, DayGroup, groupByDay, MatchBlock } from '@/features/MatchCard';
 import { type OriginMode, useDiscoveryOrigin } from '@/features/useDiscoveryOrigin';
 import { currentLocale } from '@/i18n';
 import { dayRange, shortWeekday, zonedParts } from '@/lib/datetime';

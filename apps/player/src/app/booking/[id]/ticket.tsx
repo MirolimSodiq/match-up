@@ -3,13 +3,9 @@ import { ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-n
 import { router, useLocalSearchParams } from 'expo-router';
 import QRCode from 'react-native-qrcode-svg';
 import { useTranslation } from 'react-i18next';
+import { Chip, colors, EmptyState, ErrorView, fontFamily, Loading, Perforation, radius, SheetScreen, space, type SportColors, sportColors, SportIcon, SportTexture, type } from '@matchup/ui';
 import { isApiError } from '@/api/errors';
 import { useBooking, useTicket } from '@/api/queries';
-import { colors, fontFamily, radius, space, type SportColors, sportColors, type } from '@/components/theme';
-import { Chip, EmptyState, ErrorView, Loading, SheetScreen } from '@/components/ui';
-import { SportIcon } from '@/features/MatchCard';
-import { Perforation } from '@/features/Perforation';
-import { SportTexture } from '@/features/SportTexture';
 import { currentLocale } from '@/i18n';
 import { formatDateTime, formatDay, formatTime } from '@/lib/datetime';
 

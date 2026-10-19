@@ -3,16 +3,17 @@ import { KeyboardAvoidingView, Platform, StyleSheet, Text, View } from 'react-na
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { colors, fontFamily, gradients, radius, shadow, space, sportColors, type } from '@/components/theme';
-import { SportIcon } from '@/features/MatchCard';
-import { SportTexture } from '@/features/SportTexture';
-import { LanguagePicker } from '@/features/LanguagePicker';
+import { colors, fontFamily, gradients, radius, space, sportColors, type } from '../tokens';
+import { SportIcon } from './SportIcon';
+import { SportTexture } from './SportTexture';
+import { shadow } from './theme';
 
 /** Bezak kartalari shu balandlikdan past joyda ko'rsatilmaydi (masalan, klaviatura ochiq). */
 const MIN_CARDS_HEIGHT = 150;
 
 /**
  * Kirish ekranlari: to'q gradient hero (katta sarlavha, bezak kartalar) va pastda oq bottom sheet.
+ * `topRight` — odatda til tanlash, `decor` — hero bezagi (standart: qiyshaygan o'yin kartalari).
  */
 export function AuthLayout({
   heroTitle,
@@ -20,8 +21,18 @@ export function AuthLayout({
   sheetTitle,
   sheetSubtitle,
   topLeft,
+  topRight,
+  decor,
   children,
-}: PropsWithChildren<{ heroTitle: string; heroSubtitle?: string; sheetTitle: string; sheetSubtitle?: string; topLeft?: ReactNode }>) {
+}: PropsWithChildren<{
+  heroTitle: string;
+  heroSubtitle?: string;
+  sheetTitle: string;
+  sheetSubtitle?: string;
+  topLeft?: ReactNode;
+  topRight?: ReactNode;
+  decor?: ReactNode;
+}>) {
   const insets = useSafeAreaInsets();
   const [cardsHeight, setCardsHeight] = useState(0);
   return (
@@ -32,10 +43,10 @@ export function AuthLayout({
         <View style={[styles.hero, { paddingTop: insets.top + space.sm }]}>
           <View style={styles.topRow}>
             <View>{topLeft}</View>
-            <LanguagePicker variant="hero" />
+            {topRight}
           </View>
           <View style={styles.cards} onLayout={(e) => setCardsHeight(e.nativeEvent.layout.height)}>
-            {cardsHeight >= MIN_CARDS_HEIGHT ? <HeroCards /> : null}
+            {cardsHeight >= MIN_CARDS_HEIGHT ? (decor ?? <HeroCards />) : null}
           </View>
           <Text style={styles.heroTitle} accessibilityRole="header" numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.6}>
             {heroTitle}
@@ -55,7 +66,7 @@ export function AuthLayout({
   );
 }
 
-const DECOR = [
+const DECOR_CARDS = [
   { sport: 'football', time: '19:00', format: '7v7', style: { left: '4%', top: '18%', transform: [{ rotate: '-9deg' }] } },
   { sport: 'basketball', time: '20:30', format: '3x3', style: { right: '3%', top: '6%', transform: [{ rotate: '8deg' }] } },
   { sport: 'volleyball', time: '18:00', format: '6v6', style: { left: '24%', bottom: '4%', transform: [{ rotate: '-2deg' }] } },
@@ -65,7 +76,7 @@ const DECOR = [
 function HeroCards() {
   return (
     <View style={StyleSheet.absoluteFill} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" pointerEvents="none">
-      {DECOR.map((d) => (
+      {DECOR_CARDS.map((d) => (
         <View key={d.sport} style={[styles.card, { backgroundColor: sportColors(d.sport).base }, d.style]}>
           <SportTexture sport={d.sport} opacity={0.14} />
           <View style={styles.cardTop}>

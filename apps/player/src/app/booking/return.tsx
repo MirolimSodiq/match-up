@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { router } from 'expo-router';
-import { Loading } from '@/components/ui';
+import { Loading } from '@matchup/ui';
 import { closeCheckout, lastPendingBooking } from '@/features/payment';
 
 /**

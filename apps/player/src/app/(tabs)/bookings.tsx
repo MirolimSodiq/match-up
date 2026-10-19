@@ -3,9 +3,8 @@ import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, View } from 'r
 import { router } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import type { Booking, BookingStatus, MatchSummary } from '@matchup/contracts';
+import { Badge, Button, colors, EmptyState, ErrorView, type IconName, ListRow, Loading, PageTitle, ScreenGlow, SegmentedControl, space, TAB_BAR_SPACE } from '@matchup/ui';
 import { type BookingScope, useMyBookings } from '@/api/queries';
-import { colors, space } from '@/components/theme';
-import { Badge, Button, EmptyState, ErrorView, type IconName, ListRow, Loading, PageTitle, ScreenGlow, SegmentedControl, TAB_BAR_SPACE } from '@/components/ui';
 import { type DayBucket, DayGroup, groupByDay, MatchBlock } from '@/features/MatchCard';
 import { money } from '@/lib/money';
 

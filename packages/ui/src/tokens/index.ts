@@ -1,8 +1,6 @@
-import { Platform, type TextStyle, type ViewStyle } from 'react-native';
-import { DefaultTheme, type Theme } from 'expo-router';
-
 /**
- * Match Up dizayn tizimi — och asos + sport ranglari.
+ * Match Up dizayn tokenlari — sof TypeScript obyektlar, React Native'ga bog'lanmagan.
+ * Mobil ilovalar (`@matchup/ui`) ham, web admin panel ham shu qiymatlardan foydalanadi.
  * Ekranlarda hex rang yozilmaydi: hamma narsa shu fayldagi tokenlardan olinadi.
  *
  * Kontrast (WCAG 2.1, hisoblangan):
@@ -12,7 +10,7 @@ import { DefaultTheme, type Theme } from 'expo-router';
  *   oq / futbol #1F4FD8 — 6.6 (80% oq — 4.7), oq / basketbol #C2410C — 5.2, oq / voleybol #6D28D9 — 7.1 (80% — 4.9)
  *   danger #B91C1C / oq — 6.5, success #15803D / oq — 5.0
  */
-const palette = {
+export const palette = {
   ink: '#12141A',
   navy: '#161B33',
   navySoft: '#232A4A',
@@ -27,7 +25,8 @@ const palette = {
   amber: '#B45309',
 } as const;
 
-const alpha = (hex: string, a: number) => {
+/** `#RRGGBB` -> `rgba(r, g, b, a)`. */
+export const alpha = (hex: string, a: number) => {
   const n = parseInt(hex.slice(1), 16);
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
 };
@@ -121,6 +120,7 @@ export const radius = { sm: 10, md: 16, lg: 20, xl: 28, pill: 999 } as const;
 /**
  * Display — Oswald (siqilgan, lotin + kirill), faqat UPPERCASE sarlavha/vaqt/summa uchun.
  * Matn — Inter (lotin + kirill).
+ * Nomlar `@expo-google-fonts` eksportlari bilan bir xil (mobil); web'da `fontStacks` ishlatiladi.
  */
 export const fontFamily = {
   display: 'Oswald_700Bold',
@@ -130,6 +130,25 @@ export const fontFamily = {
   semibold: 'Inter_600SemiBold',
   bold: 'Inter_700Bold',
 } as const;
+
+/** Web (CSS) uchun shrift oilalari va og'irliklari — `fontFamily` kalitlari bilan mos. */
+export const fontStacks = {
+  display: { family: "'Oswald', 'Arial Narrow', sans-serif", weight: 700 },
+  displaySemi: { family: "'Oswald', 'Arial Narrow', sans-serif", weight: 600 },
+  regular: { family: "'Inter', system-ui, sans-serif", weight: 400 },
+  medium: { family: "'Inter', system-ui, sans-serif", weight: 500 },
+  semibold: { family: "'Inter', system-ui, sans-serif", weight: 600 },
+  bold: { family: "'Inter', system-ui, sans-serif", weight: 700 },
+} as const satisfies Record<keyof typeof fontFamily, { family: string; weight: number }>;
+
+/** Platformaga bog'lanmagan matn uslubi (RN `TextStyle` bilan mos keladi). */
+export interface TextToken {
+  fontFamily: string;
+  fontSize: number;
+  lineHeight?: number;
+  textTransform?: 'none' | 'uppercase' | 'lowercase' | 'capitalize';
+  color?: string;
+}
 
 export const type = {
   display: { fontFamily: fontFamily.display, fontSize: 34, lineHeight: 40, textTransform: 'uppercase', color: colors.text },
@@ -145,7 +164,7 @@ export const type = {
   smallStrong: { fontFamily: fontFamily.semibold, fontSize: 13, lineHeight: 18, color: colors.text },
   caption: { fontFamily: fontFamily.medium, fontSize: 12, lineHeight: 16, color: colors.textMuted },
   button: { fontFamily: fontFamily.semibold, fontSize: 16 },
-} satisfies Record<string, TextStyle>;
+} satisfies Record<string, TextToken>;
 
 /** Interaktiv holatlar — barcha tugma, chip va kartalar uchun bir xil. */
 export const states = {
@@ -155,25 +174,44 @@ export const states = {
   focusBorder: colors.primary,
 } as const;
 
-type Shadow = Pick<ViewStyle, 'shadowColor' | 'shadowOpacity' | 'shadowRadius' | 'shadowOffset' | 'elevation'>;
+/** Soya darajalari (och mavzu): suzuvchi tab bar, faol segment, bottom sheet. */
+export const shadows = {
+  1: { opacity: 0.06, radius: 6, offsetY: 2, elevation: 2 },
+  2: { opacity: 0.1, radius: 14, offsetY: 6, elevation: 6 },
+  3: { opacity: 0.16, radius: 24, offsetY: 10, elevation: 12 },
+} as const;
+export type ShadowLevel = keyof typeof shadows;
+/** Soya rangi. */
+export const shadowColor = palette.navy;
 
-/** Yumshoq soya (och mavzu): suzuvchi tab bar, faol segment, bottom sheet. */
-export function shadow(level: 1 | 2 | 3 = 1): Shadow {
-  const s = { 1: [0.06, 6, 2, 2], 2: [0.1, 14, 6, 6], 3: [0.16, 24, 10, 12] }[level] as [number, number, number, number];
-  if (Platform.OS === 'android') return { elevation: s[3] };
-  return { shadowColor: palette.navy, shadowOpacity: s[0], shadowRadius: s[1], shadowOffset: { width: 0, height: s[2] } };
+/** Navigatsiya (header, ekran foni) ranglari — React Navigation `Theme.colors` bilan mos. */
+export const navigationColors = {
+  primary: colors.primary,
+  background: colors.bg,
+  card: colors.bg,
+  text: colors.text,
+  border: colors.border,
+  notification: colors.danger,
+} as const;
+
+/** Jamoa formasi (bib) ranglari uchun zaxira — server `bib_color` bermasa. */
+export const bibFallback = ['#FF7A00', '#1F6FEB', '#15803D', '#B91C1C'] as const;
+
+/** WCAG nisbiy yorqinlik (`#RRGGBB`). */
+function luminance(hex: string): number {
+  const n = parseInt(hex.slice(1, 7), 16);
+  const ch = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * ch[0]! + 0.7152 * ch[1]! + 0.0722 * ch[2]!;
 }
 
-/** React Navigation mavzusi: header va ekran foni och. */
-export const navigationTheme: Theme = {
-  ...DefaultTheme,
-  colors: {
-    ...DefaultTheme.colors,
-    primary: colors.primary,
-    background: colors.bg,
-    card: colors.bg,
-    text: colors.text,
-    border: colors.border,
-    notification: colors.danger,
-  },
-};
+/** Ixtiyoriy fon rangi (masalan, server bergan bib rangi) ustida o'qiladigan matn rangi: oq yoki to'q. */
+export function readableOn(hex: string): string {
+  if (!/^#[0-9a-fA-F]{6}/.test(hex)) return palette.ink;
+  const l = luminance(hex);
+  const onWhite = 1.05 / (l + 0.05);
+  const onInk = (l + 0.05) / (luminance(palette.ink) + 0.05);
+  return onWhite >= onInk ? palette.white : palette.ink;
+}

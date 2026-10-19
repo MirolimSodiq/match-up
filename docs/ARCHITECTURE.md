@@ -84,7 +84,7 @@ matchup/
 │   └── media-worker/   # Python: FFmpeg transcode, keyin AI highlight
 ├── packages/
 │   ├── contracts/      # openapi.yaml → generatsiya qilingan TS client + zod
-│   ├── ui/             # umumiy dizayn tizimi (RN)
+│   ├── ui/             # umumiy dizayn tizimi: sof TS tokenlar (/tokens, web ham) + RN komponentlar
 │   └── i18n/           # tarjima kalitlari (uz-Latn, uz-Cyrl, ru, en)
 ├── db/                 # SQL migratsiyalar, seed, query'lar, testlar
 └── infra/              # Terraform + Helm (har cell uchun)

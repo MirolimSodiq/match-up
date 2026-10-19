@@ -10,7 +10,9 @@ Pickup sports platformasi (Plei / Birgo uslubida): o'yinchilar tayyor havaskor o
 | [api/openapi.yaml](api/openapi.yaml) | API kontrakti (OpenAPI 3.1) |
 | [apps/api](apps/api) | **Backend** — NestJS modular monolith (TypeScript) |
 | [apps/player](apps/player) | **O'yinchi ilovasi** — Expo (React Native, TypeScript) |
+| [apps/host](apps/host) | **Match Host ilovasi** — Expo: takliflar, offline QR check-in, jamoalar, yakunlash |
 | [packages/contracts](packages/contracts) | `api/openapi.yaml` dan generatsiya qilingan API tiplari (openapi-typescript) |
+| [packages/ui](packages/ui) | Dizayn tizimi: sof TS tokenlar (`@matchup/ui/tokens`, web ham) + RN komponentlar |
 | [db/migrations/](db/migrations/) | SQL migratsiyalar — sxemaning yagona haqiqat manbai |
 | [db/queries/](db/queries/), [db/tests/](db/tests/) | Kritik SQL va DB darajasidagi testlar (oversell race, constraint'lar) |
 

@@ -28,9 +28,9 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Line } from 'react-native-svg';
-import { useTranslation } from 'react-i18next';
-import { errorMessage } from '@/i18n/errors';
-import { colors, fontFamily, gradients, radius, shadow, space, states, type } from './theme';
+import { colors, fontFamily, gradients, radius, space, states, type } from '../tokens';
+import { shadow } from './theme';
+import { useUI } from './UIProvider';
 
 export type IconName = keyof typeof Ionicons.glyphMap;
 
@@ -93,7 +93,7 @@ export function PageTitle({ title, right, subtitle }: { title: string; right?: R
 
 /** Bottom sheet sarlavhasi: katta UPPERCASE matn va dumaloq "yopish". */
 export function SheetHeader({ title, subtitle, onClose }: { title: string; subtitle?: string; onClose?: () => void }) {
-  const { t } = useTranslation();
+  const { closeLabel } = useUI();
   return (
     <View style={styles.sheetHeader}>
       <View style={styles.flex}>
@@ -102,7 +102,7 @@ export function SheetHeader({ title, subtitle, onClose }: { title: string; subti
         </Text>
         {subtitle ? <Text style={[type.small, { marginTop: space.xs }]}>{subtitle}</Text> : null}
       </View>
-      {onClose ? <IconButton icon="close" label={t('common.close')} onPress={onClose} variant="muted" /> : null}
+      {onClose ? <IconButton icon="close" label={closeLabel} onPress={onClose} variant="muted" /> : null}
     </View>
   );
 }
@@ -117,7 +117,7 @@ export function SheetScreen({
   onClose,
   children,
 }: PropsWithChildren<{ title?: string; subtitle?: string; onClose: () => void }>) {
-  const { t } = useTranslation();
+  const { closeLabel } = useUI();
   return (
     <View style={styles.sheetScreen}>
       <View style={styles.grabber} />
@@ -126,7 +126,7 @@ export function SheetScreen({
           <SheetHeader title={title} subtitle={subtitle} onClose={onClose} />
         ) : (
           <View style={styles.sheetCloseOnly}>
-            <IconButton icon="close" label={t('common.close')} variant="muted" onPress={onClose} />
+            <IconButton icon="close" label={closeLabel} variant="muted" onPress={onClose} />
           </View>
         )}
       </View>
@@ -608,22 +608,22 @@ export function Loading({ color = colors.primary }: { color?: string }) {
 
 /** Xato matni (`code` bo'yicha lokal) va ixtiyoriy "Qayta urinish". */
 export function ErrorView({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
-  const { t } = useTranslation();
+  const { retryLabel, formatError } = useUI();
   return (
     <View style={styles.center}>
       <Ionicons name="cloud-offline-outline" size={40} color={colors.textMuted} />
-      <Text style={[type.body, styles.centerText, { marginTop: space.md }]}>{errorMessage(t, error)}</Text>
-      {onRetry ? <Button title={t('common.retry')} variant="secondary" onPress={onRetry} style={{ marginTop: space.lg }} /> : null}
+      <Text style={[type.body, styles.centerText, { marginTop: space.md }]}>{formatError(error)}</Text>
+      {onRetry ? <Button title={retryLabel} variant="secondary" onPress={onRetry} style={{ marginTop: space.lg }} /> : null}
     </View>
   );
 }
 
 export function ErrorText({ error }: { error: unknown }) {
-  const { t } = useTranslation();
+  const { formatError } = useUI();
   if (!error) return null;
   return (
     <Text accessibilityRole="alert" style={styles.errorText}>
-      {errorMessage(t, error)}
+      {formatError(error)}
     </Text>
   );
 }

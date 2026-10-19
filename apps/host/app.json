@@ -1,0 +1,62 @@
+{
+  "expo": {
+    "name": "Match Host",
+    "slug": "matchup-host",
+    "scheme": "matchuphost",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "uz.matchup.host",
+      "backgroundColor": "#F6F7FB"
+    },
+    "android": {
+      "package": "uz.matchup.host",
+      "adaptiveIcon": {
+        "backgroundColor": "#161B33",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "backgroundColor": "#F6F7FB"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-localization",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Match Host maydonga yetib kelganingizni tasdiqlash uchun joylashuvingizdan foydalanadi."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Match Host o'yinchilarning QR chiptalarini skanerlash uchun kameradan foydalanadi.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#161B33",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 160
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "backgroundColor": "#F6F7FB"
+  }
+}
