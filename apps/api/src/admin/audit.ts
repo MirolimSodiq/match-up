@@ -19,18 +19,22 @@ export const CurrentActor = createParamDecorator((_: unknown, ctx: ExecutionCont
   };
 });
 
-/** Har bir admin mutatsiyasi o'zgarish bilan BIR tranzaksiyada audit_logs'ga yoziladi. */
+/**
+ * Har bir admin mutatsiyasi o'zgarish bilan BIR tranzaksiyada audit_logs'ga yoziladi.
+ * Foydalanuvchining o'z xavfsizlik amallari (identity bog'lash) — `role = 'player'`; tizim job'lari — `actor = null`.
+ */
 export async function audit(
   ex: Executor,
-  actor: Actor,
+  actor: Actor | null,
   action: string,
   entityType: string,
   entityId: string | null,
   changes: Record<string, unknown> = {},
+  role: 'admin' | 'player' | null = 'admin',
 ): Promise<void> {
   await ex.execute(
     sql`INSERT INTO audit_logs (actor_user_id, actor_role, action, entity_type, entity_id, changes, ip, request_id)
-        VALUES (${actor.id}, 'admin', ${action}, ${entityType}, ${entityId}, ${JSON.stringify(changes)}::jsonb,
-                ${actor.ip}::inet, ${actor.requestId})`,
+        VALUES (${actor?.id ?? null}, ${actor ? role : null}, ${action}, ${entityType}, ${entityId}, ${JSON.stringify(changes)}::jsonb,
+                ${actor?.ip ?? null}::inet, ${actor?.requestId ?? null})`,
   );
 }

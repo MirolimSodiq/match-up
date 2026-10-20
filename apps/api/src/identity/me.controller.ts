@@ -1,4 +1,4 @@
-import { Controller, Delete, Get, HttpCode, Inject, Param, Patch, Post, Put, Req } from '@nestjs/common';
+import { Controller, Get, Inject, Param, Patch, Put, Req } from '@nestjs/common';
 import { and, eq, isNull } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
 import type { Request } from 'express';
@@ -122,33 +122,6 @@ export class MeController {
     return rows(
       this.db,
       sql`SELECT purpose, granted, document_version, recorded_at FROM user_current_consents WHERE user_id = ${user.id} ORDER BY purpose`,
-    );
-  }
-
-  @Post('data-export')
-  @HttpCode(202)
-  async dataExport(@CurrentUser() user: AuthUser) {
-    return one(
-      this.db,
-      sql`INSERT INTO data_subject_requests (user_id, type) VALUES (${user.id}, 'export')
-          RETURNING id, type, status, due_at`,
-    );
-  }
-
-  @Delete()
-  @HttpCode(202)
-  async erase(@CurrentUser() user: AuthUser) {
-    const pending = await one(
-      this.db,
-      sql`SELECT 1 FROM data_subject_requests
-          WHERE user_id = ${user.id} AND type = 'erasure' AND status IN ('received', 'in_progress')`,
-    );
-    if (pending) throw new AppError('ERASURE_PENDING');
-    // 30 kunlik grace: DSR job muddat o'tgach anonimlashtiradi (foydalanuvchi shu vaqtgacha bekor qila oladi)
-    return one(
-      this.db,
-      sql`INSERT INTO data_subject_requests (user_id, type) VALUES (${user.id}, 'erasure')
-          RETURNING id, type, status, due_at`,
     );
   }
 }

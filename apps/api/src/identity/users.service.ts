@@ -3,7 +3,20 @@ import { sql } from 'drizzle-orm';
 import { AppError } from '../common/errors';
 import type { Locale } from '../common/i18n';
 import type { UserRole } from '../common/http';
-import { DB, type Db, type Executor, one, rows } from '../db/db';
+import { DB, type Db, type Executor, one, pgError, PG, rows } from '../db/db';
+
+export type SocialProvider = 'google' | 'apple' | 'telegram';
+
+/** Tekshirilgan social identity (ID token yoki Telegram hash'dan). */
+export interface SocialIdentity {
+  provider: SocialProvider;
+  uid: string;
+  /** Foydalanuvchiga ko'rsatiladi: email yoki @username. */
+  label: string | null;
+  firstName?: string;
+  lastName?: string;
+  displayName?: string;
+}
 
 export interface UserRow {
   id: string;
@@ -77,6 +90,53 @@ export class UsersService {
       );
       return { user: await this.get(userId, tx), isNew: !!created };
     });
+  }
+
+  /**
+   * Social identity bo'yicha topadi yoki yangi player yaratadi (telefonsiz). Faqat (provider, provider_uid)
+   * bo'yicha qidiriladi — email bo'yicha boshqa akkauntga avtomatik bog'lanmaydi (akkauntni egallab olish xavfi).
+   */
+  async findOrCreateByIdentity(p: SocialIdentity, locale: Locale): Promise<{ user: UserRow; isNew: boolean }> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.db.transaction(async (tx) => {
+          const existing = await one<{ user_id: string }>(
+            tx,
+            sql`UPDATE auth_identities SET last_used_at = now(), display_label = coalesce(${p.label}, display_label)
+                WHERE provider = ${p.provider} AND provider_uid = ${p.uid}
+                RETURNING user_id`,
+          );
+          if (existing) {
+            const user = await this.get(existing.user_id, tx);
+            if (user.status !== 'active') throw new AppError('FORBIDDEN');
+            return { user, isNew: false };
+          }
+          // Telefon yo'q — MVP bozori (UZ) va uning data region'i
+          const country = await one<{ code: string; data_region: string }>(
+            tx,
+            sql`SELECT code, data_region FROM countries WHERE code = 'UZ'`,
+          );
+          const name = [p.firstName, p.lastName].filter(Boolean).join(' ').trim() || p.displayName?.trim() || '';
+          const created = await one<{ id: string }>(
+            tx,
+            sql`INSERT INTO users (display_name, first_name, last_name, country_code, data_region, locale)
+                VALUES (${name.length >= 2 ? name.slice(0, 40) : 'Player'}, ${p.firstName?.slice(0, 60) ?? null},
+                        ${p.lastName?.slice(0, 60) ?? null}, ${country?.code ?? 'UZ'}, ${country?.data_region ?? 'uz-1'}, ${locale})
+                RETURNING id`,
+          );
+          await tx.execute(sql`INSERT INTO user_roles (user_id, role) VALUES (${created!.id}, 'player')`);
+          await tx.execute(
+            sql`INSERT INTO auth_identities (user_id, provider, provider_uid, display_label, last_used_at)
+                VALUES (${created!.id}, ${p.provider}, ${p.uid}, ${p.label}, now())`,
+          );
+          return { user: await this.get(created!.id, tx), isNew: true };
+        });
+      } catch (err) {
+        // Parallel birinchi kirish: boshqa so'rov identity'ni allaqachon yaratgan — qayta qidiramiz
+        if (attempt === 0 && pgError(err)?.code === PG.UNIQUE_VIOLATION) continue;
+        throw err;
+      }
+    }
   }
 
   async profile(id: string) {

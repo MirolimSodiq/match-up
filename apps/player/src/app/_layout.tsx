@@ -110,6 +110,7 @@ function RootNavigator() {
     >
       <Stack.Protected guard={status === 'signedOut'}>
         <Stack.Screen name="login" options={{ headerShown: false }} />
+        <Stack.Screen name="auth/telegram" options={{ headerShown: false }} />
       </Stack.Protected>
       <Stack.Protected guard={status === 'onboarding'}>
         <Stack.Screen name="onboarding" options={{ headerShown: false }} />

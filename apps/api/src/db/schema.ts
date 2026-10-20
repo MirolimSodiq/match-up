@@ -1,7 +1,7 @@
 // AUTO-GENERATED: `pnpm db:pull` (drizzle-kit pull + scripts/fix-drizzle-schema.ts). Qo'lda tahrirlamang —
 // o'zgarishlar db/migrations/*.sql orqali kiritiladi.
 import { geography, citext, bytea, tstzrange } from './custom-types';
-import { pgTable, check, char, smallint, text, jsonb, foreignKey, boolean, unique, integer, type AnyPgColumn, uuid, date, timestamp, index, inet, numeric, bigint, uniqueIndex, primaryKey, pgView, pgEnum } from "drizzle-orm/pg-core"
+import { pgTable, check, char, smallint, text, jsonb, foreignKey, boolean, unique, integer, type AnyPgColumn, uuid, date, timestamp, index, inet, uniqueIndex, numeric, bigint, primaryKey, pgView, pgEnum } from "drizzle-orm/pg-core"
 import { sql } from "drizzle-orm"
 
 export const authProvider = pgEnum("auth_provider", ['phone', 'google', 'apple', 'telegram'])
@@ -13,7 +13,7 @@ export const competitionStatus = pgEnum("competition_status", ['draft', 'registr
 export const competitionType = pgEnum("competition_type", ['league', 'tournament', 'cup'])
 export const consentPurpose = pgEnum("consent_purpose", ['terms_of_service', 'privacy_policy', 'marketing_sms', 'marketing_push', 'marketing_email', 'analytics', 'media_appearance', 'location_tracking'])
 export const devicePlatform = pgEnum("device_platform", ['ios', 'android', 'web'])
-export const dsrStatus = pgEnum("dsr_status", ['received', 'in_progress', 'completed', 'rejected'])
+export const dsrStatus = pgEnum("dsr_status", ['received', 'in_progress', 'completed', 'rejected', 'cancelled'])
 export const dsrType = pgEnum("dsr_type", ['export', 'erasure', 'rectification', 'restriction'])
 export const entryFeeMode = pgEnum("entry_fee_mode", ['per_team', 'per_player'])
 export const entryStatus = pgEnum("entry_status", ['pending_payment', 'confirmed', 'withdrawn', 'disqualified'])
@@ -139,25 +139,8 @@ export const users = pgTable("users", {
 		}),
 	unique("users_phone_e164_key").on(table.phoneE164),
 	unique("users_email_key").on(table.email),
-	check("users_deleted_consistency", sql`(status <> 'deleted'::user_status) OR (deleted_at IS NOT NULL)`),
 	check("users_phone_e164_check", sql`phone_e164 ~ '^\+[1-9][0-9]{6,14}$'::text`),
-]);
-
-export const authIdentities = pgTable("auth_identities", {
-	id: uuid().default(sql`uuidv7()`).primaryKey().notNull(),
-	userId: uuid("user_id").notNull(),
-	provider: authProvider().notNull(),
-	providerUid: text("provider_uid").notNull(),
-	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	lastUsedAt: timestamp("last_used_at", { withTimezone: true, mode: 'string' }),
-}, (table) => [
-	index("auth_identities_user_idx").using("btree", table.userId.asc().nullsLast().op("uuid_ops")),
-	foreignKey({
-			columns: [table.userId],
-			foreignColumns: [users.id],
-			name: "auth_identities_user_id_fkey"
-		}),
-	unique("auth_identities_provider_provider_uid_key").on(table.provider, table.providerUid),
+	check("users_deleted_consistency", sql`(status <> 'deleted'::user_status) OR (deleted_at IS NOT NULL)`),
 ]);
 
 export const userSessions = pgTable("user_sessions", {
@@ -207,6 +190,25 @@ export const deviceTokens = pgTable("device_tokens", {
 		}),
 	unique("device_tokens_push_token_key").on(table.pushToken),
 	check("device_tokens_provider_check", sql`provider = ANY (ARRAY['expo'::text, 'fcm'::text, 'apns'::text])`),
+]);
+
+export const authIdentities = pgTable("auth_identities", {
+	id: uuid().default(sql`uuidv7()`).primaryKey().notNull(),
+	userId: uuid("user_id").notNull(),
+	provider: authProvider().notNull(),
+	providerUid: text("provider_uid").notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	lastUsedAt: timestamp("last_used_at", { withTimezone: true, mode: 'string' }),
+	displayLabel: text("display_label"),
+}, (table) => [
+	index("auth_identities_user_idx").using("btree", table.userId.asc().nullsLast().op("uuid_ops")),
+	uniqueIndex("auth_identities_user_provider_key").using("btree", table.userId.asc().nullsLast().op("uuid_ops"), table.provider.asc().nullsLast().op("uuid_ops")),
+	foreignKey({
+			columns: [table.userId],
+			foreignColumns: [users.id],
+			name: "auth_identities_user_id_fkey"
+		}),
+	unique("auth_identities_provider_provider_uid_key").on(table.provider, table.providerUid),
 ]);
 
 export const sports = pgTable("sports", {
@@ -299,9 +301,9 @@ export const fieldLeases = pgTable("field_leases", {
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
 	foreignKey({
-			columns: [table.createdBy],
-			foreignColumns: [users.id],
-			name: "field_leases_created_by_fkey"
+			columns: [table.pitchId],
+			foreignColumns: [pitches.id],
+			name: "field_leases_pitch_id_fkey"
 		}),
 	foreignKey({
 			columns: [table.currency],
@@ -309,9 +311,9 @@ export const fieldLeases = pgTable("field_leases", {
 			name: "field_leases_currency_fkey"
 		}),
 	foreignKey({
-			columns: [table.pitchId],
-			foreignColumns: [pitches.id],
-			name: "field_leases_pitch_id_fkey"
+			columns: [table.createdBy],
+			foreignColumns: [users.id],
+			name: "field_leases_created_by_fkey"
 		}),
 	check("field_leases_cost_amount_check", sql`cost_amount >= 0`),
 	check("field_leases_period_valid", sql`(NOT isempty(period)) AND lower_inc(period) AND (NOT upper_inc(period))`),
@@ -371,34 +373,9 @@ export const matches = pgTable("matches", {
 	index("matches_sport_time_idx").using("btree", table.sportId.asc().nullsLast().op("int2_ops"), table.startsAt.asc().nullsLast().op("int2_ops")),
 	index("matches_starts_at_idx").using("btree", table.startsAt.asc().nullsLast().op("timestamptz_ops")),
 	foreignKey({
-			columns: [table.cancellationPolicyId],
-			foreignColumns: [cancellationPolicies.id],
-			name: "matches_cancellation_policy_id_fkey"
-		}),
-	foreignKey({
-			columns: [table.cityId],
-			foreignColumns: [cities.id],
-			name: "matches_city_id_fkey"
-		}),
-	foreignKey({
-			columns: [table.competitionId],
-			foreignColumns: [competitions.id],
-			name: "matches_competition_id_fkey"
-		}),
-	foreignKey({
-			columns: [table.createdBy],
-			foreignColumns: [users.id],
-			name: "matches_created_by_fkey"
-		}),
-	foreignKey({
-			columns: [table.currency],
-			foreignColumns: [currencies.code],
-			name: "matches_currency_fkey"
-		}),
-	foreignKey({
-			columns: [table.leaseId],
-			foreignColumns: [fieldLeases.id],
-			name: "matches_lease_id_fkey"
+			columns: [table.sportId],
+			foreignColumns: [sports.id],
+			name: "matches_sport_id_fkey"
 		}),
 	foreignKey({
 			columns: [table.pitchId],
@@ -406,21 +383,46 @@ export const matches = pgTable("matches", {
 			name: "matches_pitch_id_fkey"
 		}),
 	foreignKey({
-			columns: [table.sportId],
-			foreignColumns: [sports.id],
-			name: "matches_sport_id_fkey"
+			columns: [table.leaseId],
+			foreignColumns: [fieldLeases.id],
+			name: "matches_lease_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.cityId],
+			foreignColumns: [cities.id],
+			name: "matches_city_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.currency],
+			foreignColumns: [currencies.code],
+			name: "matches_currency_fkey"
+		}),
+	foreignKey({
+			columns: [table.cancellationPolicyId],
+			foreignColumns: [cancellationPolicies.id],
+			name: "matches_cancellation_policy_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.createdBy],
+			foreignColumns: [users.id],
+			name: "matches_created_by_fkey"
+		}),
+	foreignKey({
+			columns: [table.competitionId],
+			foreignColumns: [competitions.id],
+			name: "matches_competition_id_fkey"
 		}),
 	unique("matches_public_code_key").on(table.publicCode),
-	check("matches_cancel_consistent", sql`(status <> 'cancelled'::match_status) OR (cancelled_at IS NOT NULL)`),
+	check("matches_sides_count_check", sql`sides_count >= 2`),
+	check("matches_players_per_side_check", sql`players_per_side > 0`),
+	check("matches_price_amount_check", sql`price_amount >= 0`),
+	check("matches_host_fee_amount_check", sql`host_fee_amount >= 0`),
+	check("matches_time_valid", sql`ends_at > starts_at`),
+	check("matches_players_valid", sql`(min_players > 0) AND (min_players <= max_players)`),
 	check("matches_capacity", sql`(held_slots >= 0) AND (confirmed_slots >= 0) AND ((held_slots + confirmed_slots) <= max_players)`),
 	check("matches_deadlines_valid", sql`(booking_closes_at <= starts_at) AND (min_players_deadline <= starts_at)`),
-	check("matches_host_fee_amount_check", sql`host_fee_amount >= 0`),
-	check("matches_players_per_side_check", sql`players_per_side > 0`),
-	check("matches_players_valid", sql`(min_players > 0) AND (min_players <= max_players)`),
-	check("matches_price_amount_check", sql`price_amount >= 0`),
-	check("matches_sides_count_check", sql`sides_count >= 2`),
 	check("matches_skill_range", sql`(skill_min IS NULL) OR (skill_max IS NULL) OR (skill_min <= skill_max)`),
-	check("matches_time_valid", sql`ends_at > starts_at`),
+	check("matches_cancel_consistent", sql`(status <> 'cancelled'::match_status) OR (cancelled_at IS NOT NULL)`),
 ]);
 
 export const waiverTemplates = pgTable("waiver_templates", {
@@ -484,9 +486,9 @@ export const waiverSignatures = pgTable("waiver_signatures", {
 }, (table) => [
 	index("waiver_signatures_user_tpl_idx").using("btree", table.userId.asc().nullsLast().op("uuid_ops"), table.templateId.asc().nullsLast().op("uuid_ops")),
 	foreignKey({
-			columns: [table.matchId],
-			foreignColumns: [matches.id],
-			name: "waiver_signatures_match_id_fkey"
+			columns: [table.userId],
+			foreignColumns: [users.id],
+			name: "waiver_signatures_user_id_fkey"
 		}),
 	foreignKey({
 			columns: [table.templateId],
@@ -494,9 +496,9 @@ export const waiverSignatures = pgTable("waiver_signatures", {
 			name: "waiver_signatures_template_id_fkey"
 		}),
 	foreignKey({
-			columns: [table.userId],
-			foreignColumns: [users.id],
-			name: "waiver_signatures_user_id_fkey"
+			columns: [table.matchId],
+			foreignColumns: [matches.id],
+			name: "waiver_signatures_match_id_fkey"
 		}),
 	check("waiver_signatures_otp", sql`(method <> 'otp_confirmed'::waiver_sign_method) OR (otp_challenge_ref IS NOT NULL)`),
 ]);
@@ -519,9 +521,19 @@ export const matchParticipants = pgTable("match_participants", {
 	uniqueIndex("match_participants_one_active_per_user").using("btree", table.matchId.asc().nullsLast().op("uuid_ops"), table.userId.asc().nullsLast().op("uuid_ops")).where(sql`((user_id IS NOT NULL) AND (status = ANY (ARRAY['held'::participant_status, 'confirmed'::participant_status, 'checked_in'::participant_status, 'no_show'::participant_status])))`),
 	index("match_participants_user_idx").using("btree", table.userId.asc().nullsLast().op("timestamptz_ops"), table.createdAt.desc().nullsFirst().op("timestamptz_ops")),
 	foreignKey({
+			columns: [table.matchId],
+			foreignColumns: [matches.id],
+			name: "match_participants_match_id_fkey"
+		}),
+	foreignKey({
 			columns: [table.bookingId],
 			foreignColumns: [bookings.id],
 			name: "match_participants_booking_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.userId],
+			foreignColumns: [users.id],
+			name: "match_participants_user_id_fkey"
 		}),
 	foreignKey({
 			columns: [table.checkedInBy],
@@ -529,19 +541,9 @@ export const matchParticipants = pgTable("match_participants", {
 			name: "match_participants_checked_in_by_fkey"
 		}),
 	foreignKey({
-			columns: [table.matchId],
-			foreignColumns: [matches.id],
-			name: "match_participants_match_id_fkey"
-		}),
-	foreignKey({
 			columns: [table.matchId, table.sideNo],
 			foreignColumns: [matchSides.matchId, matchSides.sideNo],
 			name: "match_participants_match_id_side_no_fkey"
-		}),
-	foreignKey({
-			columns: [table.userId],
-			foreignColumns: [users.id],
-			name: "match_participants_user_id_fkey"
 		}),
 	check("match_participants_identity", sql`(user_id IS NOT NULL) OR (guest_name IS NOT NULL)`),
 	check("match_participants_source", sql`(source <> 'booking'::participant_source) OR (booking_id IS NOT NULL)`),
@@ -603,6 +605,26 @@ export const bookings = pgTable("bookings", {
 	index("bookings_match_idx").using("btree", table.matchId.asc().nullsLast().op("uuid_ops")),
 	index("bookings_user_idx").using("btree", table.userId.asc().nullsLast().op("timestamptz_ops"), table.createdAt.desc().nullsFirst().op("uuid_ops")),
 	foreignKey({
+			columns: [table.userId],
+			foreignColumns: [users.id],
+			name: "bookings_user_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.matchId],
+			foreignColumns: [matches.id],
+			name: "bookings_match_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.currency],
+			foreignColumns: [currencies.code],
+			name: "bookings_currency_fkey"
+		}),
+	foreignKey({
+			columns: [table.waiverSignatureId],
+			foreignColumns: [waiverSignatures.id],
+			name: "bookings_waiver_signature_id_fkey"
+		}),
+	foreignKey({
 			columns: [table.cancelledBy],
 			foreignColumns: [users.id],
 			name: "bookings_cancelled_by_fkey"
@@ -612,36 +634,16 @@ export const bookings = pgTable("bookings", {
 			foreignColumns: [competitionEntries.id],
 			name: "bookings_competition_entry_id_fkey"
 		}),
-	foreignKey({
-			columns: [table.currency],
-			foreignColumns: [currencies.code],
-			name: "bookings_currency_fkey"
-		}),
-	foreignKey({
-			columns: [table.matchId],
-			foreignColumns: [matches.id],
-			name: "bookings_match_id_fkey"
-		}),
-	foreignKey({
-			columns: [table.userId],
-			foreignColumns: [users.id],
-			name: "bookings_user_id_fkey"
-		}),
-	foreignKey({
-			columns: [table.waiverSignatureId],
-			foreignColumns: [waiverSignatures.id],
-			name: "bookings_waiver_signature_id_fkey"
-		}),
 	unique("bookings_user_id_idempotency_key_key").on(table.idempotencyKey, table.userId),
-	check("bookings_amount_math", sql`total_amount = (((unit_price_amount * seats) - discount_amount) - wallet_applied_amount)`),
-	check("bookings_discount_amount_check", sql`discount_amount >= 0`),
-	check("bookings_hold_has_expiry", sql`(status <> 'pending_payment'::booking_status) OR (expires_at IS NOT NULL)`),
 	check("bookings_seats_check", sql`(seats >= 1) AND (seats <= 4)`),
-	check("bookings_target_arc", sql`((bookable_type = 'match_slot'::booking_target) AND (match_id IS NOT NULL) AND (competition_entry_id IS NULL)) OR ((bookable_type = 'competition_entry'::booking_target) AND (competition_entry_id IS NOT NULL) AND (match_id IS NULL))`),
-	check("bookings_total_amount_check", sql`total_amount >= 0`),
 	check("bookings_unit_price_amount_check", sql`unit_price_amount >= 0`),
-	check("bookings_waiver_required", sql`(bookable_type <> 'match_slot'::booking_target) OR (waiver_signature_id IS NOT NULL)`),
+	check("bookings_discount_amount_check", sql`discount_amount >= 0`),
 	check("bookings_wallet_applied_amount_check", sql`wallet_applied_amount >= 0`),
+	check("bookings_total_amount_check", sql`total_amount >= 0`),
+	check("bookings_amount_math", sql`total_amount = (((unit_price_amount * seats) - discount_amount) - wallet_applied_amount)`),
+	check("bookings_hold_has_expiry", sql`(status <> 'pending_payment'::booking_status) OR (expires_at IS NOT NULL)`),
+	check("bookings_waiver_required", sql`(bookable_type <> 'match_slot'::booking_target) OR (waiver_signature_id IS NOT NULL)`),
+	check("bookings_target_arc", sql`((bookable_type = 'match_slot'::booking_target) AND (match_id IS NOT NULL) AND (competition_entry_id IS NULL)) OR ((bookable_type = 'competition_entry'::booking_target) AND (competition_entry_id IS NOT NULL) AND (match_id IS NULL))`),
 ]);
 
 export const paymentProviderConfigs = pgTable("payment_provider_configs", {
@@ -696,14 +698,14 @@ export const payments = pgTable("payments", {
 			name: "payments_booking_id_fkey"
 		}),
 	foreignKey({
-			columns: [table.currency],
-			foreignColumns: [currencies.code],
-			name: "payments_currency_fkey"
-		}),
-	foreignKey({
 			columns: [table.userId],
 			foreignColumns: [users.id],
 			name: "payments_user_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.currency],
+			foreignColumns: [currencies.code],
+			name: "payments_currency_fkey"
 		}),
 	unique("payments_provider_provider_transaction_id_key").on(table.provider, table.providerTransactionId),
 	check("payments_amount_check", sql`amount >= 0`),
@@ -752,6 +754,11 @@ export const refunds = pgTable("refunds", {
 	index("refunds_payment_idx").using("btree", table.paymentId.asc().nullsLast().op("uuid_ops")),
 	index("refunds_queue_idx").using("btree", table.createdAt.asc().nullsLast().op("timestamptz_ops")).where(sql`((status = 'pending'::refund_status) AND (destination = 'original_method'::refund_destination))`),
 	foreignKey({
+			columns: [table.paymentId],
+			foreignColumns: [payments.id],
+			name: "refunds_payment_id_fkey"
+		}),
+	foreignKey({
 			columns: [table.bookingId],
 			foreignColumns: [bookings.id],
 			name: "refunds_booking_id_fkey"
@@ -765,11 +772,6 @@ export const refunds = pgTable("refunds", {
 			columns: [table.initiatedBy],
 			foreignColumns: [users.id],
 			name: "refunds_initiated_by_fkey"
-		}),
-	foreignKey({
-			columns: [table.paymentId],
-			foreignColumns: [payments.id],
-			name: "refunds_payment_id_fkey"
 		}),
 	foreignKey({
 			columns: [table.processedBy],
@@ -789,14 +791,14 @@ export const walletAccounts = pgTable("wallet_accounts", {
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
 	foreignKey({
-			columns: [table.currency],
-			foreignColumns: [currencies.code],
-			name: "wallet_accounts_currency_fkey"
-		}),
-	foreignKey({
 			columns: [table.userId],
 			foreignColumns: [users.id],
 			name: "wallet_accounts_user_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.currency],
+			foreignColumns: [currencies.code],
+			name: "wallet_accounts_currency_fkey"
 		}),
 	unique("wallet_accounts_user_id_currency_key").on(table.currency, table.userId),
 	check("wallet_accounts_balance_check", sql`balance >= 0`),
@@ -818,6 +820,11 @@ export const walletTransactions = pgTable("wallet_transactions", {
 }, (table) => [
 	index("wallet_transactions_wallet_idx").using("btree", table.walletId.asc().nullsLast().op("timestamptz_ops"), table.createdAt.desc().nullsFirst().op("timestamptz_ops")),
 	foreignKey({
+			columns: [table.walletId],
+			foreignColumns: [walletAccounts.id],
+			name: "wallet_transactions_wallet_id_fkey"
+		}),
+	foreignKey({
 			columns: [table.bookingId],
 			foreignColumns: [bookings.id],
 			name: "wallet_transactions_booking_id_fkey"
@@ -826,11 +833,6 @@ export const walletTransactions = pgTable("wallet_transactions", {
 			columns: [table.refundId],
 			foreignColumns: [refunds.id],
 			name: "wallet_transactions_refund_id_fkey"
-		}),
-	foreignKey({
-			columns: [table.walletId],
-			foreignColumns: [walletAccounts.id],
-			name: "wallet_transactions_wallet_id_fkey"
 		}),
 	check("wallet_transactions_amount_check", sql`amount <> 0`),
 	check("wallet_transactions_balance_after_check", sql`balance_after >= 0`),
@@ -866,23 +868,35 @@ export const dataSubjectRequests = pgTable("data_subject_requests", {
 	exportMediaId: uuid("export_media_id"),
 	handledBy: uuid("handled_by"),
 	notes: text(),
+	exportPath: text("export_path"),
+	exportSha256: bytea("export_sha256"),
+	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
+	exportSizeBytes: bigint("export_size_bytes", { mode: "number" }),
+	exportExpiresAt: timestamp("export_expires_at", { withTimezone: true, mode: 'string' }),
+	blockedReasons: jsonb("blocked_reasons"),
+	blockedAt: timestamp("blocked_at", { withTimezone: true, mode: 'string' }),
+	cancelledAt: timestamp("cancelled_at", { withTimezone: true, mode: 'string' }),
 }, (table) => [
+	index("dsr_export_expiry_idx").using("btree", table.exportExpiresAt.asc().nullsLast().op("timestamptz_ops")).where(sql`(export_path IS NOT NULL)`),
+	uniqueIndex("dsr_one_open_erasure").using("btree", table.userId.asc().nullsLast().op("uuid_ops")).where(sql`((type = 'erasure'::dsr_type) AND (status = ANY (ARRAY['received'::dsr_status, 'in_progress'::dsr_status])))`),
 	index("dsr_open_idx").using("btree", table.dueAt.asc().nullsLast().op("timestamptz_ops")).where(sql`(status = ANY (ARRAY['received'::dsr_status, 'in_progress'::dsr_status]))`),
-	foreignKey({
-			columns: [table.handledBy],
-			foreignColumns: [users.id],
-			name: "data_subject_requests_handled_by_fkey"
-		}),
+	index("dsr_user_idx").using("btree", table.userId.asc().nullsLast().op("timestamptz_ops"), table.requestedAt.desc().nullsFirst().op("timestamptz_ops")),
 	foreignKey({
 			columns: [table.userId],
 			foreignColumns: [users.id],
 			name: "data_subject_requests_user_id_fkey"
 		}),
 	foreignKey({
+			columns: [table.handledBy],
+			foreignColumns: [users.id],
+			name: "data_subject_requests_handled_by_fkey"
+		}),
+	foreignKey({
 			columns: [table.exportMediaId],
 			foreignColumns: [mediaAssets.id],
 			name: "dsr_export_fk"
 		}),
+	check("data_subject_requests_export_size_bytes_check", sql`export_size_bytes >= 0`),
 ]);
 
 export const auditLogs = pgTable("audit_logs", {
@@ -930,14 +944,14 @@ export const hostProfiles = pgTable("host_profiles", {
 }, (table) => [
 	index("host_profiles_location_gix").using("gist", table.baseLocation.asc().nullsLast().op("gist_geography_ops")).where(sql`(status = 'active'::host_status)`),
 	foreignKey({
-			columns: [table.homeCityId],
-			foreignColumns: [cities.id],
-			name: "host_profiles_home_city_id_fkey"
-		}),
-	foreignKey({
 			columns: [table.userId],
 			foreignColumns: [users.id],
 			name: "host_profiles_user_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.homeCityId],
+			foreignColumns: [cities.id],
+			name: "host_profiles_home_city_id_fkey"
 		}),
 	foreignKey({
 			columns: [table.verifiedBy],
@@ -962,14 +976,14 @@ export const hostPayouts = pgTable("host_payouts", {
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
 	foreignKey({
-			columns: [table.currency],
-			foreignColumns: [currencies.code],
-			name: "host_payouts_currency_fkey"
-		}),
-	foreignKey({
 			columns: [table.hostUserId],
 			foreignColumns: [hostProfiles.userId],
 			name: "host_payouts_host_user_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.currency],
+			foreignColumns: [currencies.code],
+			name: "host_payouts_currency_fkey"
 		}),
 	unique("host_payouts_host_user_id_period_start_period_end_key").on(table.hostUserId, table.periodEnd, table.periodStart),
 	check("host_payouts_amount_check", sql`amount >= 0`),
@@ -1001,9 +1015,9 @@ export const hostAssignments = pgTable("host_assignments", {
 	index("host_assignments_offers_idx").using("btree", table.offerExpiresAt.asc().nullsLast().op("timestamptz_ops")).where(sql`(status = 'offered'::host_assignment_status)`),
 	uniqueIndex("host_assignments_one_active_per_match").using("btree", table.matchId.asc().nullsLast().op("uuid_ops")).where(sql`(status = ANY (ARRAY['accepted'::host_assignment_status, 'arrived'::host_assignment_status, 'completed'::host_assignment_status]))`),
 	foreignKey({
-			columns: [table.currency],
-			foreignColumns: [currencies.code],
-			name: "host_assignments_currency_fkey"
+			columns: [table.matchId],
+			foreignColumns: [matches.id],
+			name: "host_assignments_match_id_fkey"
 		}),
 	foreignKey({
 			columns: [table.hostUserId],
@@ -1011,9 +1025,9 @@ export const hostAssignments = pgTable("host_assignments", {
 			name: "host_assignments_host_user_id_fkey"
 		}),
 	foreignKey({
-			columns: [table.matchId],
-			foreignColumns: [matches.id],
-			name: "host_assignments_match_id_fkey"
+			columns: [table.currency],
+			foreignColumns: [currencies.code],
+			name: "host_assignments_currency_fkey"
 		}),
 	foreignKey({
 			columns: [table.payoutId],
@@ -1040,16 +1054,6 @@ export const checkinEvents = pgTable("checkin_events", {
 }, (table) => [
 	index("checkin_events_match_idx").using("btree", table.matchId.asc().nullsLast().op("timestamptz_ops"), table.occurredAt.asc().nullsLast().op("timestamptz_ops")),
 	foreignKey({
-			columns: [table.actorUserId],
-			foreignColumns: [users.id],
-			name: "checkin_events_actor_user_id_fkey"
-		}),
-	foreignKey({
-			columns: [table.hostAssignmentId],
-			foreignColumns: [hostAssignments.id],
-			name: "checkin_events_host_assignment_id_fkey"
-		}),
-	foreignKey({
 			columns: [table.matchId],
 			foreignColumns: [matches.id],
 			name: "checkin_events_match_id_fkey"
@@ -1058,6 +1062,16 @@ export const checkinEvents = pgTable("checkin_events", {
 			columns: [table.participantId],
 			foreignColumns: [matchParticipants.id],
 			name: "checkin_events_participant_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.hostAssignmentId],
+			foreignColumns: [hostAssignments.id],
+			name: "checkin_events_host_assignment_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.actorUserId],
+			foreignColumns: [users.id],
+			name: "checkin_events_actor_user_id_fkey"
 		}),
 	unique("checkin_events_client_event_id_key").on(table.clientEventId),
 ]);
@@ -1074,14 +1088,14 @@ export const matchFeedback = pgTable("match_feedback", {
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
 	foreignKey({
-			columns: [table.fromUserId],
-			foreignColumns: [users.id],
-			name: "match_feedback_from_user_id_fkey"
-		}),
-	foreignKey({
 			columns: [table.matchId],
 			foreignColumns: [matches.id],
 			name: "match_feedback_match_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.fromUserId],
+			foreignColumns: [users.id],
+			name: "match_feedback_from_user_id_fkey"
 		}),
 	foreignKey({
 			columns: [table.toUserId],
@@ -1123,8 +1137,8 @@ export const mediaAssets = pgTable("media_assets", {
 			name: "media_assets_owner_user_id_fkey"
 		}),
 	unique("media_assets_bucket_object_key_key").on(table.bucket, table.objectKey),
-	check("media_assets_duration_ms_check", sql`duration_ms >= 0`),
 	check("media_assets_size_bytes_check", sql`size_bytes >= 0`),
+	check("media_assets_duration_ms_check", sql`duration_ms >= 0`),
 ]);
 
 export const highlights = pgTable("highlights", {
@@ -1151,11 +1165,6 @@ export const highlights = pgTable("highlights", {
 	index("highlights_feed_idx").using("btree", table.publishedAt.desc().nullsFirst().op("timestamptz_ops")).where(sql`((visibility = 'public'::highlight_visibility) AND (moderation_status = 'approved'::moderation_status) AND (deleted_at IS NULL))`),
 	index("highlights_match_idx").using("btree", table.matchId.asc().nullsLast().op("uuid_ops")),
 	foreignKey({
-			columns: [table.createdBy],
-			foreignColumns: [users.id],
-			name: "highlights_created_by_fkey"
-		}),
-	foreignKey({
 			columns: [table.matchId],
 			foreignColumns: [matches.id],
 			name: "highlights_match_id_fkey"
@@ -1165,9 +1174,14 @@ export const highlights = pgTable("highlights", {
 			foreignColumns: [mediaAssets.id],
 			name: "highlights_media_asset_id_fkey"
 		}),
+	foreignKey({
+			columns: [table.createdBy],
+			foreignColumns: [users.id],
+			name: "highlights_created_by_fkey"
+		}),
 	unique("highlights_media_asset_id_key").on(table.mediaAssetId),
-	check("highlights_duration_ms_check", sql`duration_ms > 0`),
 	check("highlights_match_offset_ms_check", sql`match_offset_ms >= 0`),
+	check("highlights_duration_ms_check", sql`duration_ms > 0`),
 ]);
 
 export const notifications = pgTable("notifications", {
@@ -1249,9 +1263,9 @@ export const teams = pgTable("teams", {
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
 	foreignKey({
-			columns: [table.captainUserId],
-			foreignColumns: [users.id],
-			name: "teams_captain_user_id_fkey"
+			columns: [table.sportId],
+			foreignColumns: [sports.id],
+			name: "teams_sport_id_fkey"
 		}),
 	foreignKey({
 			columns: [table.cityId],
@@ -1264,9 +1278,9 @@ export const teams = pgTable("teams", {
 			name: "teams_logo_media_id_fkey"
 		}),
 	foreignKey({
-			columns: [table.sportId],
-			foreignColumns: [sports.id],
-			name: "teams_sport_id_fkey"
+			columns: [table.captainUserId],
+			foreignColumns: [users.id],
+			name: "teams_captain_user_id_fkey"
 		}),
 	unique("teams_slug_key").on(table.slug),
 ]);
@@ -1300,9 +1314,9 @@ export const competitions = pgTable("competitions", {
 }, (table) => [
 	index("competitions_city_status_idx").using("btree", table.cityId.asc().nullsLast().op("int4_ops"), table.status.asc().nullsLast().op("int4_ops")),
 	foreignKey({
-			columns: [table.cancellationPolicyId],
-			foreignColumns: [cancellationPolicies.id],
-			name: "competitions_cancellation_policy_id_fkey"
+			columns: [table.sportId],
+			foreignColumns: [sports.id],
+			name: "competitions_sport_id_fkey"
 		}),
 	foreignKey({
 			columns: [table.cityId],
@@ -1310,24 +1324,24 @@ export const competitions = pgTable("competitions", {
 			name: "competitions_city_id_fkey"
 		}),
 	foreignKey({
-			columns: [table.createdBy],
-			foreignColumns: [users.id],
-			name: "competitions_created_by_fkey"
-		}),
-	foreignKey({
 			columns: [table.currency],
 			foreignColumns: [currencies.code],
 			name: "competitions_currency_fkey"
 		}),
 	foreignKey({
-			columns: [table.sportId],
-			foreignColumns: [sports.id],
-			name: "competitions_sport_id_fkey"
+			columns: [table.cancellationPolicyId],
+			foreignColumns: [cancellationPolicies.id],
+			name: "competitions_cancellation_policy_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.createdBy],
+			foreignColumns: [users.id],
+			name: "competitions_created_by_fkey"
 		}),
 	unique("competitions_slug_key").on(table.slug),
+	check("competitions_entry_fee_amount_check", sql`entry_fee_amount >= 0`),
 	check("competitions_check", sql`(team_size_min > 0) AND (team_size_min <= team_size_max)`),
 	check("competitions_check1", sql`(ends_on IS NULL) OR (starts_on IS NULL) OR (ends_on >= starts_on)`),
-	check("competitions_entry_fee_amount_check", sql`entry_fee_amount >= 0`),
 ]);
 
 export const competitionEntries = pgTable("competition_entries", {
@@ -1348,14 +1362,14 @@ export const competitionEntries = pgTable("competition_entries", {
 			name: "competition_entries_competition_id_fkey"
 		}),
 	foreignKey({
-			columns: [table.registeredBy],
-			foreignColumns: [users.id],
-			name: "competition_entries_registered_by_fkey"
-		}),
-	foreignKey({
 			columns: [table.teamId],
 			foreignColumns: [teams.id],
 			name: "competition_entries_team_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.registeredBy],
+			foreignColumns: [users.id],
+			name: "competition_entries_registered_by_fkey"
 		}),
 	unique("competition_entries_competition_id_team_id_key").on(table.competitionId, table.teamId),
 ]);
@@ -1377,19 +1391,9 @@ export const matchEvents = pgTable("match_events", {
 	index("match_events_match_idx").using("btree", table.matchId.asc().nullsLast().op("int4_ops"), table.matchOffsetMs.asc().nullsLast().op("int4_ops")),
 	index("match_events_participant_idx").using("btree", table.participantId.asc().nullsLast().op("uuid_ops")).where(sql`(participant_id IS NOT NULL)`),
 	foreignKey({
-			columns: [table.highlightId],
-			foreignColumns: [highlights.id],
-			name: "match_events_highlight_id_fkey"
-		}),
-	foreignKey({
 			columns: [table.matchId],
 			foreignColumns: [matches.id],
 			name: "match_events_match_id_fkey"
-		}),
-	foreignKey({
-			columns: [table.matchId, table.sideNo],
-			foreignColumns: [matchSides.matchId, matchSides.sideNo],
-			name: "match_events_match_id_side_no_fkey"
 		}),
 	foreignKey({
 			columns: [table.participantId],
@@ -1397,12 +1401,22 @@ export const matchEvents = pgTable("match_events", {
 			name: "match_events_participant_id_fkey"
 		}),
 	foreignKey({
+			columns: [table.highlightId],
+			foreignColumns: [highlights.id],
+			name: "match_events_highlight_id_fkey"
+		}),
+	foreignKey({
 			columns: [table.recordedBy],
 			foreignColumns: [users.id],
 			name: "match_events_recorded_by_fkey"
 		}),
-	check("match_events_confidence_check", sql`(confidence >= (0)::numeric) AND (confidence <= (1)::numeric)`),
+	foreignKey({
+			columns: [table.matchId, table.sideNo],
+			foreignColumns: [matchSides.matchId, matchSides.sideNo],
+			name: "match_events_match_id_side_no_fkey"
+		}),
 	check("match_events_match_offset_ms_check", sql`match_offset_ms >= 0`),
+	check("match_events_confidence_check", sql`(confidence >= (0)::numeric) AND (confidence <= (1)::numeric)`),
 ]);
 
 export const mediaProcessingJobs = pgTable("media_processing_jobs", {
@@ -1443,15 +1457,15 @@ export const pushDeliveries = pgTable("push_deliveries", {
 	index("push_deliveries_notification_idx").using("btree", table.notificationId.asc().nullsLast().op("uuid_ops")),
 	index("push_deliveries_receipt_idx").using("btree", table.createdAt.asc().nullsLast().op("timestamptz_ops")).where(sql`((status = 'sent'::text) AND (ticket_id IS NOT NULL) AND (receipt_checked_at IS NULL))`),
 	foreignKey({
-			columns: [table.deviceTokenId],
-			foreignColumns: [deviceTokens.id],
-			name: "push_deliveries_device_token_id_fkey"
-		}).onDelete("cascade"),
-	foreignKey({
 			columns: [table.notificationId],
 			foreignColumns: [notifications.id],
 			name: "push_deliveries_notification_id_fkey"
 		}),
+	foreignKey({
+			columns: [table.deviceTokenId],
+			foreignColumns: [deviceTokens.id],
+			name: "push_deliveries_device_token_id_fkey"
+		}).onDelete("cascade"),
 	check("push_deliveries_status_check", sql`status = ANY (ARRAY['sent'::text, 'delivered'::text, 'failed'::text])`),
 ]);
 
@@ -1461,15 +1475,15 @@ export const venueAmenities = pgTable("venue_amenities", {
 }, (table) => [
 	index("venue_amenities_amenity_idx").using("btree", table.amenityId.asc().nullsLast().op("int2_ops")),
 	foreignKey({
-			columns: [table.amenityId],
-			foreignColumns: [amenities.id],
-			name: "venue_amenities_amenity_id_fkey"
-		}),
-	foreignKey({
 			columns: [table.venueId],
 			foreignColumns: [venues.id],
 			name: "venue_amenities_venue_id_fkey"
 		}).onDelete("cascade"),
+	foreignKey({
+			columns: [table.amenityId],
+			foreignColumns: [amenities.id],
+			name: "venue_amenities_amenity_id_fkey"
+		}),
 	primaryKey({ columns: [table.amenityId, table.venueId], name: "venue_amenities_pkey"}),
 ]);
 
@@ -1495,15 +1509,15 @@ export const hostSports = pgTable("host_sports", {
 	sportId: smallint("sport_id").notNull(),
 }, (table) => [
 	foreignKey({
-			columns: [table.sportId],
-			foreignColumns: [sports.id],
-			name: "host_sports_sport_id_fkey"
-		}),
-	foreignKey({
 			columns: [table.userId],
 			foreignColumns: [hostProfiles.userId],
 			name: "host_sports_user_id_fkey"
 		}).onDelete("cascade"),
+	foreignKey({
+			columns: [table.sportId],
+			foreignColumns: [sports.id],
+			name: "host_sports_sport_id_fkey"
+		}),
 	primaryKey({ columns: [table.sportId, table.userId], name: "host_sports_pkey"}),
 ]);
 
@@ -1514,14 +1528,14 @@ export const userRoles = pgTable("user_roles", {
 	grantedAt: timestamp("granted_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
 	foreignKey({
-			columns: [table.grantedBy],
-			foreignColumns: [users.id],
-			name: "user_roles_granted_by_fkey"
-		}),
-	foreignKey({
 			columns: [table.userId],
 			foreignColumns: [users.id],
 			name: "user_roles_user_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.grantedBy],
+			foreignColumns: [users.id],
+			name: "user_roles_granted_by_fkey"
 		}),
 	primaryKey({ columns: [table.role, table.userId], name: "user_roles_pkey"}),
 ]);
@@ -1539,14 +1553,14 @@ export const highlightTags = pgTable("highlight_tags", {
 			name: "highlight_tags_highlight_id_fkey"
 		}).onDelete("cascade"),
 	foreignKey({
-			columns: [table.taggedBy],
-			foreignColumns: [users.id],
-			name: "highlight_tags_tagged_by_fkey"
-		}),
-	foreignKey({
 			columns: [table.userId],
 			foreignColumns: [users.id],
 			name: "highlight_tags_user_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.taggedBy],
+			foreignColumns: [users.id],
+			name: "highlight_tags_tagged_by_fkey"
 		}),
 	primaryKey({ columns: [table.highlightId, table.userId], name: "highlight_tags_pkey"}),
 ]);
@@ -1611,8 +1625,8 @@ export const matchSides = pgTable("match_sides", {
 			name: "match_sides_team_id_fkey"
 		}),
 	primaryKey({ columns: [table.matchId, table.sideNo], name: "match_sides_pkey"}),
-	check("match_sides_score_check", sql`score >= 0`),
 	check("match_sides_side_no_check", sql`side_no > 0`),
+	check("match_sides_score_check", sql`score >= 0`),
 ]);
 
 export const teamMembers = pgTable("team_members", {
@@ -1653,14 +1667,14 @@ export const playerSportProfiles = pgTable("player_sport_profiles", {
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
 	foreignKey({
-			columns: [table.sportId],
-			foreignColumns: [sports.id],
-			name: "player_sport_profiles_sport_id_fkey"
-		}),
-	foreignKey({
 			columns: [table.userId],
 			foreignColumns: [users.id],
 			name: "player_sport_profiles_user_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.sportId],
+			foreignColumns: [sports.id],
+			name: "player_sport_profiles_sport_id_fkey"
 		}),
 	primaryKey({ columns: [table.sportId, table.userId], name: "player_sport_profiles_pkey"}),
 	check("player_sport_profiles_games_played_check", sql`games_played >= 0`),

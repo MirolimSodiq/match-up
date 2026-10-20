@@ -31,6 +31,12 @@ export type BookingStatus = Schemas['BookingStatus'];
 export type Booking = Schemas['Booking'];
 export type Checkout = Schemas['Checkout'];
 export type Wallet = Schemas['Wallet'];
+export type DataSubjectRequest = Schemas['DataSubjectRequest'];
+export type ErasureBlockedReason = Schemas['ErasureBlockedReason'];
+export type PersonalDataExport = Schemas['PersonalDataExport'];
+export type AuthIdentity = Schemas['AuthIdentity'];
+export type SocialCredential = Schemas['SocialCredential'];
+export type SocialProvider = SocialCredential['provider'];
 
 type Json<T> = T extends { content: { 'application/json': infer B } } ? B : never;
 

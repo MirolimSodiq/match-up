@@ -13,6 +13,9 @@ import { HostModule } from '../host/host.module';
 import { DispatchService } from '../host/host.service';
 import { NotificationJobs } from '../notifications/notification-jobs';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { DataExportService } from '../privacy/data-export.service';
+import { ErasureService } from '../privacy/erasure.service';
+import { PrivacyModule } from '../privacy/privacy.module';
 import { REDIS } from '../redis/redis.module';
 
 export { EVENTS_STREAM } from '../common/outbox';
@@ -50,7 +53,7 @@ export class OutboxRelay {
 
 /**
  * BullMQ job scheduler: hold expiry, host dispatch, minimum o'yinchi tekshiruvi, outbox relay,
- * eslatmalar (T-24h/T-2h), kutish ro'yxati takliflari muddati, push retry va receipt'lar.
+ * eslatmalar (T-24h/T-2h), kutish ro'yxati takliflari muddati, push retry va receipt'lar, GDPR so'rovlari.
  */
 @Injectable()
 export class JobsService implements OnModuleInit, OnModuleDestroy {
@@ -66,6 +69,8 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     private readonly admin: AdminService,
     private readonly outbox: OutboxRelay,
     private readonly notifications: NotificationJobs,
+    private readonly dataExports: DataExportService,
+    private readonly erasures: ErasureService,
   ) {}
 
   async onModuleInit() {
@@ -81,6 +86,8 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       'waitlist-offers': 30_000,
       'push-retry': 30_000,
       'push-receipts': 300_000,
+      'dsr-exports': 60_000,
+      'dsr-erasures': 3_600_000,
     };
     for (const [name, ms] of Object.entries(every)) {
       await this.queue.upsertJobScheduler(name, { every: ms }, { name, opts: { removeOnComplete: 100, removeOnFail: 500 } });
@@ -108,6 +115,10 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
         return { retried: await this.notifications.retryQueued() };
       case 'push-receipts':
         return this.notifications.checkReceipts();
+      case 'dsr-exports':
+        return this.dataExports.run();
+      case 'dsr-erasures':
+        return this.erasures.run();
       default:
         throw new Error(`Noma'lum job: ${name}`);
     }
@@ -121,7 +132,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
 }
 
 @Module({
-  imports: [CommerceModule, HostModule, AdminModule, NotificationsModule],
+  imports: [CommerceModule, HostModule, AdminModule, NotificationsModule, PrivacyModule],
   providers: [JobsService, OutboxRelay],
   exports: [JobsService, OutboxRelay],
 })

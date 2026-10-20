@@ -17,7 +17,9 @@ export type DomainEvent =
   | 'HostOffered'
   | 'HostAssigned'
   | 'HostArrived'
-  | 'PlayerCheckedIn';
+  | 'PlayerCheckedIn'
+  | 'DataExportReady'
+  | 'UserErased';
 
 /** OutboxRelay event'larni shu Redis Stream'ga chiqaradi; consumer group'lar undan o'qiydi. */
 export const EVENTS_STREAM = 'matchup:events';

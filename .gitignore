@@ -18,3 +18,4 @@ apps/api/keys/
 *.tfstate.*
 *.tfplan
 crash.log
+apps/api/storage/

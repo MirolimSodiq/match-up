@@ -19,6 +19,10 @@ export const ERROR_STATUS = {
   ALREADY_EXISTS: 409,
   WAIVER_OUTDATED: 409,
   ERASURE_PENDING: 409,
+  IDENTITY_IN_USE: 409,
+  LAST_LOGIN_METHOD: 409,
+  EXPORT_NOT_READY: 409,
+  EXPORT_EXPIRED: 410,
   ALREADY_ON_WAITLIST: 409,
   IDEMPOTENCY_CONFLICT: 409,
   WAIVER_REQUIRED: 422,
@@ -31,8 +35,11 @@ export const ERROR_STATUS = {
   OTP_INVALID: 400,
   OTP_EXPIRED: 400,
   OTP_TOO_MANY_ATTEMPTS: 429,
+  SOCIAL_TOKEN_INVALID: 401,
+  SOCIAL_PROVIDER_DISABLED: 422,
   RATE_LIMITED: 429,
   NOT_IMPLEMENTED: 501,
+  UPSTREAM_UNAVAILABLE: 503,
   INTERNAL: 500,
 } as const;
 
@@ -84,6 +91,22 @@ export const MESSAGES: Record<ErrorCode, Record<Exclude<Locale, 'uz-Cyrl'>, stri
   ALREADY_EXISTS: { 'uz-Latn': 'Bunday yozuv allaqachon mavjud', ru: 'Такая запись уже существует', en: 'Already exists' },
   WAIVER_OUTDATED: { 'uz-Latn': 'Hujjat yangilangan. Iltimos, yangi matnni o\'qing', ru: 'Документ обновлён. Ознакомьтесь с новой версией', en: 'The document was updated. Please review the new version' },
   ERASURE_PENDING: { 'uz-Latn': "Akkauntni o'chirish so'rovi allaqachon mavjud", ru: 'Запрос на удаление уже создан', en: 'An erasure request already exists' },
+  IDENTITY_IN_USE: {
+    'uz-Latn': "Bu akkaunt boshqa Match Up profiliga bog'langan",
+    ru: 'Этот аккаунт уже привязан к другому профилю Match Up',
+    en: 'This account is already linked to another Match Up profile',
+  },
+  LAST_LOGIN_METHOD: {
+    'uz-Latn': "Bu yagona kirish usulingiz — avval boshqasini bog'lang",
+    ru: 'Это ваш единственный способ входа — сначала привяжите другой',
+    en: 'This is your only sign-in method — link another one first',
+  },
+  EXPORT_NOT_READY: { 'uz-Latn': 'Eksport fayli hali tayyor emas', ru: 'Файл экспорта ещё готовится', en: 'The export is not ready yet' },
+  EXPORT_EXPIRED: {
+    'uz-Latn': "Yuklab olish muddati tugagan. Yangi eksport so'rang",
+    ru: 'Срок скачивания истёк. Запросите новый экспорт',
+    en: 'The download link has expired. Request a new export',
+  },
   ALREADY_ON_WAITLIST: { 'uz-Latn': "Siz allaqachon kutish ro'yxatidasiz", ru: 'Вы уже в листе ожидания', en: 'You are already on the waitlist' },
   IDEMPOTENCY_CONFLICT: { 'uz-Latn': 'Bu so\'rov boshqa ma\'lumotlar bilan yuborilgan', ru: 'Ключ идемпотентности уже использован с другими данными', en: 'Idempotency key reused with different data' },
   WAIVER_REQUIRED: { 'uz-Latn': 'Avval javobgarlik hujjatini imzolang', ru: 'Сначала подпишите отказ от ответственности', en: 'Please sign the liability waiver first' },
@@ -97,7 +120,18 @@ export const MESSAGES: Record<ErrorCode, Record<Exclude<Locale, 'uz-Cyrl'>, stri
   OTP_EXPIRED: { 'uz-Latn': 'Kod muddati tugagan. Yangi kod so\'rang', ru: 'Срок действия кода истёк', en: 'The code has expired' },
   OTP_TOO_MANY_ATTEMPTS: { 'uz-Latn': "Urinishlar soni tugadi. Yangi kod so'rang", ru: 'Слишком много попыток', en: 'Too many attempts' },
   RATE_LIMITED: { 'uz-Latn': "Juda ko'p so'rov. {retry_after} soniyadan keyin urinib ko'ring", ru: 'Слишком много запросов. Повторите через {retry_after} с', en: 'Too many requests. Retry in {retry_after}s' },
+  SOCIAL_TOKEN_INVALID: {
+    'uz-Latn': "Kirish tasdiqlanmadi yoki muddati o'tgan. Qaytadan urinib ko'ring",
+    ru: 'Вход не подтверждён или истёк. Попробуйте ещё раз',
+    en: 'Sign-in could not be verified or has expired. Please try again',
+  },
+  SOCIAL_PROVIDER_DISABLED: { 'uz-Latn': 'Bu kirish usuli hozircha mavjud emas', ru: 'Этот способ входа пока недоступен', en: 'This sign-in method is not available' },
   NOT_IMPLEMENTED: { 'uz-Latn': 'Bu funksiya hali ishga tushirilmagan', ru: 'Функция ещё не доступна', en: 'Not implemented yet' },
+  UPSTREAM_UNAVAILABLE: {
+    'uz-Latn': "Tashqi xizmat javob bermayapti. Birozdan keyin urinib ko'ring",
+    ru: 'Внешний сервис не отвечает. Попробуйте позже',
+    en: 'An upstream service is unavailable. Please try again later',
+  },
   INTERNAL: { 'uz-Latn': 'Ichki xatolik. Keyinroq urinib ko\'ring', ru: 'Внутренняя ошибка', en: 'Internal error' },
 };
 
