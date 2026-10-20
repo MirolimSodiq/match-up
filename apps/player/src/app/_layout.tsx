@@ -12,6 +12,7 @@ import { Button, colors, ErrorView, fontAssets, fontFamily, navigationColors, To
 import { ApiError } from '@/api/errors';
 import { SessionProvider, useSession } from '@/auth/session';
 import { errorMessage } from '@/i18n/errors';
+import { PushNotifications } from '@/notifications/PushNotifications';
 
 /** React Navigation mavzusi: header va ekran foni och. */
 const navigationTheme: Theme = { ...DefaultTheme, colors: { ...DefaultTheme.colors, ...navigationColors } };
@@ -54,6 +55,7 @@ export default function RootLayout() {
               <ToastProvider>
                 <StatusBar style="dark" />
                 {fontsLoaded || fontError ? <RootNavigator /> : null}
+                <PushNotifications />
               </ToastProvider>
             </LocalizedUI>
           </SessionProvider>

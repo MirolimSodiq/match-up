@@ -52,7 +52,8 @@ function withCommonHeaders(headers: Headers, token?: string): Headers {
 // ---------------------------------------------------------------------------
 let refreshing: Promise<string | null> | null = null;
 
-function refreshOnce(): Promise<string | null> {
+/** WebSocket handshake'i UNAUTHORIZED bersa ham shu yagona refresh ishlatiladi. */
+export function refreshOnce(): Promise<string | null> {
   refreshing ??= doRefresh().finally(() => {
     refreshing = null;
   });

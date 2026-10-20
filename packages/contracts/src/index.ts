@@ -44,6 +44,14 @@ export type CancelBookingResult = Json<operations['cancelBooking']['responses'][
 export type Refund = NonNullable<CancelBookingResult['refund']>;
 export type Ticket = NonNullable<Json<operations['getTicket']['responses'][200]>['tickets']>[number];
 
+// --- Push / in-app xabarlar va WebSocket -------------------------------------
+export type DeviceRegistration = Schemas['DeviceRegistration'];
+export type Device = Schemas['Device'];
+export type NotificationType = Schemas['NotificationType'];
+export type AppNotification = Schemas['Notification'];
+export type NotificationPage = Schemas['NotificationPage'];
+export * from './realtime';
+
 // --- Admin panel ------------------------------------------------------------
 export type Translations = Schemas['Translations'];
 export type UserRef = Schemas['UserRef'];

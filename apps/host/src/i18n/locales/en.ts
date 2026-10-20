@@ -57,6 +57,9 @@ const en: Messages = {
     declined: 'Offer declined',
     declineTitle: 'Why are you declining?',
     declineHint: 'The offer moves on to the next host',
+    live: 'Live',
+    newOffer: 'New offer',
+    gone: 'This offer is no longer available',
     reasons: { busy: 'Busy at that time', too_far: 'Too far', other: 'Other reason' },
   },
   matches: {

@@ -7,13 +7,14 @@ import { createEventInCalendarAsync } from 'expo-calendar/legacy';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 import type { MatchDetail } from '@matchup/contracts';
-import { Avatar, Button, colors, EmptyState, ErrorView, fontFamily, IconButton, Loading, radius, space, type SportColors, sportColors, SportIcon, SportTexture, type } from '@matchup/ui';
+import { Avatar, Button, colors, EmptyState, ErrorView, fontFamily, IconButton, LiveDot, Loading, radius, space, type SportColors, sportColors, SportIcon, SportTexture, type } from '@matchup/ui';
 import { isApiError } from '@/api/errors';
 import { useMatch, useSports } from '@/api/queries';
 import { currentLocale } from '@/i18n';
 import { formatDay, formatTime, zonedParts } from '@/lib/datetime';
 import { money } from '@/lib/money';
 import { errorMessage } from '@/i18n/errors';
+import { useMatchLive } from '@/realtime/live';
 
 /** Gridda ko'rsatiladigan o'rinlar chegarasi (katta match'larda ro'yxat cho'zilib ketmasin). */
 const MAX_SLOTS_SHOWN = 16;
@@ -23,6 +24,8 @@ export default function MatchScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const match = useMatch(id);
   const sports = useSports();
+  // Jonli bo'sh joylar (WebSocket): boshqalar band qilsa/bekor qilsa sonlar darhol o'zgaradi
+  const { live } = useMatchLive(id, match.data?.id);
 
   if (match.isPending || match.error) {
     return (
@@ -44,10 +47,10 @@ export default function MatchScreen() {
   const m = match.data;
   const sc = sportColors(m.sport);
   const sportName = sports.data?.find((s) => s.code === m.sport)?.name ?? m.sport;
-  return <MatchView match={m} sc={sc} sportName={sportName} />;
+  return <MatchView match={m} sc={sc} sportName={sportName} live={live} />;
 }
 
-function MatchView({ match: m, sc, sportName }: { match: MatchDetail; sc: SportColors; sportName: string }) {
+function MatchView({ match: m, sc, sportName, live }: { match: MatchDetail; sc: SportColors; sportName: string; live: boolean }) {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   // Modal native qatlamda: root'dagi toast uning ostida qoladi — natijani tugma ikonasida ko'rsatamiz
@@ -124,7 +127,7 @@ function MatchView({ match: m, sc, sportName }: { match: MatchDetail; sc: SportC
           <InfoRow sc={sc} label={t('match.host')} value={m.host_assigned ? t('match.hostAssigned') : t('match.hostPending')} last />
         </Glass>
 
-        <Players match={m} sc={sc} />
+        <Players match={m} sc={sc} live={live} />
 
         {m.cancellation_policy?.summary || m.booking_closes_at ? (
           <Glass>
@@ -200,15 +203,18 @@ function InfoRow({ sc, label, value, last }: { sc: SportColors; label: string; v
   );
 }
 
-function Players({ match: m, sc }: { match: MatchDetail; sc: SportColors }) {
+function Players({ match: m, sc, live }: { match: MatchDetail; sc: SportColors; live: boolean }) {
   const { t } = useTranslation();
   const players = m.participants_preview ?? [];
   const empty = Math.max(0, Math.min(m.slots.max, MAX_SLOTS_SHOWN) - players.length);
   return (
     <View style={styles.players}>
       <View style={styles.playersHead}>
-        <Text style={styles.sectionTitle}>{t('match.players')}</Text>
-        <Text style={styles.playersCount}>
+        <View style={styles.playersTitle}>
+          <Text style={styles.sectionTitle}>{t('match.players')}</Text>
+          {live ? <LiveDot label={t('match.live')} onSport /> : null}
+        </View>
+        <Text style={styles.playersCount} accessibilityLiveRegion="polite">
           {m.slots.taken} / {m.slots.max}
         </Text>
       </View>
@@ -321,7 +327,8 @@ const styles = StyleSheet.create({
   blockText: { ...type.body, color: colors.onSport, marginTop: space.xs, marginBottom: space.sm },
   blockNote: { fontFamily: fontFamily.regular, fontSize: 13, lineHeight: 18, marginBottom: space.sm },
   players: { gap: space.sm, marginTop: space.sm },
-  playersHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
+  playersHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  playersTitle: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   sectionTitle: { fontFamily: fontFamily.display, fontSize: 22, lineHeight: 28, textTransform: 'uppercase', color: colors.onSport },
   playersCount: { fontFamily: fontFamily.display, fontSize: 22, color: colors.onSport },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: space.md, marginTop: space.xs },

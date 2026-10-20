@@ -19,6 +19,9 @@ export type DomainEvent =
   | 'HostArrived'
   | 'PlayerCheckedIn';
 
+/** OutboxRelay event'larni shu Redis Stream'ga chiqaradi; consumer group'lar undan o'qiydi. */
+export const EVENTS_STREAM = 'matchup:events';
+
 /** Transactional outbox: event biznes o'zgarish bilan BIR tranzaksiyada yoziladi. */
 export async function emit(
   ex: Executor,

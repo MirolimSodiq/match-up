@@ -87,6 +87,7 @@ const uzLatn = {
     calendarAdded: "Kalendarga qo'shildi",
     shareText: '{{title}} — {{when}}. Match Up kodi: {{code}}',
     notFound: "O'yin topilmadi",
+    live: 'Jonli',
     players: "O'yinchilar",
     minToPlay: "O'yin bo'lishi uchun kamida {{count}} kishi kerak",
     level: 'Daraja',

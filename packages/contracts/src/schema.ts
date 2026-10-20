@@ -200,6 +200,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/me/devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Push token'ni ro'yxatdan o'tkazish / yangilash
+         * @description Ilova har ochilganda (va token o'zgarganda) chaqiradi — idempotent upsert `push_token` bo'yicha.
+         *     Token boshqa akkauntga tegishli bo'lsa (umumiy qurilma) joriy foydalanuvchiga o'tadi;
+         *     avval o'chirilgan (`DeviceNotRegistered`) token qayta faollashadi.
+         *     `locale` berilmasa — `Accept-Language`.
+         */
+        put: operations["registerDevice"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/devices/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Push token'ni o'chirish (logout)
+         * @description Faqat o'z token'ini o'chiradi. Idempotent — token topilmasa ham `204`.
+         */
+        delete: operations["unregisterDevice"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Xabarlar tarixi (eng yangisi birinchi) */
+        get: operations["listMyNotifications"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/notifications/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Xabarlarni o'qilgan deb belgilash
+         * @description `ids` (1–100 ta) yoki `{ "all": true }`. Javobda yangilangan son va qolgan o'qilmaganlar (badge).
+         */
+        post: operations["markNotificationsRead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/me/bookings": {
         parameters: {
             query?: never;
@@ -1272,6 +1352,74 @@ export interface components {
             balance: components["schemas"]["Money"];
             /** @description Barcha valyutalardagi balanslar — asosiy valyuta har doim birinchi */
             balances: components["schemas"]["Money"][];
+        };
+        DeviceRegistration: {
+            /**
+             * @description `provider: expo` uchun `ExponentPushToken[...]` formatida
+             * @example ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]
+             */
+            push_token: string;
+            /** @enum {string} */
+            platform: "ios" | "android" | "web";
+            /**
+             * @default expo
+             * @enum {string}
+             */
+            provider: "expo" | "fcm" | "apns";
+            /** @example 0.1.0 */
+            app_version?: string;
+            /** @example uz-Latn */
+            locale?: string;
+        };
+        Device: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            platform: "ios" | "android" | "web";
+            /** @enum {string} */
+            provider: "expo" | "fcm" | "apns";
+            locale: string;
+            app_version: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /** @enum {string} */
+        NotificationType: "booking.confirmed" | "booking.cancelled" | "refund.issued" | "match.cancelled" | "match.rate" | "match.reminder_24h" | "match.reminder_2h" | "waitlist.offer" | "host.offer" | "match.new";
+        Notification: {
+            /** Format: uuid */
+            id: string;
+            type: components["schemas"]["NotificationType"];
+            /** @enum {string} */
+            category: "transactional" | "marketing";
+            /** @example Joy band qilindi */
+            title: string;
+            /** @example 7v7 Chilonzor Arena — 21-oktabr, 19:00, Chilonzor Arena. Chiptangiz ilovada. */
+            body: string;
+            /** @description Push bilan bir xil: `url` (deep link) va id'lar (`booking_id`, `match_id`, `assignment_id`, ...) */
+            data: {
+                /** @example /booking/01a156ee-a262-729e-ac8c-2ecb9dda6865 */
+                url?: string;
+            } & {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            read_at: string | null;
+        };
+        NotificationPage: {
+            items: components["schemas"]["Notification"][];
+            next_cursor: string | null;
+            /** @description Ilova ikonkasidagi badge */
+            unread_count: number;
+        };
+        MarkNotificationsRead: {
+            ids: string[];
+        } | {
+            /** @constant */
+            all: true;
         };
         VenueSummary: {
             /** Format: uuid */
@@ -2731,6 +2879,110 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    registerDevice: {
+        parameters: {
+            query?: never;
+            header?: {
+                "Accept-Language"?: components["parameters"]["AcceptLanguage"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceRegistration"];
+            };
+        };
+        responses: {
+            /** @description Qurilma */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Device"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    unregisterDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded push token (`ExponentPushToken%5B...%5D`) */
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description O'chirildi */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    listMyNotifications: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Xabarlar */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    markNotificationsRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarkNotificationsRead"];
+            };
+        };
+        responses: {
+            /** @description Natija */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        updated: number;
+                        unread_count: number;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["ValidationError"];
         };
     };
     listMyBookings: {

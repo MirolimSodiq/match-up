@@ -55,6 +55,9 @@ const uzLatn = {
     declined: 'Taklif rad etildi',
     declineTitle: 'Nima uchun rad etasiz?',
     declineHint: "Taklif keyingi hostga o'tadi",
+    live: 'Jonli',
+    newOffer: 'Yangi taklif keldi',
+    gone: 'Bu taklif endi mavjud emas',
     reasons: { busy: 'Bu vaqtda bandman', too_far: 'Juda uzoq', other: 'Boshqa sabab' },
   },
   matches: {

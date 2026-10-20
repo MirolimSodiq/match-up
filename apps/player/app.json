@@ -37,6 +37,13 @@
           "locationWhenInUsePermission": "Match Up yaqin atrofdagi o'yinlarni ko'rsatish uchun joylashuvingizdan foydalanadi."
         }
       ],
+      [
+        "expo-notifications",
+        {
+          "color": "#161B33",
+          "defaultChannel": "default"
+        }
+      ],
       "expo-font",
       [
         "expo-splash-screen",

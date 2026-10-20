@@ -18,6 +18,7 @@ import { HostModule } from './host/host.module';
 import { IdentityModule } from './identity/identity.module';
 import { JobsModule } from './jobs/jobs.module';
 import { MatchesModule } from './matches/matches.controller';
+import { NotificationsModule } from './notifications/notifications.module';
 import { PaymentsModule } from './payments/payments.module';
 import { REDIS, RedisModule } from './redis/redis.module';
 import { WaiversModule } from './waivers/waivers.module';
@@ -77,6 +78,7 @@ class HealthController {
     PaymentsModule,
     HostModule,
     AdminModule,
+    NotificationsModule,
     JobsModule,
   ],
   controllers: [HealthController],

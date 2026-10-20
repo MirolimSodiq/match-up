@@ -49,7 +49,10 @@ export class SeatsService {
       tx,
       sql`UPDATE matches SET held_slots = held_slots + ${p.seats}
           WHERE id = ${p.matchId} AND status = 'open' AND now() < booking_closes_at
-            AND held_slots + confirmed_slots + ${p.seats} <= max_players
+            AND held_slots + confirmed_slots + ${p.seats}
+                + (SELECT count(*) FROM match_waitlist w           -- kutish ro'yxati takliflari: 10 daq eksklyuziv
+                   WHERE w.match_id = matches.id AND w.status = 'notified'
+                     AND w.offer_expires_at > now() AND w.user_id <> ${p.userId}) <= max_players
           RETURNING id, price_amount, currency`,
     );
     if (!held) return null;
