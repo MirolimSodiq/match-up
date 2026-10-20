@@ -110,7 +110,6 @@ function RootNavigator() {
     >
       <Stack.Protected guard={status === 'signedOut'}>
         <Stack.Screen name="login" options={{ headerShown: false }} />
-        <Stack.Screen name="auth/telegram" options={{ headerShown: false }} />
       </Stack.Protected>
       <Stack.Protected guard={status === 'onboarding'}>
         <Stack.Screen name="onboarding" options={{ headerShown: false }} />
@@ -124,7 +123,12 @@ function RootNavigator() {
         <Stack.Screen name="booking/[id]/pay" options={{ headerShown: false, presentation: 'fullScreenModal' }} />
         <Stack.Screen name="booking/[id]/ticket" options={sheet} />
         <Stack.Screen name="booking/return" options={{ headerShown: false }} />
+        <Stack.Screen name="account/sign-in-methods" options={{ headerShown: false }} />
+        <Stack.Screen name="account/privacy" options={{ headerShown: false }} />
       </Stack.Protected>
+      {/* Telegram deep link'i: login'da ham, profilda identity bog'lashda ham. Oxirida — guard o'zgarganda
+          navigator "birinchi mavjud ekran"ga o'tadi, bu ekran unga aylanmasin */}
+      <Stack.Screen name="auth/telegram" options={{ headerShown: false }} />
     </Stack>
   );
 }

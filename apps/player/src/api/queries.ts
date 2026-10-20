@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import type { paths } from '@matchup/contracts';
+import type { DataSubjectRequest, paths } from '@matchup/contracts';
 import { api, call } from './client';
 
 export type MatchSearch = NonNullable<paths['/v1/matches']['get']['parameters']['query']>;
@@ -17,6 +17,8 @@ export const qk = {
   myBookings: (scope: BookingScope) => ['my-bookings', scope] as const,
   ticket: (bookingId: string) => ['ticket', bookingId] as const,
   wallet: ['wallet'] as const,
+  identities: ['identities'] as const,
+  dataRequests: ['data-requests'] as const,
 };
 
 const HOUR = 60 * 60_000;
@@ -97,4 +99,31 @@ export function useTicket(bookingId: string, enabled: boolean) {
 /** Hamyon balansi (asosiy valyutada, `formatted` — Accept-Language bo'yicha). */
 export function useWallet() {
   return useQuery({ queryKey: qk.wallet, queryFn: () => call(api.GET('/v1/me/wallet')) });
+}
+
+/** Kirish usullari: telefon va bog'langan Google / Apple / Telegram. */
+export function useIdentities() {
+  return useQuery({ queryKey: qk.identities, queryFn: () => call(api.GET('/v1/me/identities')) });
+}
+
+const OPEN_DSR = new Set(['received', 'in_progress']);
+
+/** So'rov hali bajarilmoqda (job kutmoqda yoki ishlamoqda). */
+export const isOpenRequest = (r: DataSubjectRequest) => OPEN_DSR.has(r.status);
+
+/** GDPR so'rovlari (yangisi birinchi). Eksport tayyorlanayotganda har 3 soniyada yangilanadi. */
+export function useDataRequests() {
+  return useQuery({
+    queryKey: qk.dataRequests,
+    queryFn: () => call(api.GET('/v1/me/data-requests')),
+    refetchInterval: (query) => {
+      const lastExport = query.state.data?.items.find((r) => r.type === 'export');
+      return lastExport && isOpenRequest(lastExport) ? 3000 : false;
+    },
+  });
+}
+
+/** Grace davridagi (hali bajarilmagan va bekor qilinmagan) akkaunt o'chirish so'rovi. */
+export function openErasure(items: DataSubjectRequest[] | undefined): DataSubjectRequest | undefined {
+  return items?.find((r) => r.type === 'erasure' && isOpenRequest(r));
 }

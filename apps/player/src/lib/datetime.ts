@@ -141,3 +141,12 @@ export function dayRange(timeZone: string, offset: number, now = new Date()): { 
   const from = start.getTime() < now.getTime() ? now : start;
   return { from: from.toISOString(), to: end.toISOString(), date: start };
 }
+
+/** Qurilma vaqt zonasi (o'yinga bog'lanmagan sanalar uchun: GDPR muddatlari va h.k.). */
+export function deviceTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Tashkent';
+  } catch {
+    return 'Asia/Tashkent';
+  }
+}
