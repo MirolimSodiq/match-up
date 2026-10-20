@@ -1,3 +1,4 @@
+import '@/lib/sentry'; // birinchi: Sentry (DSN bo'lsa) boshqa modullardan oldin
 import '@/i18n';
 import { type PropsWithChildren, useEffect, useMemo, useState } from 'react';
 import { AppState, Platform, StyleSheet } from 'react-native';

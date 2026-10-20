@@ -8,3 +8,13 @@ coverage/
 *.log
 .DS_Store
 apps/api/keys/
+
+# Lokal staging kalitlari (infra/local/gen-staging-keys.sh)
+.staging/
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log

@@ -1,0 +1,37 @@
+module "cell" {
+  source = "../../modules/cell"
+
+  name        = "matchup-staging"
+  environment = "staging"
+
+  vpc_cidr           = var.vpc_cidr
+  single_nat_gateway = true
+
+  route53_zone_id     = var.route53_zone_id
+  api_domain          = var.api_domain
+  admin_domain        = var.admin_domain
+  admin_allowed_cidrs = var.admin_allowed_cidrs
+
+  api_image_tag          = var.api_image_tag
+  admin_image_tag        = var.admin_image_tag
+  migrate_image_tag      = var.migrate_image_tag
+  use_fargate_spot       = true
+  enable_execute_command = true
+  api_min_count          = 1
+  api_max_count          = 2
+  log_retention_days     = 30
+
+  api_environment = {
+    PAYME_CHECKOUT_URL = "https://checkout.test.paycom.uz"
+  }
+
+  db_instance_class        = "db.t4g.medium"
+  db_allocated_storage     = 20
+  db_max_allocated_storage = 100
+  db_multi_az              = true
+  db_backup_retention_days = 7
+  deletion_protection      = false
+
+  cache_node_type  = "cache.t4g.micro"
+  cache_node_count = 1
+}
