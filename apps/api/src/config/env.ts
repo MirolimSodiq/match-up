@@ -4,6 +4,12 @@ const bool = z
   .enum(['true', 'false', '1', '0'])
   .transform((v) => v === 'true' || v === '1');
 
+/** Vergul bilan ajratilgan ro'yxat: `a, b,c` -> ['a', 'b', 'c']. */
+const list = z
+  .string()
+  .transform((v) => v.split(',').map((s) => s.trim()).filter(Boolean))
+  .or(z.array(z.string()));
+
 const EnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().default(3000),
@@ -46,6 +52,26 @@ const EnvSchema = z.object({
   CLICK_MERCHANT_ID: z.string().default('2000'),
   CLICK_SECRET_KEY: z.string().default('click_test_secret'),
   CLICK_CHECKOUT_URL: z.url().default('https://my.click.uz/services/pay'),
+
+  // Social login. Client ID ro'yxati bo'sh bo'lsa — provider o'chiq (SOCIAL_PROVIDER_DISABLED).
+  // JWKS URL'lari testlarda lokal server bilan almashtiriladi.
+  GOOGLE_CLIENT_IDS: list.default([]),
+  GOOGLE_JWKS_URL: z.url().default('https://www.googleapis.com/oauth2/v3/certs'),
+  APPLE_CLIENT_IDS: list.default([]),
+  APPLE_JWKS_URL: z.url().default('https://appleid.apple.com/auth/keys'),
+  /** Cache-Control max-age bo'lmasa JWKS shuncha soniya keshlanadi. */
+  JWKS_CACHE_TTL_SEC: z.coerce.number().int().min(60).default(3600),
+  TELEGRAM_BOT_TOKEN: z.string().optional(),
+  TELEGRAM_AUTH_MAX_AGE_SEC: z.coerce.number().int().positive().default(86_400),
+  /** Telegram OAuth sahifasi (dev'da lokal mock bilan almashtirish mumkin). */
+  TELEGRAM_OAUTH_URL: z.url().default('https://oauth.telegram.org/auth'),
+  /** Telegram OAuth qaytish sahifasi faqat shu prefikslarga yo'naltiradi (open redirect himoyasi). */
+  TELEGRAM_APP_REDIRECTS: list.default(['matchup://']),
+
+  // GDPR (DSR) job'lari
+  STORAGE_DIR: z.string().default('storage'),
+  DATA_EXPORT_TTL_HOURS: z.coerce.number().int().positive().default(168),
+  ERASURE_GRACE_DAYS: z.coerce.number().int().min(0).default(30),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
@@ -63,6 +89,12 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
       if (!env[key]) throw new Error(`${key} production'da majburiy`);
     }
     if (env.OTP_PROVIDER === 'console') throw new Error("OTP_PROVIDER=console production'da taqiqlangan");
+    for (const key of ['GOOGLE_JWKS_URL', 'APPLE_JWKS_URL', 'TELEGRAM_OAUTH_URL'] as const) {
+      if (!env[key].startsWith('https://')) throw new Error(`${key} production'da https bo'lishi shart`);
+    }
+    if (env.TELEGRAM_APP_REDIRECTS.some((p) => !/^[a-z][a-z0-9+.-]*:\/\//.test(p) || p.startsWith('exp://'))) {
+      throw new Error("TELEGRAM_APP_REDIRECTS production'da faqat ilova sxemalari (Expo Go'ning exp:// emas)");
+    }
   }
   return env;
 }

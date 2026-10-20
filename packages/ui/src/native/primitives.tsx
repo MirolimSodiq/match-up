@@ -174,19 +174,24 @@ export function Button({
   onPress,
   variant = 'primary',
   icon,
+  leading,
   disabled,
   loading,
   style,
   testID,
+  accessibilityLabel,
 }: {
   title: string;
   onPress?: () => void;
   variant?: ButtonVariant;
   icon?: IconName;
+  /** Ikonka o'rniga ixtiyoriy element (masalan, brend belgisi `BrandMark`). */
+  leading?: ReactNode;
   disabled?: boolean;
   loading?: boolean;
   style?: StyleProp<ViewStyle>;
   testID?: string;
+  accessibilityLabel?: string;
 }) {
   const inactive = disabled || loading;
   const v = buttonVariants[variant];
@@ -194,6 +199,7 @@ export function Button({
     <Pressable
       testID={testID}
       accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
       accessibilityState={{ disabled: !!inactive, busy: !!loading }}
       onPress={inactive ? undefined : onPress}
       style={({ pressed }) => [
@@ -208,7 +214,7 @@ export function Button({
         <ActivityIndicator color={v.fg} />
       ) : (
         <View style={styles.row}>
-          {icon ? <Ionicons name={icon} size={18} color={v.fg} /> : null}
+          {leading ?? (icon ? <Ionicons name={icon} size={18} color={v.fg} /> : null)}
           {/* Uzun matn (narx bilan) qisqartirilmaydi — biroz kichrayadi */}
           <Text style={[type.button, styles.buttonText, { color: v.fg }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
             {title}

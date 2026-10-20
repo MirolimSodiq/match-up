@@ -7,6 +7,7 @@ import { api, call } from '@/api/client';
 import { useSession } from '@/auth/session';
 import { formatPhoneDigits, phoneDigits, toE164, UZ_PREFIX } from '@/features/phone';
 import { LanguagePicker } from '@/features/LanguagePicker';
+import { SocialSignIn } from './SocialSignIn';
 
 export interface OtpChallenge {
   phone: string;
@@ -68,6 +69,7 @@ export function PhoneStep({ onSent }: { onSent: (c: OtpChallenge) => void }) {
       {touched && !valid ? <Text style={styles.error}>{t('auth.phoneInvalid')}</Text> : null}
       <ErrorText error={request.error} />
       <Button testID="send-code" title={t('auth.sendCode')} onPress={submit} loading={request.isPending} />
+      <SocialSignIn />
     </AuthLayout>
   );
 }

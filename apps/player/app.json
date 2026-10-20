@@ -2,7 +2,10 @@
   "expo": {
     "name": "Match Up",
     "slug": "matchup-player",
-    "scheme": "matchup",
+    "scheme": [
+      "matchup",
+      "uz.matchup.player"
+    ],
     "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -10,7 +13,8 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "uz.matchup.player",
-      "backgroundColor": "#F6F7FB"
+      "backgroundColor": "#F6F7FB",
+      "usesAppleSignIn": true
     },
     "android": {
       "package": "uz.matchup.player",
@@ -30,6 +34,7 @@
       "expo-router",
       "expo-secure-store",
       "expo-web-browser",
+      "expo-apple-authentication",
       "expo-localization",
       [
         "expo-location",

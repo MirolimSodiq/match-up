@@ -54,8 +54,62 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Google / Apple / Telegram orqali kirish */
+        /**
+         * Google / Apple / Telegram orqali kirish
+         * @description * **Google / Apple** — ID token (JWT) provider JWKS'i bilan tekshiriladi (RS256/ES256): imzo, `iss`,
+         *       `aud` (bizning client ID'lardan biri), `exp`/`iat`. Token'da `nonce` bo'lsa, client xom `nonce`ni yuborishi
+         *       shart (token'dagi qiymat = xom nonce yoki uning SHA-256 hex'i).
+         *     * **Telegram** — Login Widget / `oauth.telegram.org` natijasi: `hash = HMAC-SHA256(data_check_string, SHA256(bot_token))`,
+         *       `auth_date` 24 soatdan eski bo'lmasligi kerak.
+         *     * Har bir token / Telegram natijasi **bir martalik** (replay himoyasi).
+         *     * Akkaunt faqat `(provider, provider_uid)` bo'yicha topiladi; topilmasa — yangi akkaunt (telefonsiz, `is_new_user = true`).
+         *       Email bo'yicha mavjud akkauntga **avtomatik bog'lanmaydi** — bog'lash faqat kirgan holda `POST /v1/me/identities`.
+         */
         post: operations["socialLogin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/telegram/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Telegram OAuth'ni brauzerda boshlash
+         * @description Mobil ilova buni tizim brauzerida ochadi (`WebBrowser.openAuthSessionAsync`). Server `oauth.telegram.org/auth` ga
+         *     yo'naltiradi; Telegram natijani `/v1/auth/telegram/return` ga qaytaradi, u esa `redirect_uri#tgAuthResult=<base64 JSON>`
+         *     ga uzatadi. Bot domeni @BotFather'da `/setdomain` bilan API host'iga bog'langan bo'lishi kerak.
+         */
+        get: operations["telegramOAuthStart"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/telegram/return": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Telegram OAuth qaytish sahifasi
+         * @description Kichik HTML sahifa: fragment'dagi `tgAuthResult` (yoki query'dagi widget maydonlari)ni o'zgartirmasdan ilovaning
+         *     `redirect_uri`siga uzatadi. Hash tekshiruvi `POST /v1/auth/social` da. `redirect_uri` faqat `TELEGRAM_APP_REDIRECTS`
+         *     prefikslaridan biri bilan boshlanishi mumkin (open redirect himoyasi).
+         */
+        get: operations["telegramOAuthReturn"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -112,14 +166,77 @@ export interface paths {
         post?: never;
         /**
          * Akkauntni o'chirish (GDPR erasure)
-         * @description 30 kunlik grace period, keyin anonimlashtirish: PII o'chiriladi, to'lov yozuvlari soliq talabi
-         *     muddatida anonim holda saqlanadi, highlight teglari olib tashlanadi.
+         * @description `due_at` gacha (30 kunlik grace) `DELETE /v1/me/erasure-request` bilan bekor qilish mumkin. Keyin job anonimlashtiradi:
+         *     telefon, email, ismlar, tug'ilgan sana, avatar o'chiriladi (`display_name = Deleted user`); kirish usullari, sessiyalar,
+         *     push token'lar va highlight teglari o'chiriladi; kelgusi booking'lar cancellation policy bo'yicha bekor qilinadi.
+         *     Consent'lar, waiver imzolari va to'lov yozuvlari (huquqiy dalil / soliq) anonim akkauntga bog'liq holda qoladi.
+         *     Hamyonda balans yoki faol host tayinlovi bo'lsa — erasure bloklanadi, sababi `blocked_reasons` da.
          */
         delete: operations["requestAccountErasure"];
         options?: never;
         head?: never;
         /** Profilni yangilash (onboarding ham shu) */
         patch: operations["updateMe"];
+        trace?: never;
+    };
+    "/v1/me/erasure-request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Akkauntni o'chirish so'rovini bekor qilish (grace davrida) */
+        delete: operations["cancelAccountErasure"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/identities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Kirish usullari (telefon, Google, Apple, Telegram) */
+        get: operations["listMyIdentities"];
+        put?: never;
+        /**
+         * Joriy akkauntga social identity bog'lash
+         * @description Credential `POST /v1/auth/social` dagi kabi tekshiriladi. Identity boshqa akkauntga bog'langan bo'lsa — `IDENTITY_IN_USE`
+         *     (akkauntlar birlashtirilmaydi); shu provider'dan boshqa identity bog'langan bo'lsa — `ALREADY_EXISTS`.
+         *     O'sha identity qayta bog'lansa — o'zgarishsiz 200.
+         */
+        post: operations["linkIdentity"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/identities/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Social identity'ni uzish
+         * @description Oxirgi kirish usulini uzib bo'lmaydi (`LAST_LOGIN_METHOD`). Telefon bu yerda uzilmaydi.
+         */
+        delete: operations["unlinkIdentity"];
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/v1/me/sports/{sportCode}": {
@@ -170,9 +287,49 @@ export interface paths {
         put?: never;
         /**
          * Shaxsiy ma'lumotlarni eksport qilish (GDPR Art. 15/20)
-         * @description JSON + media zip tayyorlanadi, tayyor bo'lgach push/Telegram orqali vaqtinchalik havola yuboriladi.
+         * @description Job JSON fayl tayyorlaydi (odatda 1 daqiqa ichida): profil, rollar, kirish usullari, sport profillari, consent tarixi,
+         *     booking'lar, to'lovlar (summa, provider, holat, sana — karta ma'lumoti yo'q), refund'lar, hamyon, waiver imzolari,
+         *     check-in'lar, xabarnomalar, sessiyalar, host ma'lumotlari. Tayyor bo'lgach `DataExportReady` event'i (push).
+         *     Ochiq so'rov bo'lsa — yangisi yaratilmaydi, o'sha qaytariladi.
          */
         post: operations["requestDataExport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/data-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GDPR so'rovlarim (eksport va erasure holati) */
+        get: operations["listMyDataRequests"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/data-exports/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Eksport faylini yuklab olish
+         * @description Faqat so'rov egasi va faqat `expires_at` gacha (standart 7 kun). Muddat o'tgach fayl o'chiriladi.
+         */
+        get: operations["downloadDataExport"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1259,13 +1416,197 @@ export interface components {
         };
         DataSubjectRequest: {
             /** Format: uuid */
-            id?: string;
+            id: string;
             /** @enum {string} */
-            type?: "export" | "erasure";
+            type: "export" | "erasure";
             /** @enum {string} */
-            status?: "received" | "in_progress" | "completed" | "rejected";
+            status: "received" | "in_progress" | "completed" | "rejected" | "cancelled";
             /** Format: date-time */
-            due_at?: string;
+            requested_at: string;
+            /**
+             * Format: date-time
+             * @description Erasure — grace tugashi (shundan keyin anonimlashtiriladi); eksport — GDPR javob muddati
+             */
+            due_at: string;
+            /** Format: date-time */
+            completed_at?: string | null;
+            /**
+             * Format: date-time
+             * @description Faqat erasure
+             */
+            cancelled_at?: string | null;
+            /** @description Faqat erasure — muddat yetgan, lekin bajarib bo'lmadi; sabab bartaraf etilgach job qayta urinadi */
+            blocked_reasons?: components["schemas"]["ErasureBlockedReason"][] | null;
+            /**
+             * @description Faqat eksport — tayyor va muddati o'tmagan bo'lsa
+             * @example /v1/me/data-exports/0199f0aa-0000-7000-8000-000000000001
+             */
+            download_url?: string | null;
+            /**
+             * Format: date-time
+             * @description Faqat eksport — yuklab olish muddati
+             */
+            expires_at?: string | null;
+        };
+        ErasureBlockedReason: {
+            /** @enum {string} */
+            code: "wallet_balance" | "active_host_assignment";
+            /** @description Accept-Language tilida */
+            message: string;
+            /**
+             * Format: int64
+             * @description wallet_balance — minor units
+             */
+            amount?: number;
+            /** @example UZS */
+            currency?: string;
+            balance?: components["schemas"]["Money"];
+            /**
+             * @description active_host_assignment
+             * @example MU-7F3K2
+             */
+            match_code?: string;
+            /** Format: date-time */
+            starts_at?: string | null;
+            /** @example accepted */
+            status?: string;
+        };
+        /**
+         * @description Eksport fayli (format versiyasi 1). Vaqtlar UTC ISO 8601, summalar minor units'da. Har bo'lim — massiv
+         *     (bo'sh bo'lishi mumkin); `host` — foydalanuvchi host bo'lmasa `null`.
+         */
+        PersonalDataExport: {
+            /** @constant */
+            format: "matchup.personal-data-export";
+            /** @constant */
+            version: 1;
+            /** Format: date-time */
+            generated_at: string;
+            /** Format: uuid */
+            request_id: string;
+            notes?: string[];
+            profile: {
+                [key: string]: unknown;
+            };
+            roles?: {
+                [key: string]: unknown;
+            }[];
+            identities?: {
+                [key: string]: unknown;
+            }[];
+            sport_profiles?: {
+                [key: string]: unknown;
+            }[];
+            consents?: {
+                [key: string]: unknown;
+            }[];
+            bookings?: {
+                [key: string]: unknown;
+            }[];
+            payments?: {
+                /** Format: uuid */
+                id?: string;
+                /** Format: uuid */
+                booking_id?: string;
+                provider?: components["schemas"]["PaymentProvider"];
+                /** Format: int64 */
+                amount?: number;
+                currency?: string;
+                status?: string;
+                /** Format: int64 */
+                refunded_amount?: number;
+                /** Format: date-time */
+                created_at?: string;
+                /** Format: date-time */
+                succeeded_at?: string | null;
+                /** Format: date-time */
+                cancelled_at?: string | null;
+            }[];
+            refunds?: {
+                [key: string]: unknown;
+            }[];
+            wallet?: {
+                [key: string]: unknown;
+            };
+            waiver_signatures?: {
+                [key: string]: unknown;
+            }[];
+            checkins?: {
+                [key: string]: unknown;
+            }[];
+            notifications?: {
+                [key: string]: unknown;
+            }[];
+            sessions?: {
+                [key: string]: unknown;
+            }[];
+            devices?: {
+                [key: string]: unknown;
+            }[];
+            feedback_given?: {
+                [key: string]: unknown;
+            }[];
+            highlight_tags?: {
+                [key: string]: unknown;
+            }[];
+            host?: {
+                [key: string]: unknown;
+            } | null;
+            data_requests?: {
+                [key: string]: unknown;
+            }[];
+        };
+        AuthIdentity: {
+            /** @enum {string} */
+            provider: "phone" | "google" | "apple" | "telegram";
+            /**
+             * @description Telefon raqami, email (Google/Apple) yoki @username (Telegram)
+             * @example jasur@gmail.com
+             */
+            label: string | null;
+            /** Format: date-time */
+            created_at?: string | null;
+            /** Format: date-time */
+            last_used_at?: string | null;
+        };
+        /** @description Provider credential'i — `provider` (const) bo'yicha uch variantdan biri */
+        SocialCredential: components["schemas"]["GoogleCredential"] | components["schemas"]["AppleCredential"] | components["schemas"]["TelegramCredential"];
+        GoogleCredential: {
+            /** @constant */
+            provider: "google";
+            /** @description Google ID token (JWT) */
+            id_token: string;
+            /** @description Xom nonce (token'da `nonce` bo'lsa majburiy) */
+            nonce?: string;
+        };
+        AppleCredential: {
+            /** @constant */
+            provider: "apple";
+            /** @description Sign in with Apple identity token (JWT) */
+            id_token: string;
+            /** @description Xom nonce; Apple'ga uning SHA-256 hex'i berilgan */
+            nonce?: string;
+            /** @description Apple ismni faqat birinchi kirishda client'ga beradi — yangi akkaunt uchun ishlatiladi */
+            profile?: {
+                first_name?: string;
+                last_name?: string;
+            };
+        };
+        TelegramCredential: {
+            /** @constant */
+            provider: "telegram";
+            /** @description Telegram Login natijasi o'zgartirilmagan holda (`id`, `first_name`, `username`, `auth_date`, `hash`, ...) */
+            telegram_auth: {
+                id: number | string;
+                first_name?: string;
+                last_name?: string;
+                username?: string;
+                photo_url?: string;
+                auth_date: number | string;
+                hash: string;
+            } & {
+                [key: string]: string | number;
+            };
         };
         Wallet: {
             /** @description Asosiy valyutadagi balans */
@@ -2391,6 +2732,8 @@ export interface components {
         };
     };
     parameters: {
+        /** @description Ilova deep link'i (`TELEGRAM_APP_REDIRECTS` prefikslaridan biri, masalan `matchup://auth/telegram`) */
+        TelegramRedirectUri: string;
         AcceptLanguage: "uz-Latn" | "uz-Cyrl" | "ru" | "en";
         IdempotencyKey: string;
         Cursor: string;
@@ -2494,28 +2837,124 @@ export interface operations {
     socialLogin: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "Accept-Language"?: components["parameters"]["AcceptLanguage"];
+            };
             path?: never;
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": {
-                    /** @enum {string} */
-                    provider: "google" | "apple" | "telegram";
-                    /** @description Google/Apple ID token (JWT) */
-                    id_token?: string;
-                    /** @description Telegram Login Widget ma'lumotlari (server bot token bilan hash'ni tekshiradi) */
-                    telegram_auth?: {
-                        [key: string]: unknown;
-                    };
+                "application/json": components["schemas"]["SocialCredential"] & {
                     device: components["schemas"]["DeviceInfo"];
                 };
             };
         };
         responses: {
             200: components["responses"]["AuthSuccess"];
-            401: components["responses"]["Unauthorized"];
+            /** @description Token yaroqsiz, muddati o'tgan, `aud`/`iss`/nonce mos emas yoki qayta ishlatilgan (`SOCIAL_TOKEN_INVALID`) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            /** @description Validatsiya xatosi yoki provider sozlanmagan (`SOCIAL_PROVIDER_DISABLED`) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Provider JWKS'i vaqtincha mavjud emas (`UPSTREAM_UNAVAILABLE`) */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    telegramOAuthStart: {
+        parameters: {
+            query: {
+                /** @description Ilova deep link'i (`TELEGRAM_APP_REDIRECTS` prefikslaridan biri, masalan `matchup://auth/telegram`) */
+                redirect_uri: components["parameters"]["TelegramRedirectUri"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `Accept: application/json` bo'lsa — yo'naltirish URL'i (web popup uchun) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uri */
+                        url: string;
+                    };
+                };
+            };
+            /** @description oauth.telegram.org ga yo'naltirish (brauzer) */
+            302: {
+                headers: {
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `redirect_uri` allowlist'da yo'q yoki Telegram sozlanmagan */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    telegramOAuthReturn: {
+        parameters: {
+            query: {
+                /** @description Ilova deep link'i (`TELEGRAM_APP_REDIRECTS` prefikslaridan biri, masalan `matchup://auth/telegram`) */
+                redirect_uri: components["parameters"]["TelegramRedirectUri"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Yo'naltiruvchi HTML (CSP nonce, `Cache-Control: no-store`) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
+                };
+            };
+            /** @description `redirect_uri` allowlist'da yo'q */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     refreshToken: {
@@ -2588,7 +3027,9 @@ export interface operations {
     requestAccountErasure: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "Accept-Language"?: components["parameters"]["AcceptLanguage"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -2603,7 +3044,15 @@ export interface operations {
                     "application/json": components["schemas"]["DataSubjectRequest"];
                 };
             };
-            409: components["responses"]["Conflict"];
+            /** @description Ochiq erasure so'rovi allaqachon bor (`ERASURE_PENDING`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     updateMe: {
@@ -2626,6 +3075,132 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["User"];
+                };
+            };
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    cancelAccountErasure: {
+        parameters: {
+            query?: never;
+            header?: {
+                "Accept-Language"?: components["parameters"]["AcceptLanguage"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description So'rov bekor qilindi (`status = cancelled`) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataSubjectRequest"];
+                };
+            };
+            /** @description Ochiq erasure so'rovi yo'q (yoki allaqachon bajarilgan) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listMyIdentities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bog'langan identity'lar */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthIdentity"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    linkIdentity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SocialCredential"];
+            };
+        };
+        responses: {
+            /** @description Yangilangan ro'yxat */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthIdentity"][];
+                };
+            };
+            /** @description Kirilmagan yoki credential yaroqsiz (`SOCIAL_TOKEN_INVALID`) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `IDENTITY_IN_USE` yoki `ALREADY_EXISTS` */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    unlinkIdentity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider: "google" | "apple" | "telegram";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Uzildi */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
+            /** @description Bu yagona kirish usuli (`LAST_LOGIN_METHOD`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             422: components["responses"]["ValidationError"];
@@ -2692,7 +3267,9 @@ export interface operations {
     requestDataExport: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "Accept-Language"?: components["parameters"]["AcceptLanguage"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -2708,6 +3285,74 @@ export interface operations {
                 };
             };
             429: components["responses"]["TooManyRequests"];
+        };
+    };
+    listMyDataRequests: {
+        parameters: {
+            query?: never;
+            header?: {
+                "Accept-Language"?: components["parameters"]["AcceptLanguage"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Oxirgi 50 ta so'rov, yangisi birinchi */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["DataSubjectRequest"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    downloadDataExport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description JSON fayl (`Content-Disposition: attachment`) */
+            200: {
+                headers: {
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonalDataExport"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description Hali tayyor emas (`EXPORT_NOT_READY`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Yuklab olish muddati tugagan (`EXPORT_EXPIRED`) */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     getMyWallet: {

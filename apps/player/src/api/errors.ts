@@ -1,7 +1,7 @@
 import type { Problem } from '@matchup/contracts';
 
 /** Client tomonida paydo bo'ladigan kodlar (server Problem `code`'lariga qo'shimcha). */
-export type ClientErrorCode = 'NETWORK' | 'UNKNOWN';
+export type ClientErrorCode = 'NETWORK' | 'UNKNOWN' | 'SOCIAL_NOT_CONFIGURED' | 'SOCIAL_EXPO_GO';
 
 /**
  * RFC 9457 Problem Details asosidagi xato. UI matnni `code` bo'yicha lokal tarjimadan oladi,
@@ -20,6 +20,11 @@ export class ApiError extends Error {
     this.code = opts.code;
     this.problem = opts.problem;
     this.retryAfter = opts.retryAfter;
+  }
+
+  /** Client tomonidagi xato (server javobisiz), matni `errors.<code>` tarjimasidan. */
+  static client(code: ClientErrorCode): ApiError {
+    return new ApiError({ status: 0, code });
   }
 
   static network(cause?: unknown): ApiError {

@@ -9,6 +9,7 @@ export { fontAssets, shadow } from './native/theme';
 export { type UIConfig, UIProvider, useUI } from './native/UIProvider';
 export * from './native/primitives';
 export { AuthLayout } from './native/AuthLayout';
+export { type Brand, BrandMark } from './native/BrandMark';
 export { BottomSheet } from './native/BottomSheet';
 export { FloatingTabBar, type FloatingTabBarProps } from './native/TabBar';
 export { type LanguageOption, LanguageSwitch, type LanguageSwitchVariant } from './native/LanguageSwitch';

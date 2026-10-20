@@ -17,7 +17,9 @@ export type DomainEvent =
   | 'HostOffered'
   | 'HostAssigned'
   | 'HostArrived'
-  | 'PlayerCheckedIn';
+  | 'PlayerCheckedIn'
+  | 'DataExportReady'
+  | 'UserErased';
 
 /** Transactional outbox: event biznes o'zgarish bilan BIR tranzaksiyada yoziladi. */
 export async function emit(

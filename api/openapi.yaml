@@ -123,25 +123,104 @@ paths:
       tags: [Auth]
       operationId: socialLogin
       summary: Google / Apple / Telegram orqali kirish
+      description: |
+        * **Google / Apple** — ID token (JWT) provider JWKS'i bilan tekshiriladi (RS256/ES256): imzo, `iss`,
+          `aud` (bizning client ID'lardan biri), `exp`/`iat`. Token'da `nonce` bo'lsa, client xom `nonce`ni yuborishi
+          shart (token'dagi qiymat = xom nonce yoki uning SHA-256 hex'i).
+        * **Telegram** — Login Widget / `oauth.telegram.org` natijasi: `hash = HMAC-SHA256(data_check_string, SHA256(bot_token))`,
+          `auth_date` 24 soatdan eski bo'lmasligi kerak.
+        * Har bir token / Telegram natijasi **bir martalik** (replay himoyasi).
+        * Akkaunt faqat `(provider, provider_uid)` bo'yicha topiladi; topilmasa — yangi akkaunt (telefonsiz, `is_new_user = true`).
+          Email bo'yicha mavjud akkauntga **avtomatik bog'lanmaydi** — bog'lash faqat kirgan holda `POST /v1/me/identities`.
       security: []
+      parameters:
+        - $ref: '#/components/parameters/AcceptLanguage'
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required: [provider, device]
-              properties:
-                provider: { type: string, enum: [google, apple, telegram] }
-                id_token: { type: string, description: Google/Apple ID token (JWT) }
-                telegram_auth:
-                  type: object
-                  description: Telegram Login Widget ma'lumotlari (server bot token bilan hash'ni tekshiradi)
-                  additionalProperties: true
-                device: { $ref: '#/components/schemas/DeviceInfo' }
+              allOf:
+                - $ref: '#/components/schemas/SocialCredential'
+                - type: object
+                  required: [device]
+                  properties:
+                    device: { $ref: '#/components/schemas/DeviceInfo' }
       responses:
         '200': { $ref: '#/components/responses/AuthSuccess' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
+        '401':
+          description: Token yaroqsiz, muddati o'tgan, `aud`/`iss`/nonce mos emas yoki qayta ishlatilgan (`SOCIAL_TOKEN_INVALID`)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422':
+          description: Validatsiya xatosi yoki provider sozlanmagan (`SOCIAL_PROVIDER_DISABLED`)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '503':
+          description: Provider JWKS'i vaqtincha mavjud emas (`UPSTREAM_UNAVAILABLE`)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /v1/auth/telegram/start:
+    get:
+      tags: [Auth]
+      operationId: telegramOAuthStart
+      summary: Telegram OAuth'ni brauzerda boshlash
+      description: |
+        Mobil ilova buni tizim brauzerida ochadi (`WebBrowser.openAuthSessionAsync`). Server `oauth.telegram.org/auth` ga
+        yo'naltiradi; Telegram natijani `/v1/auth/telegram/return` ga qaytaradi, u esa `redirect_uri#tgAuthResult=<base64 JSON>`
+        ga uzatadi. Bot domeni @BotFather'da `/setdomain` bilan API host'iga bog'langan bo'lishi kerak.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/TelegramRedirectUri'
+      responses:
+        '200':
+          description: "`Accept: application/json` bo'lsa — yo'naltirish URL'i (web popup uchun)"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [url]
+                properties:
+                  url: { type: string, format: uri }
+        '302':
+          description: oauth.telegram.org ga yo'naltirish (brauzer)
+          headers:
+            Location:
+              schema: { type: string, format: uri }
+        '422':
+          description: "`redirect_uri` allowlist'da yo'q yoki Telegram sozlanmagan"
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /v1/auth/telegram/return:
+    get:
+      tags: [Auth]
+      operationId: telegramOAuthReturn
+      summary: Telegram OAuth qaytish sahifasi
+      description: |
+        Kichik HTML sahifa: fragment'dagi `tgAuthResult` (yoki query'dagi widget maydonlari)ni o'zgartirmasdan ilovaning
+        `redirect_uri`siga uzatadi. Hash tekshiruvi `POST /v1/auth/social` da. `redirect_uri` faqat `TELEGRAM_APP_REDIRECTS`
+        prefikslaridan biri bilan boshlanishi mumkin (open redirect himoyasi).
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/TelegramRedirectUri'
+      responses:
+        '200':
+          description: "Yo'naltiruvchi HTML (CSP nonce, `Cache-Control: no-store`)"
+          content:
+            text/html:
+              schema: { type: string }
+        '422':
+          description: "`redirect_uri` allowlist'da yo'q"
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
 
   /v1/auth/refresh:
     post:
@@ -212,15 +291,111 @@ paths:
       operationId: requestAccountErasure
       summary: Akkauntni o'chirish (GDPR erasure)
       description: |
-        30 kunlik grace period, keyin anonimlashtirish: PII o'chiriladi, to'lov yozuvlari soliq talabi
-        muddatida anonim holda saqlanadi, highlight teglari olib tashlanadi.
+        `due_at` gacha (30 kunlik grace) `DELETE /v1/me/erasure-request` bilan bekor qilish mumkin. Keyin job anonimlashtiradi:
+        telefon, email, ismlar, tug'ilgan sana, avatar o'chiriladi (`display_name = Deleted user`); kirish usullari, sessiyalar,
+        push token'lar va highlight teglari o'chiriladi; kelgusi booking'lar cancellation policy bo'yicha bekor qilinadi.
+        Consent'lar, waiver imzolari va to'lov yozuvlari (huquqiy dalil / soliq) anonim akkauntga bog'liq holda qoladi.
+        Hamyonda balans yoki faol host tayinlovi bo'lsa — erasure bloklanadi, sababi `blocked_reasons` da.
+      parameters:
+        - $ref: '#/components/parameters/AcceptLanguage'
       responses:
         '202':
           description: So'rov qabul qilindi
           content:
             application/json:
               schema: { $ref: '#/components/schemas/DataSubjectRequest' }
-        '409': { $ref: '#/components/responses/Conflict' }
+        '409':
+          description: Ochiq erasure so'rovi allaqachon bor (`ERASURE_PENDING`)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /v1/me/erasure-request:
+    delete:
+      tags: [Profile]
+      operationId: cancelAccountErasure
+      summary: Akkauntni o'chirish so'rovini bekor qilish (grace davrida)
+      parameters:
+        - $ref: '#/components/parameters/AcceptLanguage'
+      responses:
+        '200':
+          description: So'rov bekor qilindi (`status = cancelled`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DataSubjectRequest' }
+        '404':
+          description: Ochiq erasure so'rovi yo'q (yoki allaqachon bajarilgan)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /v1/me/identities:
+    get:
+      tags: [Profile]
+      operationId: listMyIdentities
+      summary: Kirish usullari (telefon, Google, Apple, Telegram)
+      responses:
+        '200':
+          description: Bog'langan identity'lar
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/AuthIdentity' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Profile]
+      operationId: linkIdentity
+      summary: Joriy akkauntga social identity bog'lash
+      description: |
+        Credential `POST /v1/auth/social` dagi kabi tekshiriladi. Identity boshqa akkauntga bog'langan bo'lsa — `IDENTITY_IN_USE`
+        (akkauntlar birlashtirilmaydi); shu provider'dan boshqa identity bog'langan bo'lsa — `ALREADY_EXISTS`.
+        O'sha identity qayta bog'lansa — o'zgarishsiz 200.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SocialCredential' }
+      responses:
+        '200':
+          description: Yangilangan ro'yxat
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/AuthIdentity' }
+        '401':
+          description: Kirilmagan yoki credential yaroqsiz (`SOCIAL_TOKEN_INVALID`)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409':
+          description: "`IDENTITY_IN_USE` yoki `ALREADY_EXISTS`"
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /v1/me/identities/{provider}:
+    delete:
+      tags: [Profile]
+      operationId: unlinkIdentity
+      summary: Social identity'ni uzish
+      description: Oxirgi kirish usulini uzib bo'lmaydi (`LAST_LOGIN_METHOD`). Telefon bu yerda uzilmaydi.
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema: { type: string, enum: [google, apple, telegram] }
+      responses:
+        '204': { description: Uzildi }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Bu yagona kirish usuli (`LAST_LOGIN_METHOD`)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/ValidationError' }
 
   /v1/me/sports/{sportCode}:
     put:
@@ -282,7 +457,13 @@ paths:
       tags: [Profile]
       operationId: requestDataExport
       summary: Shaxsiy ma'lumotlarni eksport qilish (GDPR Art. 15/20)
-      description: JSON + media zip tayyorlanadi, tayyor bo'lgach push/Telegram orqali vaqtinchalik havola yuboriladi.
+      description: |
+        Job JSON fayl tayyorlaydi (odatda 1 daqiqa ichida): profil, rollar, kirish usullari, sport profillari, consent tarixi,
+        booking'lar, to'lovlar (summa, provider, holat, sana — karta ma'lumoti yo'q), refund'lar, hamyon, waiver imzolari,
+        check-in'lar, xabarnomalar, sessiyalar, host ma'lumotlari. Tayyor bo'lgach `DataExportReady` event'i (push).
+        Ochiq so'rov bo'lsa — yangisi yaratilmaydi, o'sha qaytariladi.
+      parameters:
+        - $ref: '#/components/parameters/AcceptLanguage'
       responses:
         '202':
           description: So'rov qabul qilindi
@@ -290,6 +471,60 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/DataSubjectRequest' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /v1/me/data-requests:
+    get:
+      tags: [Profile]
+      operationId: listMyDataRequests
+      summary: GDPR so'rovlarim (eksport va erasure holati)
+      parameters:
+        - $ref: '#/components/parameters/AcceptLanguage'
+      responses:
+        '200':
+          description: Oxirgi 50 ta so'rov, yangisi birinchi
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/DataSubjectRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/me/data-exports/{id}:
+    get:
+      tags: [Profile]
+      operationId: downloadDataExport
+      summary: Eksport faylini yuklab olish
+      description: Faqat so'rov egasi va faqat `expires_at` gacha (standart 7 kun). Muddat o'tgach fayl o'chiriladi.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: "JSON fayl (`Content-Disposition: attachment`)"
+          headers:
+            Content-Disposition:
+              schema: { type: string, examples: ['attachment; filename="matchup-data-2026-10-20.json"'] }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PersonalDataExport' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Hali tayyor emas (`EXPORT_NOT_READY`)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '410':
+          description: Yuklab olish muddati tugagan (`EXPORT_EXPIRED`)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
 
   /v1/me/wallet:
     get:
@@ -1725,6 +1960,12 @@ components:
       name: Stripe-Signature
 
   parameters:
+    TelegramRedirectUri:
+      name: redirect_uri
+      in: query
+      required: true
+      description: Ilova deep link'i (`TELEGRAM_APP_REDIRECTS` prefikslaridan biri, masalan `matchup://auth/telegram`)
+      schema: { type: string, examples: ['matchup://auth/telegram'] }
     AcceptLanguage:
       name: Accept-Language
       in: header
@@ -1972,11 +2213,139 @@ components:
             recorded_at: { type: string, format: date-time }
     DataSubjectRequest:
       type: object
+      required: [id, type, status, requested_at, due_at]
       properties:
         id: { type: string, format: uuid }
         type: { type: string, enum: [export, erasure] }
-        status: { type: string, enum: [received, in_progress, completed, rejected] }
-        due_at: { type: string, format: date-time }
+        status: { type: string, enum: [received, in_progress, completed, rejected, cancelled] }
+        requested_at: { type: string, format: date-time }
+        due_at:
+          type: string
+          format: date-time
+          description: Erasure — grace tugashi (shundan keyin anonimlashtiriladi); eksport — GDPR javob muddati
+        completed_at: { type: [string, 'null'], format: date-time }
+        cancelled_at: { type: [string, 'null'], format: date-time, description: Faqat erasure }
+        blocked_reasons:
+          type: [array, 'null']
+          description: Faqat erasure — muddat yetgan, lekin bajarib bo'lmadi; sabab bartaraf etilgach job qayta urinadi
+          items: { $ref: '#/components/schemas/ErasureBlockedReason' }
+        download_url:
+          type: [string, 'null']
+          description: Faqat eksport — tayyor va muddati o'tmagan bo'lsa
+          examples: ['/v1/me/data-exports/0199f0aa-0000-7000-8000-000000000001']
+        expires_at: { type: [string, 'null'], format: date-time, description: Faqat eksport — yuklab olish muddati }
+    ErasureBlockedReason:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string, enum: [wallet_balance, active_host_assignment] }
+        message: { type: string, description: Accept-Language tilida }
+        amount: { type: integer, format: int64, description: wallet_balance — minor units }
+        currency: { type: string, examples: [UZS] }
+        balance: { $ref: '#/components/schemas/Money' }
+        match_code: { type: string, description: active_host_assignment, examples: [MU-7F3K2] }
+        starts_at: { type: [string, 'null'], format: date-time }
+        status: { type: string, examples: [accepted] }
+    PersonalDataExport:
+      type: object
+      description: |
+        Eksport fayli (format versiyasi 1). Vaqtlar UTC ISO 8601, summalar minor units'da. Har bo'lim — massiv
+        (bo'sh bo'lishi mumkin); `host` — foydalanuvchi host bo'lmasa `null`.
+      required: [format, version, generated_at, request_id, profile]
+      properties:
+        format: { type: string, const: matchup.personal-data-export }
+        version: { type: integer, const: 1 }
+        generated_at: { type: string, format: date-time }
+        request_id: { type: string, format: uuid }
+        notes: { type: array, items: { type: string } }
+        profile: { type: object, additionalProperties: true }
+        roles: { type: array, items: { type: object, additionalProperties: true } }
+        identities: { type: array, items: { type: object, additionalProperties: true } }
+        sport_profiles: { type: array, items: { type: object, additionalProperties: true } }
+        consents: { type: array, items: { type: object, additionalProperties: true } }
+        bookings: { type: array, items: { type: object, additionalProperties: true } }
+        payments:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string, format: uuid }
+              booking_id: { type: string, format: uuid }
+              provider: { $ref: '#/components/schemas/PaymentProvider' }
+              amount: { type: integer, format: int64 }
+              currency: { type: string }
+              status: { type: string }
+              refunded_amount: { type: integer, format: int64 }
+              created_at: { type: string, format: date-time }
+              succeeded_at: { type: [string, 'null'], format: date-time }
+              cancelled_at: { type: [string, 'null'], format: date-time }
+        refunds: { type: array, items: { type: object, additionalProperties: true } }
+        wallet: { type: object, additionalProperties: true }
+        waiver_signatures: { type: array, items: { type: object, additionalProperties: true } }
+        checkins: { type: array, items: { type: object, additionalProperties: true } }
+        notifications: { type: array, items: { type: object, additionalProperties: true } }
+        sessions: { type: array, items: { type: object, additionalProperties: true } }
+        devices: { type: array, items: { type: object, additionalProperties: true } }
+        feedback_given: { type: array, items: { type: object, additionalProperties: true } }
+        highlight_tags: { type: array, items: { type: object, additionalProperties: true } }
+        host: { type: [object, 'null'], additionalProperties: true }
+        data_requests: { type: array, items: { type: object, additionalProperties: true } }
+    AuthIdentity:
+      type: object
+      required: [provider, label]
+      properties:
+        provider: { type: string, enum: [phone, google, apple, telegram] }
+        label:
+          type: [string, 'null']
+          description: Telefon raqami, email (Google/Apple) yoki @username (Telegram)
+          examples: [jasur@gmail.com]
+        created_at: { type: [string, 'null'], format: date-time }
+        last_used_at: { type: [string, 'null'], format: date-time }
+    SocialCredential:
+      description: Provider credential'i — `provider` (const) bo'yicha uch variantdan biri
+      oneOf:
+        - $ref: '#/components/schemas/GoogleCredential'
+        - $ref: '#/components/schemas/AppleCredential'
+        - $ref: '#/components/schemas/TelegramCredential'
+    GoogleCredential:
+      type: object
+      required: [provider, id_token]
+      properties:
+        provider: { type: string, const: google }
+        id_token: { type: string, description: Google ID token (JWT) }
+        nonce: { type: string, minLength: 8, description: "Xom nonce (token'da `nonce` bo'lsa majburiy)" }
+    AppleCredential:
+      type: object
+      required: [provider, id_token]
+      properties:
+        provider: { type: string, const: apple }
+        id_token: { type: string, description: Sign in with Apple identity token (JWT) }
+        nonce: { type: string, minLength: 8, description: "Xom nonce; Apple'ga uning SHA-256 hex'i berilgan" }
+        profile:
+          type: object
+          description: Apple ismni faqat birinchi kirishda client'ga beradi — yangi akkaunt uchun ishlatiladi
+          properties:
+            first_name: { type: string, maxLength: 60 }
+            last_name: { type: string, maxLength: 60 }
+    TelegramCredential:
+      type: object
+      required: [provider, telegram_auth]
+      properties:
+        provider: { type: string, const: telegram }
+        telegram_auth:
+          type: object
+          description: Telegram Login natijasi o'zgartirilmagan holda (`id`, `first_name`, `username`, `auth_date`, `hash`, ...)
+          required: [id, auth_date, hash]
+          properties:
+            id: { type: [integer, string] }
+            first_name: { type: string }
+            last_name: { type: string }
+            username: { type: string }
+            photo_url: { type: string }
+            auth_date: { type: [integer, string] }
+            hash: { type: string, pattern: '^[0-9a-f]{64}$' }
+          additionalProperties:
+            type: [string, integer]
     Wallet:
       type: object
       required: [balance, balances]

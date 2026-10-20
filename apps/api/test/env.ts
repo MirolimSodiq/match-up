@@ -11,3 +11,11 @@ process.env.PAYME_KEY = 'payme_test_key';
 process.env.CLICK_SECRET_KEY = 'click_test_secret';
 delete process.env.JWT_PRIVATE_KEY_FILE;
 delete process.env.TICKET_PRIVATE_KEY_FILE;
+// Social login: client ID'lar va bot token test qiymatlari; JWKS URL'larini social testi lokal serverga yo'naltiradi.
+process.env.GOOGLE_CLIENT_IDS = 'e2e-google-ios.apps.googleusercontent.com,e2e-google-web.apps.googleusercontent.com';
+process.env.APPLE_CLIENT_IDS = 'uz.matchup.player';
+process.env.TELEGRAM_BOT_TOKEN = '123456789:e2e-telegram-bot-secret';
+process.env.TELEGRAM_APP_REDIRECTS = 'matchup://,exp://';
+process.env.PUBLIC_BASE_URL = 'https://api.e2e.matchup.example';
+// GDPR eksport fayllari repo'dan tashqarida
+process.env.STORAGE_DIR = require('node:path').join(require('node:os').tmpdir(), 'matchup-e2e-storage');

@@ -83,6 +83,15 @@ export const colors = {
   wallet: palette.navy,
 } as const;
 
+/** Social login brend belgilarining rasmiy ranglari (brend qoidalari bo'yicha o'zgartirilmaydi). */
+export const brandColors = {
+  telegram: '#229ED9',
+  googleBlue: '#4285F4',
+  googleRed: '#EA4335',
+  googleYellow: '#FBBC05',
+  googleGreen: '#34A853',
+} as const;
+
 export interface SportColors {
   /** To'yingan fon rangi (karta, detal ekrani). */
   base: string;

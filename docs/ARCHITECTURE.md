@@ -385,14 +385,20 @@ To'liq kontrakt: [`api/openapi.yaml`](../api/openapi.yaml). Undan `packages/cont
 |---|---|---|---|
 | POST | `/v1/auth/otp/request` | `{phone, channel: sms\|telegram}` | `{challenge_id, expires_in, resend_after}` |
 | POST | `/v1/auth/otp/verify` | `{challenge_id, code, device}` | `{access_token, refresh_token, expires_in, user, is_new_user}` |
-| POST | `/v1/auth/social` | `{provider: google\|apple\|telegram, id_token \| telegram_auth, device}` | o'sha |
+| POST | `/v1/auth/social` | `{provider: google\|apple\|telegram, id_token + nonce? \| telegram_auth, device}` | o'sha |
+| GET | `/v1/auth/telegram/start?redirect_uri=` | — | 302 → oauth.telegram.org (brauzer orqali Telegram Login) |
 | POST | `/v1/auth/refresh` | `{refresh_token}` | yangi token juftligi |
 | POST | `/v1/auth/logout` | — | 204 |
 | GET / PATCH | `/v1/me` | `{display_name, locale, home_city_id, birth_date, gender}` | `User` |
 | PUT | `/v1/me/sports/{sport}` | `{self_level, preferred_position}` | `SportProfile` |
 | PUT | `/v1/me/consents` | `{consents: [{purpose, granted, document_version}]}` | joriy holat |
+| GET / POST | `/v1/me/identities` | `SocialCredential` | kirish usullari ro'yxati |
+| DELETE | `/v1/me/identities/{google\|apple\|telegram}` | — | 204 (oxirgi usul — 409) |
 | POST | `/v1/me/data-export` | — | 202 `DataSubjectRequest` |
+| GET | `/v1/me/data-requests` | — | eksport/erasure holati, bloklanish sabablari |
+| GET | `/v1/me/data-exports/{id}` | — | JSON fayl (egasi, muddat ichida) |
 | DELETE | `/v1/me` | — | 202 (30 kun grace → anonimlashtirish) |
+| DELETE | `/v1/me/erasure-request` | — | grace davrida bekor qilish |
 
 Onboarding: `otp/verify` → `is_new_user: true` → `PATCH /me` (ism, shahar) → `PUT /me/sports/football` → `PUT /me/consents` (terms, privacy majburiy; marketing, media_appearance ixtiyoriy).
 
@@ -693,15 +699,17 @@ export interface PaymentProvider {
 
 | Talab | Amalga oshirish |
 |---|---|
-| Minimallashtirish | Ro'yxatdan o'tish uchun faqat telefon + ism. Tug'ilgan sana — faqat yosh cheklovli match'lar uchun. Karta ma'lumotlari hech qachon bizda emas (provider sahifasi / SDK). |
+| Minimallashtirish | Ro'yxatdan o'tish uchun faqat telefon + ism (yoki social identity). Tug'ilgan sana — faqat yosh cheklovli match'lar uchun. Karta ma'lumotlari hech qachon bizda emas (provider sahifasi / SDK). Social login email'i `users.email` ga yozilmaydi — faqat identity belgisi (`auth_identities.display_label`) sifatida. |
 | Huquqiy asos | Booking — shartnoma; marketing, analytics, **videoda ko'rinish** — alohida consent (`consents`, versiyalangan, append-only). |
 | Media | `media_appearance` consent'i yo'q o'yinchi highlight'da teglanmaydi; Phase 2'da AI face blur (`face_blur` job). |
-| Kirish va ko'chirish (Art. 15/20) | `POST /me/data-export` → JSON + media zip, 30 kun ichida (`data_subject_requests.due_at`). |
-| O'chirish (Art. 17) | `DELETE /me` → 30 kun grace → anonimlashtirish: telefon/email/ism null yoki maskalangan, sessiyalar va device token'lar o'chiriladi, teglar olib tashlanadi. To'lov va waiver yozuvlari anonim holda qonuniy muddatda saqlanadi (soliq / da'vo himoyasi). Backup'lar 35 kunda aylanadi — bu muddat privacy policy'da yoziladi. |
+| Kirish va ko'chirish (Art. 15/20) | `POST /me/data-export` → `dsr-exports` job (har daqiqa) bitta JSON fayl tayyorlaydi (bitta REPEATABLE READ snapshot): profil, rollar, kirish usullari, sport profillari, consent tarixi, booking'lar, to'lovlar (summa, provider, holat, sana — `provider_state`, tranzaksiya ID va checkout URL'siz), refund'lar, hamyon, waiver imzolari, check-in'lar, xabarnomalar, sessiyalar, host ma'lumotlari. So'rov `completed` + `DataExportReady` outbox event'i (push). Yuklab olish: `GET /me/data-exports/{id}` — faqat egasi, 7 kun (`DATA_EXPORT_TTL_HOURS`); muddat o'tgach fayl o'chiriladi. Fayl hozircha lokal `STORAGE_DIR` da (0600), keyin S3 eu-central-1 + SSE-KMS (`FileStorage` interfeysi). Media zip — highlight pipeline bilan (Phase 2). |
+| O'chirish (Art. 17) | `DELETE /me` → `due_at = now + 30 kun` grace (shu vaqtgacha `DELETE /me/erasure-request` bilan bekor qilinadi) → `dsr-erasures` job (har soat), bitta tranzaksiyada: **(1)** bloklovchilar — hamyonda balans (pul egasiga qaytarilishi kerak) yoki faol host tayinlovi (`accepted`/`arrived`) bo'lsa hech narsa o'zgarmaydi, sabab `blocked_reasons` ga yoziladi va `GET /me/data-requests` da ko'rsatiladi, job keyingi safar qayta tekshiradi; **(2)** kelgusi booking'lar cancellation policy foizi bo'yicha bekor qilinadi — kartadan to'langan qism kartaga (`original_method`), hamyondan to'langani hamyonga (natijada balans → bloklanadi); **(3)** `users`: telefon, email, ismlar, tug'ilgan sana, avatar → NULL, `display_name = 'Deleted user'`, `gender = undisclosed`, `status = deleted`, `deleted_at`/`anonymized_at`; **(4)** o'chiriladi: `auth_identities`, `user_sessions`, `device_tokens`, `highlight_tags`, kutish ro'yxati, eksport fayllari; **(5)** `audit_logs` ← `user.erase` (o'chirilgan yozuvlar soni, bekor qilingan booking'lar), outbox ← `UserErased`. Telefon raqami bo'shaydi — qayta ro'yxatdan o'tish yangi akkaunt ochadi. |
+| Saqlanadigan yozuvlar | `consents`, `waiver_signatures`, `payments`, `refunds`, `wallet_transactions` — huquqiy dalil va soliq talabi; anonim user_id'ga bog'liq holda qonuniy muddatda saqlanadi (append-only trigger'lar o'zgarmaydi). Backup'lar 35 kunda aylanadi — bu muddat privacy policy'da yoziladi. |
+| Social login | Google / Apple ID token — JWKS (`*_JWKS_URL`, TTL kesh, noma'lum `kid` → cooldown bilan bir marta qayta yuklash) bilan `node:crypto` orqali RS256/ES256 tekshiruvi: imzo, `iss`, `aud` (`*_CLIENT_IDS`), `exp`/`iat`, nonce (token'da bo'lsa majburiy; xom yoki SHA-256). Telegram — `HMAC-SHA256(data_check_string, SHA256(bot_token))`, `auth_date` ≤ 24 soat. Har credential bir martalik (Redis, replay himoyasi). Identity faqat `(provider, provider_uid)` bo'yicha topiladi — **email bo'yicha avtomatik bog'lanmaydi** (akkauntni egallab olish xavfi). Bog'lash: `POST /me/identities` (boshqa akkauntdagi identity → `IDENTITY_IN_USE`, akkauntlar birlashtirilmaydi; har provider'dan bitta), uzish — oxirgi kirish usuli bo'lmasa; ikkalasi ham `audit_logs` da. |
 | Xavfsizlik | TLS 1.3, disk/backup shifrlash (KMS), secret'lar Vault'da, admin uchun TOTP 2FA, RBAC, `audit_logs`. Loglarda PII yo'q (pino `redact`: phone, email, token). |
 | Yosh | Minimal 16 (GDPR raqamli rozilik yoshi); kichiklar uchun guardian waiver. |
-| Processor'lar | DPA: hosting, Eskiz, Telegram, Sentry, payment provider'lar. Records of Processing (RoPA) yuritiladi. |
-| Data residency | §4.3 — UZ va EU foydalanuvchilari ma'lumotlari Frankfurt'da (Germaniya UZ adekvat ro'yxatida va GDPR yurisdiksiyasida); biometrik ma'lumot faqat O'zbekiston ichida. |
+| Processor'lar | DPA: hosting, Eskiz, Telegram, Google, Apple, Sentry, payment provider'lar. Records of Processing (RoPA) yuritiladi. |
+| Data residency | §4.3 — UZ va EU foydalanuvchilari ma'lumotlari Frankfurt'da (Germaniya UZ adekvat ro'yxatida va GDPR yurisdiksiyasida); biometrik ma'lumot faqat O'zbekiston ichida. Eksport fayllari ham shu cell'ning storage'ida. |
 
 ### 4.9 Background job'lar
 
@@ -716,7 +724,8 @@ export interface PaymentProvider {
 | Post-match | `MatchCompleted` | Glicko reyting, feedback so'rovi, no-show statistikasi |
 | Host payout | haftalik | `host_assignments.completed` → `host_payouts` |
 | Reconciliation | har kecha | provider hisobotlari ↔ `payments` |
-| DSR | har kun | export tayyorlash, erasure grace muddati o'tganlarni anonimlashtirish |
+| DSR eksport | har daqiqa (`dsr-exports`) | JSON fayl → `completed` + `DataExportReady`; muddati o'tgan fayllarni o'chirish |
+| DSR erasure | har soat (`dsr-erasures`) | grace muddati o'tgan so'rovlar: bloklovchilarni tekshirish → booking'larni bekor qilish → anonimlashtirish (§4.8) |
 
 > **Dispatch bo'yicha tavsiya:** host'ni faqat match **to'lganda** chaqirish operatsion xavfli — 12/14 o'yinchi bilan ham o'yin bo'ladi, oxirgi soatlarda to'lgan match'ga host topish qiyin. Shuning uchun ikki trigger: to'lganda darhol yoki T-12h da minimumga yetganda.
 

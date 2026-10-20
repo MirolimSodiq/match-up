@@ -1,7 +1,7 @@
 // AUTO-GENERATED: `pnpm db:pull` (drizzle-kit pull + scripts/fix-drizzle-schema.ts). Qo'lda tahrirlamang —
 // o'zgarishlar db/migrations/*.sql orqali kiritiladi.
 import { geography, citext, bytea, tstzrange } from './custom-types';
-import { pgTable, check, char, smallint, text, jsonb, foreignKey, boolean, unique, integer, type AnyPgColumn, uuid, date, timestamp, index, inet, numeric, bigint, uniqueIndex, primaryKey, pgView, pgEnum } from "drizzle-orm/pg-core"
+import { pgTable, check, char, smallint, text, jsonb, foreignKey, boolean, unique, integer, type AnyPgColumn, uuid, date, timestamp, index, uniqueIndex, inet, numeric, bigint, primaryKey, pgView, pgEnum } from "drizzle-orm/pg-core"
 import { sql } from "drizzle-orm"
 
 export const authProvider = pgEnum("auth_provider", ['phone', 'google', 'apple', 'telegram'])
@@ -13,7 +13,7 @@ export const competitionStatus = pgEnum("competition_status", ['draft', 'registr
 export const competitionType = pgEnum("competition_type", ['league', 'tournament', 'cup'])
 export const consentPurpose = pgEnum("consent_purpose", ['terms_of_service', 'privacy_policy', 'marketing_sms', 'marketing_push', 'marketing_email', 'analytics', 'media_appearance', 'location_tracking'])
 export const devicePlatform = pgEnum("device_platform", ['ios', 'android', 'web'])
-export const dsrStatus = pgEnum("dsr_status", ['received', 'in_progress', 'completed', 'rejected'])
+export const dsrStatus = pgEnum("dsr_status", ['received', 'in_progress', 'completed', 'rejected', 'cancelled'])
 export const dsrType = pgEnum("dsr_type", ['export', 'erasure', 'rectification', 'restriction'])
 export const entryFeeMode = pgEnum("entry_fee_mode", ['per_team', 'per_player'])
 export const entryStatus = pgEnum("entry_status", ['pending_payment', 'confirmed', 'withdrawn', 'disqualified'])
@@ -150,8 +150,10 @@ export const authIdentities = pgTable("auth_identities", {
 	providerUid: text("provider_uid").notNull(),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	lastUsedAt: timestamp("last_used_at", { withTimezone: true, mode: 'string' }),
+	displayLabel: text("display_label"),
 }, (table) => [
 	index("auth_identities_user_idx").using("btree", table.userId.asc().nullsLast().op("uuid_ops")),
+	uniqueIndex("auth_identities_user_provider_key").using("btree", table.userId.asc().nullsLast().op("uuid_ops"), table.provider.asc().nullsLast().op("uuid_ops")),
 	foreignKey({
 			columns: [table.userId],
 			foreignColumns: [users.id],
@@ -862,8 +864,19 @@ export const dataSubjectRequests = pgTable("data_subject_requests", {
 	exportMediaId: uuid("export_media_id"),
 	handledBy: uuid("handled_by"),
 	notes: text(),
+	exportPath: text("export_path"),
+	exportSha256: bytea("export_sha256"),
+	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
+	exportSizeBytes: bigint("export_size_bytes", { mode: "number" }),
+	exportExpiresAt: timestamp("export_expires_at", { withTimezone: true, mode: 'string' }),
+	blockedReasons: jsonb("blocked_reasons"),
+	blockedAt: timestamp("blocked_at", { withTimezone: true, mode: 'string' }),
+	cancelledAt: timestamp("cancelled_at", { withTimezone: true, mode: 'string' }),
 }, (table) => [
+	index("dsr_export_expiry_idx").using("btree", table.exportExpiresAt.asc().nullsLast().op("timestamptz_ops")).where(sql`(export_path IS NOT NULL)`),
+	uniqueIndex("dsr_one_open_erasure").using("btree", table.userId.asc().nullsLast().op("uuid_ops")).where(sql`((type = 'erasure'::dsr_type) AND (status = ANY (ARRAY['received'::dsr_status, 'in_progress'::dsr_status])))`),
 	index("dsr_open_idx").using("btree", table.dueAt.asc().nullsLast().op("timestamptz_ops")).where(sql`(status = ANY (ARRAY['received'::dsr_status, 'in_progress'::dsr_status]))`),
+	index("dsr_user_idx").using("btree", table.userId.asc().nullsLast().op("timestamptz_ops"), table.requestedAt.desc().nullsFirst().op("timestamptz_ops")),
 	foreignKey({
 			columns: [table.handledBy],
 			foreignColumns: [users.id],
@@ -879,6 +892,7 @@ export const dataSubjectRequests = pgTable("data_subject_requests", {
 			foreignColumns: [mediaAssets.id],
 			name: "dsr_export_fk"
 		}),
+	check("data_subject_requests_export_size_bytes_check", sql`export_size_bytes >= 0`),
 ]);
 
 export const auditLogs = pgTable("audit_logs", {
