@@ -1,6 +1,6 @@
 // AUTO-GENERATED: `pnpm db:pull`
 import { relations } from "drizzle-orm/relations";
-import { currencies, countries, cities, users, mediaAssets, userSessions, deviceTokens, authIdentities, venues, pitches, fieldLeases, sports, matches, cancellationPolicies, competitions, waiverTemplates, waiverSignatures, matchParticipants, bookings, matchSides, matchWaitlist, competitionEntries, paymentProviderConfigs, payments, paymentEvents, refunds, walletAccounts, walletTransactions, consents, dataSubjectRequests, auditLogs, hostProfiles, hostPayouts, hostAssignments, checkinEvents, matchFeedback, highlights, notifications, highlightShares, teams, matchEvents, mediaProcessingJobs, pushDeliveries, venueAmenities, amenities, pitchSports, hostSports, userRoles, highlightTags, highlightReactions, fxRates, teamMembers, playerSportProfiles } from "./schema";
+import { currencies, countries, cities, users, mediaAssets, userSessions, deviceTokens, authIdentities, venues, pitches, fieldLeases, sports, matches, cancellationPolicies, competitions, waiverTemplates, waiverSignatures, matchParticipants, bookings, matchSides, matchWaitlist, competitionEntries, paymentProviderConfigs, payments, paymentEvents, refunds, walletAccounts, walletTransactions, consents, dataSubjectRequests, auditLogs, hostProfiles, hostPayouts, hostAssignments, checkinEvents, matchFeedback, highlights, notifications, highlightShares, teams, matchEvents, mediaProcessingJobs, pushDeliveries, venueAmenities, amenities, pitchSports, hostSports, userRoles, highlightTags, highlightReactions, fxRates, teamMembers, playerSportProfiles, reconciliationRuns, reconciliationItems } from "./schema";
 
 export const countriesRelations = relations(countries, ({one, many}) => ({
 	currency: one(currencies, {
@@ -25,6 +25,7 @@ export const currenciesRelations = relations(currencies, ({many}) => ({
 	hostPayouts: many(hostPayouts),
 	hostAssignments: many(hostAssignments),
 	competitions: many(competitions),
+	reconciliationItems: many(reconciliationItems),
 	fxRates_baseCurrency: many(fxRates, {
 		relationName: "fxRates_baseCurrency_currencies_code"
 	}),
@@ -122,6 +123,7 @@ export const usersRelations = relations(users, ({one, many}) => ({
 	competitions: many(competitions),
 	competitionEntries: many(competitionEntries),
 	matchEvents: many(matchEvents),
+	reconciliationRuns: many(reconciliationRuns),
 	userRoles_userId: many(userRoles, {
 		relationName: "userRoles_userId_users_id"
 	}),
@@ -451,6 +453,7 @@ export const paymentsRelations = relations(payments, ({one, many}) => ({
 	}),
 	paymentEvents: many(paymentEvents),
 	refunds: many(refunds),
+	reconciliationItems: many(reconciliationItems),
 }));
 
 export const paymentEventsRelations = relations(paymentEvents, ({one}) => ({
@@ -730,6 +733,29 @@ export const pushDeliveriesRelations = relations(pushDeliveries, ({one}) => ({
 	deviceToken: one(deviceTokens, {
 		fields: [pushDeliveries.deviceTokenId],
 		references: [deviceTokens.id]
+	}),
+}));
+
+export const reconciliationRunsRelations = relations(reconciliationRuns, ({one, many}) => ({
+	user: one(users, {
+		fields: [reconciliationRuns.triggeredBy],
+		references: [users.id]
+	}),
+	reconciliationItems: many(reconciliationItems),
+}));
+
+export const reconciliationItemsRelations = relations(reconciliationItems, ({one}) => ({
+	currency: one(currencies, {
+		fields: [reconciliationItems.currency],
+		references: [currencies.code]
+	}),
+	payment: one(payments, {
+		fields: [reconciliationItems.paymentId],
+		references: [payments.id]
+	}),
+	reconciliationRun: one(reconciliationRuns, {
+		fields: [reconciliationItems.runId],
+		references: [reconciliationRuns.id]
 	}),
 }));
 

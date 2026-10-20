@@ -5,9 +5,9 @@ import type { Locale } from '../common/i18n';
 import { minorToMajorString } from '../common/money';
 import { DB, type Db, rows } from '../db/db';
 
-/** MVP'da ishga tushirilgan provider'lar. Uzum va Stripe adapter'lari — keyingi iteratsiya. */
-export const IMPLEMENTED_PROVIDERS = ['wallet', 'payme', 'click'] as const;
-export type CheckoutProvider = 'payme' | 'click';
+/** Ishga tushirilgan provider'lar. Stripe adapter'i — xalqaro bosqichda. */
+export const IMPLEMENTED_PROVIDERS = ['wallet', 'payme', 'click', 'uzum'] as const;
+export type CheckoutProvider = 'payme' | 'click' | 'uzum';
 
 export interface RedirectCheckout {
   type: 'redirect';
@@ -19,6 +19,7 @@ const PROVIDER_NAMES: Record<string, Record<'uz-Latn' | 'ru' | 'en', string>> = 
   wallet: { 'uz-Latn': 'Hamyon', ru: 'Кошелёк', en: 'Wallet' },
   payme: { 'uz-Latn': 'Payme', ru: 'Payme', en: 'Payme' },
   click: { 'uz-Latn': 'Click', ru: 'Click', en: 'Click' },
+  uzum: { 'uz-Latn': 'Uzum Bank', ru: 'Uzum Bank', en: 'Uzum Bank' },
 };
 
 @Injectable()
@@ -51,6 +52,9 @@ export class CheckoutService {
   /**
    * Payme: https://checkout.paycom.uz/<base64("m=..;ac.booking_id=..;a=<tiyin>;l=uz;c=<return>")>
    * Click: https://my.click.uz/services/pay?service_id=..&merchant_id=..&amount=<so'm>&transaction_param=<booking>
+   * Uzum: https://www.uzumbank.uz/open-service?serviceId=..&booking_id=<booking>&amount=<tiyin> — Uzum Bank ilovasida
+   *   servisni ochadi, to'lov Merchant API webhook'lari (/check, /create, /confirm) orqali. Havola formati Uzum'ning
+   *   rasmiy Merchant API hujjatida yo'q — ulanishda Uzum menejeri bilan tasdiqlanadi (UZUM_CHECKOUT_URL, UZUM_ACCOUNT_PARAM).
    */
   buildRedirect(provider: CheckoutProvider, p: { bookingId: string; amount: number; currency: string; returnUrl?: string; locale: Locale }): RedirectCheckout {
     if (provider === 'payme') {
@@ -59,6 +63,14 @@ export class CheckoutService {
       if (p.returnUrl) params.push(`c=${p.returnUrl}`);
       const encoded = Buffer.from(params.join(';')).toString('base64');
       return { type: 'redirect', provider, url: `${this.env.PAYME_CHECKOUT_URL}/${encoded}` };
+    }
+    if (provider === 'uzum') {
+      const q = new URLSearchParams({
+        serviceId: String(this.env.UZUM_SERVICE_ID),
+        [this.env.UZUM_ACCOUNT_PARAM]: p.bookingId,
+        amount: String(p.amount),
+      });
+      return { type: 'redirect', provider, url: `${this.env.UZUM_CHECKOUT_URL}?${q.toString()}` };
     }
     const q = new URLSearchParams({
       service_id: this.env.CLICK_SERVICE_ID,

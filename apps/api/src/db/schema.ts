@@ -42,6 +42,8 @@ export const payoutStatus = pgEnum("payout_status", ['pending', 'processing', 'p
 export const processingJobStatus = pgEnum("processing_job_status", ['queued', 'running', 'succeeded', 'failed', 'cancelled'])
 export const processingJobType = pgEnum("processing_job_type", ['transcode', 'thumbnail', 'ai_detect_events', 'ai_auto_clip', 'face_blur'])
 export const reactionType = pgEnum("reaction_type", ['like', 'fire', 'clap'])
+export const reconciliationDiffKind = pgEnum("reconciliation_diff_kind", ['missing_at_provider', 'missing_locally', 'amount_mismatch', 'status_mismatch'])
+export const reconciliationRunStatus = pgEnum("reconciliation_run_status", ['running', 'completed', 'failed'])
 export const refundDestination = pgEnum("refund_destination", ['original_method', 'wallet'])
 export const refundStatus = pgEnum("refund_status", ['pending', 'succeeded', 'failed'])
 export const skillLevel = pgEnum("skill_level", ['beginner', 'intermediate', 'advanced', 'pro'])
@@ -1467,6 +1469,76 @@ export const pushDeliveries = pgTable("push_deliveries", {
 			name: "push_deliveries_device_token_id_fkey"
 		}).onDelete("cascade"),
 	check("push_deliveries_status_check", sql`status = ANY (ARRAY['sent'::text, 'delivered'::text, 'failed'::text])`),
+]);
+
+export const reconciliationRuns = pgTable("reconciliation_runs", {
+	id: uuid().default(sql`uuidv7()`).primaryKey().notNull(),
+	provider: paymentProvider().notNull(),
+	periodFrom: timestamp("period_from", { withTimezone: true, mode: 'string' }).notNull(),
+	periodTo: timestamp("period_to", { withTimezone: true, mode: 'string' }).notNull(),
+	status: reconciliationRunStatus().default('running').notNull(),
+	trigger: text().notNull(),
+	triggeredBy: uuid("triggered_by"),
+	localCount: integer("local_count").default(0).notNull(),
+	providerCount: integer("provider_count").default(0).notNull(),
+	matchedCount: integer("matched_count").default(0).notNull(),
+	diffCount: integer("diff_count").default(0).notNull(),
+	error: text(),
+	startedAt: timestamp("started_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	finishedAt: timestamp("finished_at", { withTimezone: true, mode: 'string' }),
+}, (table) => [
+	uniqueIndex("reconciliation_runs_one_running").using("btree", table.provider.asc().nullsLast().op("timestamptz_ops"), table.periodFrom.asc().nullsLast().op("enum_ops"), table.periodTo.asc().nullsLast().op("enum_ops")).where(sql`(status = 'running'::reconciliation_run_status)`),
+	index("reconciliation_runs_provider_idx").using("btree", table.provider.asc().nullsLast().op("enum_ops"), table.periodFrom.desc().nullsFirst().op("timestamptz_ops")),
+	index("reconciliation_runs_started_idx").using("btree", table.startedAt.desc().nullsFirst().op("timestamptz_ops")),
+	foreignKey({
+			columns: [table.triggeredBy],
+			foreignColumns: [users.id],
+			name: "reconciliation_runs_triggered_by_fkey"
+		}),
+	check("reconciliation_runs_diff_count_check", sql`diff_count >= 0`),
+	check("reconciliation_runs_local_count_check", sql`local_count >= 0`),
+	check("reconciliation_runs_manual_actor", sql`(trigger = 'schedule'::text) OR (triggered_by IS NOT NULL)`),
+	check("reconciliation_runs_matched_count_check", sql`matched_count >= 0`),
+	check("reconciliation_runs_period", sql`period_from < period_to`),
+	check("reconciliation_runs_provider_count_check", sql`provider_count >= 0`),
+	check("reconciliation_runs_trigger_check", sql`trigger = ANY (ARRAY['schedule'::text, 'manual'::text])`),
+]);
+
+export const reconciliationItems = pgTable("reconciliation_items", {
+	id: uuid().default(sql`uuidv7()`).primaryKey().notNull(),
+	runId: uuid("run_id").notNull(),
+	kind: reconciliationDiffKind().notNull(),
+	paymentId: uuid("payment_id"),
+	providerTransactionId: text("provider_transaction_id"),
+	bookingId: uuid("booking_id"),
+	currency: char({ length: 3 }),
+	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
+	localAmount: bigint("local_amount", { mode: "number" }),
+	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
+	providerAmount: bigint("provider_amount", { mode: "number" }),
+	localStatus: text("local_status"),
+	providerStatus: text("provider_status"),
+	details: jsonb().default({}).notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	index("reconciliation_items_payment_idx").using("btree", table.paymentId.asc().nullsLast().op("uuid_ops")).where(sql`(payment_id IS NOT NULL)`),
+	index("reconciliation_items_run_idx").using("btree", table.runId.asc().nullsLast().op("timestamptz_ops"), table.createdAt.asc().nullsLast().op("timestamptz_ops")),
+	foreignKey({
+			columns: [table.currency],
+			foreignColumns: [currencies.code],
+			name: "reconciliation_items_currency_fkey"
+		}),
+	foreignKey({
+			columns: [table.paymentId],
+			foreignColumns: [payments.id],
+			name: "reconciliation_items_payment_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.runId],
+			foreignColumns: [reconciliationRuns.id],
+			name: "reconciliation_items_run_id_fkey"
+		}),
+	check("reconciliation_items_ref", sql`(payment_id IS NOT NULL) OR (provider_transaction_id IS NOT NULL)`),
 ]);
 
 export const venueAmenities = pgTable("venue_amenities", {

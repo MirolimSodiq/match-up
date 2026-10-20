@@ -53,6 +53,22 @@ const EnvSchema = z.object({
   CLICK_SECRET_KEY: z.string().default('click_test_secret'),
   CLICK_CHECKOUT_URL: z.url().default('https://my.click.uz/services/pay'),
 
+  // Uzum Bank Merchant API (developer.uzumbank.uz/merchant): Basic auth login/parol Uzum jamoasidan
+  UZUM_SERVICE_ID: z.coerce.number().int().positive().default(101202),
+  UZUM_LOGIN: z.string().min(1).default('uzum_test_login'),
+  UZUM_PASSWORD: z.string().min(1).default('uzum_test_password'),
+  /** `params` ichidagi booking id kaliti — Uzum servis sozlamasida kelishiladi. */
+  UZUM_ACCOUNT_PARAM: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/).default('booking_id'),
+  /** Uzum Bank ilovasidagi servisni ochuvchi havola (rasmiy hujjatda yo'q — Uzum menejeri bilan tasdiqlansin). */
+  UZUM_CHECKOUT_URL: z.url().default('https://www.uzumbank.uz/open-service'),
+
+  // Kechki reconciliation. Payme: Subscribe API `receipts.get_all` (X-Auth: kassa id + kalit).
+  /** Tashqi API'ga dev'da demo kalitlar bilan chiqmaslik uchun standart o'chiq. */
+  PAYME_RECONCILE_ENABLED: bool.default(false),
+  PAYME_API_URL: z.url().default('https://checkout.test.paycom.uz/api'),
+  /** Kechki job vaqti (cron, Asia/Tashkent): oldingi kunni solishtiradi. */
+  RECONCILE_CRON: z.string().default('30 3 * * *'),
+
   /** Expo Push API (push/send, push/getReceipts). Access token — Expo "enhanced security" yoqilgan bo'lsa. */
   EXPO_PUSH_URL: z.url().default('https://exp.host/--/api/v2/push'),
   EXPO_ACCESS_TOKEN: z.string().optional(),

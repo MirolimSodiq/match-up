@@ -1209,10 +1209,24 @@ paths:
     post:
       tags: [Webhooks]
       operationId: uzumMerchantApi
-      summary: Uzum Bank Merchant API
+      summary: Uzum Bank Merchant API (check / create / confirm / reverse / status)
       description: |
-        Operatsiyalar: `check` (to'lash mumkinmi), `create`, `confirm` (-> confirm_payment.sql), `reverse` (refund), `status`.
-        Basic auth. Payload Uzum spetsifikatsiyasiga ko'ra adapter ichida normalizatsiya qilinadi.
+        Rasmiy spetsifikatsiya: <https://developer.uzumbank.uz/merchant>. Uzum bizning endpointlarni chaqiradi:
+        `check` -> `create` -> (Uzum mijozdan pul yechadi) -> `confirm`; bekor qilish — `reverse`;
+        `confirm` da server xatosi yoki timeout bo'lsa — `status` (10 martagacha). JSON, summalar tiyin'da, vaqtlar ms.
+        Muvaffaqiyat — HTTP 200; xato — HTTP 400 va `errorCode` (string); kutilmagan server xatosi — 500 va `99999`.
+        Booking id `params.booking_id` da (kalit — `UZUM_ACCOUNT_PARAM`, Uzum servis sozlamasida kelishiladi).
+
+        | Operatsiya | Biznes mantiq |
+        |---|---|
+        | `check` | booking `pending_payment` (hold muddati o'tgan bo'lsa joy bor ekan — qayta hold); to'langan — `10008`; bekor qilingan yoki joy qolmagan — `10009` (pul yechilmaydi) |
+        | `create` | summa booking summasiga teng bo'lishi shart (`10011`); `payments` qatori (`provider_transaction_id = transId`, `CREATED`), hold uzaytiriladi; o'sha `transId` bilan takroriy chaqiruv — `10010`, ikkinchi qator yaratilmaydi |
+        | `confirm` | `confirm_payment.sql` + `PaymentSucceeded` outbox. Joy qolmagan yoki booking boshqa usul bilan to'langan — `10015` (FAILED, Uzum mijozga pulni qaytaradi, ikki marta yechilmaydi). `create` dan 30 daqiqa o'tgan — `10015`. Takroriy — `10016` |
+        | `reverse` | `CREATED` — bekor, hold ozod; `CONFIRMED` — o'yin boshlanmagan bo'lsa refund (`refunds`, joy qaytadi), boshlangan bo'lsa — `10017`; takroriy — `10018` |
+        | `status` | `CREATED` / `CONFIRMED` / `REVERSED` (200) yoki `FAILED` (400, `10015`) |
+
+        Har bir chaqiruv (auth xatosi bilan ham) `payment_events` ga yoziladi (`processed_at`, `processing_error`, `payment_id`; mijoz telefoni maskalanadi).
+        POST bo'lmagan so'rov yoki noma'lum operatsiya — `10003`; buzilgan JSON — `10002`.
       security:
         - uzumBasic: []
       parameters:
@@ -1224,26 +1238,54 @@ paths:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              required: [serviceId, timestamp]
-              properties:
-                serviceId: { type: integer }
-                timestamp: { type: integer, format: int64 }
-                transId: { type: string }
-                amount: { type: integer, format: int64, description: tiyin }
-                params:
-                  type: object
-                  properties:
-                    booking_id: { type: string, format: uuid }
-              additionalProperties: true
+            schema: { $ref: '#/components/schemas/UzumRequest' }
+            examples:
+              check:
+                summary: check
+                value: { serviceId: 101202, timestamp: 1760800000000, params: { booking_id: 01a14af9-7400-7aaa-9bbb-123456789abc } }
+              create:
+                summary: create
+                value: { serviceId: 101202, timestamp: 1760800001000, transId: 5c398d7e-76b6-11ee-96da-f3a095c6289d,
+                         params: { booking_id: 01a14af9-7400-7aaa-9bbb-123456789abc }, amount: 4500000 }
+              confirm:
+                summary: confirm
+                value: { serviceId: 101202, timestamp: 1760800002000, transId: 5c398d7e-76b6-11ee-96da-f3a095c6289d,
+                         paymentSource: UZCARD, tariff: null, processingReferenceNumber: '000123', phone: '998901234567', cardType: 2 }
+              status:
+                summary: reverse / status
+                value: { serviceId: 101202, timestamp: 1760800003000, transId: 5c398d7e-76b6-11ee-96da-f3a095c6289d }
       responses:
         '200':
-          description: Uzum javobi
+          description: Muvaffaqiyat
           content:
             application/json:
-              schema: { type: object, additionalProperties: true }
-        '400': { $ref: '#/components/responses/BadRequest' }
+              schema: { $ref: '#/components/schemas/UzumResponse' }
+              examples:
+                check:
+                  summary: check
+                  value: { serviceId: 101202, timestamp: 1760800000021, status: OK,
+                           data: { booking_id: { value: 01a14af9-7400-7aaa-9bbb-123456789abc }, match: { value: MU-RACE }, total: { value: "45 000 so'm" } } }
+                confirmed:
+                  summary: confirm
+                  value: { serviceId: 101202, transId: 5c398d7e-76b6-11ee-96da-f3a095c6289d, status: CONFIRMED, confirmTime: 1760800002054,
+                           data: { booking_id: { value: 01a14af9-7400-7aaa-9bbb-123456789abc } }, amount: 4500000 }
+        '400':
+          description: Uzum formatidagi xato
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UzumError' }
+              examples:
+                seat_gone:
+                  summary: check — hold muddati o'tgan va joy qolmagan
+                  value: { serviceId: 101202, status: FAILED, timestamp: 1760800000021, errorCode: '10009' }
+                already_paid:
+                  summary: confirm — booking boshqa usul bilan to'langan
+                  value: { serviceId: 101202, transId: 5c398d7e-76b6-11ee-96da-f3a095c6289d, status: FAILED, confirmTime: 1760800002054, errorCode: '10015' }
+        '500':
+          description: Kutilmagan server xatosi (`99999`) — `confirm` da Uzum `status` bilan haqiqiy holatni so'raydi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UzumError' }
 
   /v1/webhooks/stripe:
     post:
@@ -2058,6 +2100,93 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /v1/admin/finance/reconciliation:
+    get:
+      tags: [Admin]
+      operationId: adminListReconciliationRuns
+      summary: To'lovlarni provider ma'lumoti bilan solishtirish (reconciliation) natijalari
+      description: |
+        Har kecha (`RECONCILE_CRON`, Asia/Tashkent; alohida `reconciliation` BullMQ navbati) oldingi kun uchun yoki admin qo'lda ishga tushiradi.
+        Bizning `payments` (`created_at` davr ichida; `succeeded`, `partially_refunded`, `refunded`, `cancelled`) ↔ provider ro'yxati —
+        `provider_transaction_id` bo'yicha, Payme `GetStatement` uslubida. Provider'dan davr ±1 soat padding bilan olinadi.
+
+        Farq turlari: `missing_at_provider` (bizda bor, providerda yo'q), `missing_locally` (providerda pul harakati bor, bizda yo'q),
+        `amount_mismatch`, `status_mismatch` (provider holati yakuniy bo'lsa). Har farq `reconciliation_items`, `audit_logs`
+        (`reconciliation.mismatch`) va outbox'ga (`ReconciliationMismatch`) bitta tranzaksiyada yoziladi.
+
+        | Provider | Manba |
+        |---|---|
+        | Payme | Subscribe API `receipts.get_all` (X-Auth: kassa id + kalit, sahifa 50 tadan); `PAYME_RECONCILE_ENABLED=true` bo'lsa |
+        | Click | yo'q — Merchant API'da davr bo'yicha ro'yxat yo'q (faqat bitta to'lov holati, summasiz) |
+        | Uzum | yo'q — Merchant API faqat webhook'lardan iborat |
+      parameters:
+        - { name: provider, in: query, description: Vergul bilan, schema: { type: string, examples: ['payme,uzum'] } }
+        - { name: status, in: query, description: Vergul bilan, schema: { type: string, examples: ['completed,failed'] } }
+        - { name: has_diffs, in: query, schema: { type: boolean } }
+        - { name: date_from, in: query, description: Run davri shu vaqtdan keyin tugaydi, schema: { type: string, format: date-time } }
+        - { name: date_to, in: query, description: Run davri shu vaqtdan oldin boshlanadi, schema: { type: string, format: date-time } }
+        - $ref: '#/components/parameters/AdminLimit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Run'lar (eng yangisi birinchi)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReconciliationRunList' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    post:
+      tags: [Admin]
+      operationId: adminRunReconciliation
+      summary: Solishtirishni qo'lda ishga tushirish
+      description: |
+        Sinxron bajariladi va natija darhol qaytadi. `provider` berilmasa — davr bo'yicha ro'yxat bera oladigan barcha provider'lar.
+        Davr 31 kundan oshmaydi. Ro'yxat API'si yo'q provider — 422 (`errors[0].code = unsupported`, sababi bilan).
+        Shu provider va davr uchun ishlayotgan run bo'lsa — 409. Provider API xatosi — run `failed` (`error` bilan), HTTP 201.
+        Run `audit_logs` ga (`reconciliation.run`) yoziladi.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [date_from, date_to]
+              properties:
+                provider: { type: string, enum: [payme, click, uzum] }
+                date_from: { type: string, format: date-time, description: Kiritiladi }
+                date_to: { type: string, format: date-time, description: Kiritilmaydi }
+      responses:
+        '201':
+          description: Bajarilgan run'lar
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/ReconciliationRun' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /v1/admin/finance/reconciliation/{runId}:
+    get:
+      tags: [Admin]
+      operationId: adminGetReconciliationRun
+      summary: Run tafsiloti — topilgan farqlar bilan
+      parameters:
+        - { name: runId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Run va farqlar
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReconciliationRunDetail' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
 # =============================================================================
 components:
   securitySchemes:
@@ -2072,6 +2201,7 @@ components:
     uzumBasic:
       type: http
       scheme: basic
+      description: '`UZUM_LOGIN:UZUM_PASSWORD` (Uzum jamoasi beradi)'
     stripeSignature:
       type: apiKey
       in: header
@@ -2816,6 +2946,69 @@ components:
         merchant_confirm_id: { type: integer, description: Complete javobida }
         error: { type: integer, enum: [0, -1, -2, -3, -4, -5, -6, -7, -8, -9] }
         error_note: { type: string }
+    UzumRequest:
+      type: object
+      description: |
+        Maydonlar operatsiyaga qarab: `check` — `params`; `create` — `transId`, `params`, `amount`;
+        `confirm` — `transId`, `paymentSource`, `phone` (+ `tariff`, `processingReferenceNumber`, `cardType`); `reverse`, `status` — `transId`.
+      required: [serviceId, timestamp]
+      properties:
+        serviceId: { type: integer, format: int64, examples: [101202] }
+        timestamp: { type: integer, format: int64, description: So'rov vaqti (ms) }
+        transId: { type: string, format: uuid, description: Uzum tranzaksiya id }
+        params:
+          type: object
+          additionalProperties: true
+          properties:
+            booking_id: { type: string, format: uuid }
+        amount: { type: integer, format: int64, description: tiyin }
+        paymentSource:
+          type: string
+          examples: [UZCARD, HUMO, VISA, MASTERCARD, VISA_DOMESTIC, MASTERCARD_DOMESTIC, INSTALLMENT, CASHBACK, ACCOUNT, WALLET, VISAUZS, UZUM_DEBIT_VISA]
+        tariff: { type: [string, 'null'], description: Faqat INSTALLMENT uchun }
+        processingReferenceNumber: { type: [string, 'null'] }
+        phone: { type: string, description: Mijoz telefoni (payment_events'da maskalanadi) }
+        cardType: { type: integer, enum: [1, 2], description: '1 — korporativ, 2 — shaxsiy karta' }
+    UzumData:
+      type: object
+      description: Uzum ilovasida ko'rsatiladigan qo'shimcha ma'lumot (`kalit -> {value}`)
+      additionalProperties:
+        type: object
+        required: [value]
+        properties:
+          value: { type: string }
+    UzumResponse:
+      type: object
+      required: [serviceId, status]
+      properties:
+        serviceId: { type: integer, format: int64 }
+        transId: { type: string, format: uuid }
+        status: { type: string, enum: [OK, CREATED, CONFIRMED, REVERSED], description: '`check` — OK, `status` — CREATED / CONFIRMED / REVERSED' }
+        timestamp: { type: integer, format: int64, description: '`check`' }
+        transTime: { type: integer, format: int64, description: '`create`, `status`' }
+        confirmTime: { type: [integer, 'null'], format: int64 }
+        reverseTime: { type: [integer, 'null'], format: int64 }
+        amount: { type: integer, format: int64, description: tiyin }
+        data: { $ref: '#/components/schemas/UzumData' }
+    UzumError:
+      type: object
+      required: [serviceId, status, errorCode]
+      properties:
+        serviceId: { type: integer, format: int64 }
+        transId: { type: string }
+        status: { type: string, const: FAILED }
+        timestamp: { type: integer, format: int64 }
+        transTime: { type: [integer, 'null'], format: int64 }
+        confirmTime: { type: [integer, 'null'], format: int64 }
+        reverseTime: { type: [integer, 'null'], format: int64 }
+        errorCode:
+          type: string
+          enum: ['10001', '10002', '10003', '10005', '10006', '10007', '10008', '10009', '10010', '10011', '10014', '10015', '10016', '10017', '10018', '99999']
+          description: |
+            10001 auth, 10002 JSON, 10003 operatsiya / HTTP metod, 10005 majburiy parametr yo'q, 10006 serviceId,
+            10007 booking topilmadi, 10008 allaqachon to'langan, 10009 bekor qilingan / joy yo'q, 10010 transId band,
+            10011 summa, 10014 tranzaksiya topilmadi, 10015 tranzaksiya bekor, 10016 tasdiqlangan,
+            10017 bekor qilib bo'lmaydi, 10018 bekor qilingan, 99999 ichki xato
 
     # --- Host ---------------------------------------------------------------
     HostOffer:
@@ -3455,6 +3648,78 @@ components:
         items: { type: array, items: { $ref: '#/components/schemas/AdminPayment' } }
         total: { type: integer }
         totals: { type: array, description: Filtr bo'yicha valyuta kesimidagi jamilar, items: { $ref: '#/components/schemas/CurrencyTotal' } }
+
+    ReconciliationRun:
+      type: object
+      required: [id, provider, period, status, trigger, triggered_by, counts, diffs_by_kind, error, started_at, finished_at]
+      properties:
+        id: { type: string, format: uuid }
+        provider: { type: string, enum: [payme, click, uzum] }
+        period:
+          type: object
+          required: [from, to]
+          properties:
+            from: { type: string, format: date-time }
+            to: { type: string, format: date-time, description: Kiritilmaydi }
+        status: { type: string, enum: [running, completed, failed] }
+        trigger: { type: string, enum: [schedule, manual] }
+        triggered_by:
+          type: [object, 'null']
+          required: [id, display_name]
+          properties:
+            id: { type: string, format: uuid }
+            display_name: { type: [string, 'null'] }
+        counts:
+          type: object
+          required: [local, provider, matched, diffs]
+          properties:
+            local: { type: integer, description: Bizning davrdagi yakuniy to'lovlar }
+            provider: { type: integer, description: Provider'ning davrdagi tranzaksiyalari }
+            matched: { type: integer, description: Ikkala tomonda topilgan juftliklar }
+            diffs: { type: integer }
+        diffs_by_kind:
+          type: object
+          required: [missing_at_provider, missing_locally, amount_mismatch, status_mismatch]
+          properties:
+            missing_at_provider: { type: integer }
+            missing_locally: { type: integer }
+            amount_mismatch: { type: integer }
+            status_mismatch: { type: integer }
+        error: { type: [string, 'null'], description: '`failed` — provider API xatosi' }
+        started_at: { type: string, format: date-time }
+        finished_at: { type: [string, 'null'], format: date-time }
+    ReconciliationRunList:
+      type: object
+      required: [items, total]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/ReconciliationRun' } }
+        total: { type: integer }
+    ReconciliationSide:
+      type: object
+      required: [amount, status]
+      properties:
+        amount: { oneOf: [{ $ref: '#/components/schemas/Money' }, { type: 'null' }] }
+        status: { type: [string, 'null'], description: 'Bizda — payments.status; providerda — succeeded / refunded / cancelled / pending' }
+    ReconciliationItem:
+      type: object
+      required: [id, kind, payment_id, provider_transaction_id, booking_id, local, provider, details, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [missing_at_provider, missing_locally, amount_mismatch, status_mismatch] }
+        payment_id: { type: [string, 'null'], format: uuid }
+        provider_transaction_id: { type: [string, 'null'] }
+        booking_id: { type: [string, 'null'], format: uuid }
+        local: { $ref: '#/components/schemas/ReconciliationSide' }
+        provider: { $ref: '#/components/schemas/ReconciliationSide' }
+        details: { type: object, additionalProperties: true, description: Provider'ning xom holati (masalan Payme chek `state`) }
+        created_at: { type: string, format: date-time }
+    ReconciliationRunDetail:
+      allOf:
+        - $ref: '#/components/schemas/ReconciliationRun'
+        - type: object
+          required: [items]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/ReconciliationItem' } }
 
     AdminRefund:
       type: object

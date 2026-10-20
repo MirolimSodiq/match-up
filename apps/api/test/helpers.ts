@@ -1,4 +1,4 @@
-import { Test } from '@nestjs/testing';
+import { Test, type TestingModuleBuilder } from '@nestjs/testing';
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { AppModule, configureApp } from '../src/app.module';
@@ -60,16 +60,17 @@ export interface TestCtx {
   close: () => Promise<void>;
 }
 
-export async function createTestApp(): Promise<TestCtx> {
+/** `customize` — spec'ga xos provider override'lari (masalan, fake reconciliation adapter'lari). */
+export async function createTestApp(customize: (b: TestingModuleBuilder) => TestingModuleBuilder = (b) => b): Promise<TestCtx> {
   const otp = new CapturingOtpSender();
   const push = new FakePushSender();
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+  const builder = Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(OTP_SENDER)
     .useValue(otp)
     // E2E hech qachon haqiqiy Expo Push API'ga chiqmaydi
     .overrideProvider(PUSH_SENDERS)
-    .useValue([push])
-    .compile();
+    .useValue([push]);
+  const moduleRef = await customize(builder).compile();
   const app = moduleRef.createNestApplication({ logger: false });
   configureApp(app);
   // Bitta doimiy port: supertest server'ni har so'rovda ochib-yopmaydi (poyga holatisiz)
@@ -173,4 +174,36 @@ export async function bookAndPayWithPayme(ctx: TestCtx, s: Session, mId: string)
   expect((await payme(ctx, 'CreateTransaction', { id: txId, time: Date.now(), ...params })).result).toMatchObject({ state: 1 });
   expect((await payme(ctx, 'PerformTransaction', { id: txId })).result).toMatchObject({ state: 2 });
   return { bookingId: booking.id as string, txId, amount: booking.total.amount as number };
+}
+
+// ---------------------------------------------------------------------------
+// Uzum Bank Merchant API
+// ---------------------------------------------------------------------------
+export const UZUM_AUTH = 'Basic ' + Buffer.from('uzum_test_login:uzum_test_password').toString('base64');
+export const UZUM_SERVICE_ID = 101202;
+
+export async function uzum(ctx: TestCtx, op: string, body: Record<string, unknown>, auth: string | null = UZUM_AUTH) {
+  const req = ctx.http().post(`/v1/webhooks/uzum/${op}`);
+  if (auth) req.set('Authorization', auth);
+  const res = await req.send({ serviceId: UZUM_SERVICE_ID, timestamp: Date.now(), ...body });
+  return { status: res.status, body: res.body as Record<string, any> };
+}
+
+/** Uzum orqali booking + to'lov: check -> create -> confirm. */
+export async function bookAndPayWithUzum(ctx: TestCtx, s: Session, mId: string) {
+  const b = await ctx
+    .http()
+    .post('/v1/bookings')
+    .set(s.auth)
+    .set('Idempotency-Key', uuid())
+    .send({ match_id: mId, payment_method: 'uzum', waiver_signature_id: await signatureId(ctx, s, mId) })
+    .expect(201);
+  const booking = b.body.booking;
+  const transId = uuid();
+  const params = { booking_id: booking.id };
+  expect(await uzum(ctx, 'check', { params })).toMatchObject({ status: 200, body: { status: 'OK' } });
+  expect(await uzum(ctx, 'create', { transId, params, amount: booking.total.amount })).toMatchObject({ status: 200, body: { status: 'CREATED' } });
+  const confirm = { transId, paymentSource: 'UZCARD', phone: '998901234567' };
+  expect(await uzum(ctx, 'confirm', confirm)).toMatchObject({ status: 200, body: { status: 'CONFIRMED' } });
+  return { bookingId: booking.id as string, transId, amount: booking.total.amount as number };
 }

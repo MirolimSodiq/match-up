@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Headers, HttpCode, Module, Param, Post } from '@nestjs/common';
+import { All, Body, Controller, Get, Headers, HttpCode, Module, Param, Post, Req, Res } from '@nestjs/common';
+import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { AppError } from '../common/errors';
 import { CurrentUser, Public, ReqLocale, ZQuery, type AuthUser } from '../common/http';
@@ -11,6 +12,8 @@ import { MatchesModule } from '../matches/matches.controller';
 import { MatchesService } from '../matches/matches.service';
 import { type ClickRequest, ClickService } from './click.service';
 import { type PaymeRpc, PaymeService } from './payme.service';
+import { ReconciliationModule } from './reconciliation.module';
+import { UzumService } from './uzum.service';
 
 const MethodsQuery = z.object({ match_id: z.uuid() });
 
@@ -19,6 +22,7 @@ export class PaymentsController {
   constructor(
     private readonly payme: PaymeService,
     private readonly click: ClickService,
+    private readonly uzum: UzumService,
     private readonly checkout: CheckoutService,
     private readonly wallet: WalletService,
     private readonly matches: MatchesService,
@@ -57,10 +61,21 @@ export class PaymentsController {
     return this.click.complete(body);
   }
 
+  /**
+   * Uzum Bank Merchant API: muvaffaqiyat — 200, xato — 400 + `errorCode`. Barcha HTTP metodlar shu yerga
+   * keladi: POST bo'lmasa yoki operatsiya noma'lum bo'lsa — 10003.
+   */
   @Public()
-  @Post('webhooks/uzum/:operation')
-  uzum(@Param('operation') _op: string): never {
-    throw new AppError('NOT_IMPLEMENTED');
+  @All('webhooks/uzum/:operation')
+  async uzumWebhook(
+    @Param('operation') operation: string,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+    @Headers('authorization') auth?: string,
+  ) {
+    const reply = await this.uzum.handle(operation, req.method, req.body, auth);
+    res.status(reply.status);
+    return reply.body;
   }
 
   @Public()
@@ -71,8 +86,8 @@ export class PaymentsController {
 }
 
 @Module({
-  imports: [CommerceModule, MatchesModule],
+  imports: [CommerceModule, MatchesModule, ReconciliationModule],
   controllers: [PaymentsController],
-  providers: [PaymeService, ClickService],
+  providers: [PaymeService, ClickService, UzumService],
 })
 export class PaymentsModule {}
