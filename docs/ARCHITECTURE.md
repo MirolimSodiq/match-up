@@ -769,6 +769,7 @@ flowchart LR
 - MVP: host qo'lda 15–60 soniyalik kliplar. Phase 2: venue'ga o'rnatilgan kamera butun o'yinni yozadi → GPU spot worker'lar (`ai_detect_events`, `ai_auto_clip`) `match_events` timestamp'lari va audio cho'qqilari bo'yicha avtomatik kesadi.
 - **Biometrik chegara:** yuzni tanib o'yinchini avtomatik teglash biometrik ma'lumotni qayta ishlash hisoblanadi → O'zbekiston ichida bajarilishi shart (§4.3). MVP'da yuz tanish yo'q: teglash qo'lda va faqat `media_appearance` consent'i borlarga.
 - Xarajat nazorati: raw footage 30 kundan keyin arzon storage tier'ga / o'chiriladi; faqat highlight'lar uzoq saqlanadi; transcode spot/preemptible node'larda.
+- **AI-Cam Engine** (Phase 2) — maydondagi 2–3 telefon rig'i, sinxronlash va kalibrovka, to'p/o'yinchi tracking, bib raqami orqali o'yinchini tanish, event'lar, FIFA uslubidagi reyting va `/v1/matches/{id}/analytics`: batafsil dizayn — [`docs/AI_CAM.md`](AI_CAM.md).
 
 ### 4.11 Masshtab triggerlari
 
@@ -791,7 +792,7 @@ Taxminiy MVP yuklama: ~10 000 MAU, kuniga ~200 match, ~3 000 booking — bitta P
 |---|---|---|
 | **MVP** | ~12 hafta | Player app (discovery, booking, Payme + Click, wallet, chipta), Host app (offer, roster, QR check-in, geofence, qo'lda highlight), Admin (venue, lease, match, refund), Toshkent |
 | **Phase 1.5** | +6–8 hafta | Uzum, waitlist avto-offer, roster asosidagi sug'urta, Glicko reyting + level bo'yicha balanslangan jamoalar, Samarqand / Buxoro |
-| **Phase 2 — Super App** | +3–4 oy | Teams, Leagues, Tournaments (`0002`), match statistikasi, venue kameralari + AI auto-clip, social feed |
+| **Phase 2 — Super App** | +3–4 oy | Teams, Leagues, Tournaments (`0002`), social feed, **AI-Cam Engine** ([AI_CAM.md](AI_CAM.md)): A — yozish va upload, B — avtomatik gol kliplari, C — o'yinchi statistikasi va reyting, D — optimallashtirish |
 | **Phase 3 — Xalqaro** | talab bo'yicha | Yangi cell'lar (Qozog'iston, UAE — har birining lokalizatsiya qonuni alohida tekshiriladi), Stripe / Apple Pay / PayPal, chet el yuridik shaxsi |
 
 ## 6. Ochiq savollar va xatarlar

@@ -7,6 +7,8 @@ Pickup sports platformasi (Plei / Birgo uslubida): o'yinchilar tayyor havaskor o
 | | |
 |---|---|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Texnik arxitektura: tech stack, DB, API, data residency, compliance, roadmap |
+| [docs/STATUS.md](docs/STATUS.md) | Loyiha holati: nima bajarildi, nima qoldi, merge qilinmagan branch'lar |
+| [docs/AI_CAM.md](docs/AI_CAM.md) | AI-Cam Engine dizayni: video tahlil, highlight'lar, o'yinchi reytingi (Phase 2) |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | CI, Docker image'lar, lokal staging, Terraform (AWS eu-central-1), secret'lar, migratsiya va rollback tartibi, Sentry, EAS |
 | [api/openapi.yaml](api/openapi.yaml) | API kontrakti (OpenAPI 3.1) |
 | [apps/api](apps/api) | **Backend** — NestJS modular monolith (TypeScript) |
@@ -31,7 +33,9 @@ Pickup sports platformasi (Plei / Birgo uslubida): o'yinchilar tayyor havaskor o
 | Host panel | ✅ | dispatch offer'lar, accept/decline, roster, geofence, offline QR check-in, yakunlash |
 | Admin | ✅ | match yaratish (lease bilan), nashr, bekor qilish (100% refund + bonus); venue/pitch, match jadvali va tafsiloti, host'lar, to'lovlar, refund navbati, dashboard, `audit_logs` |
 | Background job'lar | ✅ | hold expiry, host dispatch, minimumga yetmagan match'larni bekor qilish, outbox relay (BullMQ) |
-| Keyingi iteratsiya | ⏳ | social login (Google/Apple/Telegram), Uzum, Stripe, highlight video yuklash (S3), push xabarnomalar, WebSocket, provider refund'lari |
+| Social login, GDPR job'lari | ✅ | Google / Apple / Telegram, identity bog'lash; ma'lumot eksporti, 30 kunlik grace bilan anonimlashtirish |
+| Push va real-time | ✅ | Expo Push, eslatmalar, waitlist takliflari; Socket.IO (`match:*`, `booking:*`, `host:*`) |
+| Keyingi iteratsiya | ⏳ | Uzum, reconciliation, highlight video yuklash (S3), AI-Cam ([docs/AI_CAM.md](docs/AI_CAM.md)), provider refund'lari, Stripe — to'liq ro'yxat: [docs/STATUS.md](docs/STATUS.md) |
 
 Rejalashtirilgan endpointlar hozircha `501 NOT_IMPLEMENTED` qaytaradi.
 
