@@ -1,0 +1,38 @@
+name: Setup Node + pnpm
+description: >-
+  Node (.nvmrc), corepack orqali pnpm (root package.json'dagi packageManager — 10.12.1),
+  pnpm store keshi va `pnpm install --frozen-lockfile`.
+
+inputs:
+  install:
+    description: Bog'liqliklarni o'rnatish (false — faqat Node + pnpm)
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v7
+      with:
+        node-version-file: .nvmrc
+
+    - name: Corepack (pnpm)
+      shell: bash
+      run: |
+        corepack enable
+        echo "pnpm $(pnpm --version)"
+
+    - name: pnpm store yo'li
+      id: store
+      shell: bash
+      run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+    - uses: actions/cache@v6
+      with:
+        path: ${{ steps.store.outputs.path }}
+        key: pnpm-store-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
+        restore-keys: pnpm-store-${{ runner.os }}-${{ runner.arch }}-
+
+    - name: pnpm install
+      if: inputs.install == 'true'
+      shell: bash
+      run: pnpm install --frozen-lockfile

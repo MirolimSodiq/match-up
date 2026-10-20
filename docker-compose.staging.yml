@@ -1,0 +1,125 @@
+# Lokal "staging": production image'lar (apps/api, apps/admin Dockerfile) + alohida DB va Valkey.
+# Dev stack'dan (docker-compose.yml, 5432/6379) to'liq ajratilgan: boshqa project nomi, volume va 3200+ portlar.
+#
+#   ./infra/local/gen-staging-keys.sh
+#   docker compose -f docker-compose.staging.yml up -d --build
+#   curl localhost:3200/health          # API
+#   open http://localhost:3201          # admin
+#
+# NODE_ENV=production: OTP_PROVIDER=console taqiqlangan, shuning uchun eskiz. Haqiqiy SMS uchun
+# ESKIZ_EMAIL/ESKIZ_PASSWORD ni shell env yoki .env.staging orqali bering (--env-file .env.staging).
+name: matchup-staging
+
+x-api-env: &api-env
+  NODE_ENV: production
+  LOG_LEVEL: info
+  DATABASE_URL: postgres://matchup:${STAGING_DB_PASSWORD:-matchup_staging_local}@db:5432/matchup
+  REDIS_URL: redis://redis:6379
+  PUBLIC_BASE_URL: http://localhost:${STAGING_API_PORT:-3200}
+  JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private
+  JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public
+  TICKET_PRIVATE_KEY_FILE: /run/secrets/ticket_private
+  TICKET_PUBLIC_KEY_FILE: /run/secrets/ticket_public
+  OTP_PROVIDER: eskiz
+  ESKIZ_EMAIL: ${ESKIZ_EMAIL:-staging-placeholder@example.invalid}
+  ESKIZ_PASSWORD: ${ESKIZ_PASSWORD:-placeholder}
+  PAYME_MERCHANT_ID: ${PAYME_MERCHANT_ID:-demo-payme}
+  PAYME_KEY: ${PAYME_KEY:-payme_test_key}
+  CLICK_SERVICE_ID: ${CLICK_SERVICE_ID:-1000}
+  CLICK_MERCHANT_ID: ${CLICK_MERCHANT_ID:-2000}
+  CLICK_SECRET_KEY: ${CLICK_SECRET_KEY:-click_test_secret}
+  SENTRY_DSN: ${SENTRY_DSN_API:-}
+  SENTRY_ENVIRONMENT: staging-local
+
+services:
+  db:
+    image: postgis/postgis:18-3.6
+    platform: linux/amd64
+    environment:
+      POSTGRES_USER: matchup
+      POSTGRES_PASSWORD: ${STAGING_DB_PASSWORD:-matchup_staging_local}
+      POSTGRES_DB: matchup
+      TZ: UTC
+    ports:
+      - "${STAGING_DB_PORT:-3202}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      # TCP orqali: birinchi init paytidagi vaqtinchalik server faqat unix socket'da tinglaydi
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U matchup -d matchup"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: valkey/valkey:8-alpine
+    # BullMQ: kalitlar hech qachon evict qilinmasligi kerak (ElastiCache parameter group'da ham shunday)
+    command: ["valkey-server", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "${STAGING_REDIS_PORT:-3203}:6379"
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # Bir martalik migratsiya (ECS'dagi migrate task bilan bir xil buyruq). --seed faqat lokal staging uchun.
+  migrate:
+    image: matchup-api:staging-local
+    build: &api-build
+      context: .
+      dockerfile: apps/api/Dockerfile
+    command: ["node", "dist/scripts/migrate.js", "--seed"]
+    environment:
+      DATABASE_URL: postgres://matchup:${STAGING_DB_PASSWORD:-matchup_staging_local}@db:5432/matchup
+      SEED_FILE: /app/db/seed/dev_seed.sql
+    volumes:
+      - ./db/seed:/app/db/seed:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    image: matchup-api:staging-local
+    build: *api-build
+    environment: *api-env
+    secrets: [jwt_private, jwt_public, ticket_private, ticket_public]
+    ports:
+      - "${STAGING_API_PORT:-3200}:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  admin:
+    image: matchup-admin:staging-local
+    build:
+      context: .
+      dockerfile: apps/admin/Dockerfile
+    environment:
+      API_URL: http://api:3000
+      SENTRY_DSN: ${SENTRY_DSN_ADMIN:-}
+      SENTRY_ENVIRONMENT: staging-local
+    ports:
+      - "${STAGING_ADMIN_PORT:-3201}:3100"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+# Fayl orqali secret'lar (konteynerda /run/secrets/<nom>) — infra/local/gen-staging-keys.sh yaratadi
+secrets:
+  jwt_private:
+    file: ./.staging/keys/jwt-private.pem
+  jwt_public:
+    file: ./.staging/keys/jwt-public.pem
+  ticket_private:
+    file: ./.staging/keys/ticket-private.pem
+  ticket_public:
+    file: ./.staging/keys/ticket-public.pem
+
+volumes:
+  pgdata:

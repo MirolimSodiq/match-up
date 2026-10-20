@@ -4,14 +4,17 @@
  *
  *   pnpm db:migrate
  *   pnpm db:seed
+ *
+ * Docker image'da (`pnpm build` -> dist/scripts/migrate.js) bir martalik buyruq sifatida:
+ *   node dist/scripts/migrate.js        (MIGRATIONS_DIR=/app/db/migrations image'da o'rnatilgan)
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { Client } from 'pg';
 
 const ROOT = resolve(__dirname, '../../..');
-const MIGRATIONS_DIR = join(ROOT, 'db/migrations');
-const SEED_FILE = join(ROOT, 'db/seed/dev_seed.sql');
+const MIGRATIONS_DIR = process.env.MIGRATIONS_DIR || join(ROOT, 'db/migrations');
+const SEED_FILE = process.env.SEED_FILE || join(ROOT, 'db/seed/dev_seed.sql');
 
 export async function runMigrations(databaseUrl: string, opts: { seed?: boolean; log?: boolean } = {}) {
   const log = opts.log === false ? () => undefined : (m: string) => console.log(m);

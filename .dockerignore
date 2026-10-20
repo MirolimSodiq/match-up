@@ -1,0 +1,29 @@
+# Build context: repo ildizi (apps/api/Dockerfile, apps/admin/Dockerfile)
+**/node_modules
+**/.turbo
+**/dist
+**/.next
+**/.expo
+**/coverage
+**/*.tsbuildinfo
+**/*.log
+**/.DS_Store
+
+# Secret'lar va lokal kalitlar image'ga tushmaydi
+**/.env
+**/.env.*
+!**/.env.example
+**/*.pem
+apps/api/keys
+.staging
+
+# Image uchun kerak emas
+.git
+.github
+.claude
+infra
+docs
+apps/player/assets
+apps/host/assets
+apps/*/ios
+apps/*/android

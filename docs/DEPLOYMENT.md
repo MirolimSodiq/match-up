@@ -1,0 +1,267 @@
+# Deployment, CI va infratuzilma
+
+Match Up qanday build qilinadi, tekshiriladi va AWS'ga chiqariladi. Region tanlovi va data residency sababi — [ARCHITECTURE.md §4.3](ARCHITECTURE.md#43-hosting-data-residency-va-multi-region): MVP cell'i `uz-1` = **AWS eu-central-1 (Frankfurt)**.
+
+| Qism | Fayl(lar) |
+|---|---|
+| CI | [.github/workflows/ci.yml](../.github/workflows/ci.yml), [.github/actions/setup-pnpm](../.github/actions/setup-pnpm/action.yml) |
+| Image'lar | [apps/api/Dockerfile](../apps/api/Dockerfile), [apps/admin/Dockerfile](../apps/admin/Dockerfile), [.dockerignore](../.dockerignore) |
+| Lokal staging | [docker-compose.staging.yml](../docker-compose.staging.yml), [infra/local/gen-staging-keys.sh](../infra/local/gen-staging-keys.sh) |
+| Terraform | [infra/terraform](../infra/terraform): `modules/cell` (bitta cell — to'liq stack), `envs/staging`, `bootstrap` (state bucket) |
+| Mobil build'lar | `apps/player/eas.json`, `apps/host/eas.json`, `app.config.ts` |
+| Kuzatuv | Sentry: `apps/api/src/instrument.ts`, `apps/admin/src/instrumentation*.ts`, `apps/{player,host}/src/lib/sentry.ts` |
+
+---
+
+## 1. Lokal staging
+
+Production image'lar bilan to'liq stack (api, admin, PostGIS, Valkey). Dev stack'dan (`docker-compose.yml`, 5432/6379) butunlay ajratilgan: boshqa project nomi (`matchup-staging`), o'z volume'i va 3200+ portlar.
+
+```bash
+./infra/local/gen-staging-keys.sh
+```
+
+```bash
+docker compose -f docker-compose.staging.yml up -d --build
+```
+
+| Servis | Manzil |
+|---|---|
+| API | `http://localhost:3200` (`/health`) |
+| Admin | `http://localhost:3201` |
+| PostgreSQL | `localhost:3202` (`matchup` / `matchup_staging_local`) |
+| Valkey | `localhost:3203` |
+
+- `migrate` servisi API image'idagi `node dist/scripts/migrate.js --seed` ni bir marta ishga tushiradi (ECS'dagi migratsiya task'i bilan bir xil buyruq; `--seed` faqat lokal). `api` faqat migratsiya muvaffaqiyatli tugagandan keyin start oladi.
+- `NODE_ENV=production`: API `OTP_PROVIDER=console` ni rad etadi, shuning uchun `eskiz` ishlatiladi. Haqiqiy SMS bilan login qilish uchun `ESKIZ_EMAIL` / `ESKIZ_PASSWORD` ni shell env yoki `--env-file .env.staging` orqali bering; aks holda stack ishlaydi, lekin OTP yuborilmaydi.
+- Ed25519 kalitlar compose `secrets` orqali fayl sifatida keladi (`/run/secrets/jwt_private` ...), AWS'da esa Secrets Manager'dan (§5).
+- Postgis image Apple Silicon'da amd64 emulyatsiyasida ishlaydi — sekinroq va ba'zan qulab qayta tiklanadi (pastdagi "Ma'lum cheklovlar"ga qarang).
+
+To'xtatish va ma'lumotlarni o'chirish:
+
+```bash
+docker compose -f docker-compose.staging.yml down -v
+```
+
+## 2. CI (GitHub Actions)
+
+`push` (`main`) va har `pull_request` da ishga tushadi. Hamma job'lar parallel:
+
+| Job | Nima qiladi |
+|---|---|
+| `typecheck` | corepack + pnpm 10.12.1 (store keshi), `turbo run typecheck` (6 paket), host unit testlari (vitest) |
+| `openapi-lint` | `npx @redocly/cli@1.34.5 lint api/openapi.yaml` |
+| `api-e2e` | Service container'lar: `postgis/postgis:18-3.6` + `valkey/valkey:8-alpine`; `pnpm --filter @matchup/api test:e2e` |
+| `db-verify` | PGDG'dan PostgreSQL 18 `psql` + `pgbench`, `db/tests/verify.sh` ni `DATABASE_URL` rejimida |
+| `admin-build` | `turbo run build --filter=@matchup/admin` (`.next/cache` keshlanadi) |
+| `docker` | api va admin image'larini build qiladi (push yo'q), GHA cache |
+| `terraform` | `infra/terraform/check.sh`: `fmt -check` + `validate` (credential'siz) |
+| `actionlint` | workflow'larni tekshiradi |
+
+Hozircha GitHub remote ulanmagan — workflow yozilgan va lokal tekshirilgan, lekin haqiqiy runner'da hali ishlamagan. Deploy job'i yo'q (§6 dagi qadamlar qo'lda; keyin GitHub OIDC role bilan avtomatlashtiriladi).
+
+Lokal tekshirish (CI bilan bir xil buyruqlar):
+
+```bash
+docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 -color
+```
+
+```bash
+./infra/terraform/check.sh
+```
+
+```bash
+corepack pnpm turbo run typecheck
+```
+
+### `db/tests/verify.sh` rejimlari
+
+| Rejim | Buyruq | psql/pgbench |
+|---|---|---|
+| Lokal (standart) | `./db/tests/verify.sh` | `docker compose exec db` ichida |
+| CI / tashqi server | `DATABASE_URL=postgres://user:pass@host:5432/postgres ./db/tests/verify.sh` | PATH'dagi PostgreSQL 18 client |
+
+`DATABASE_URL` faqat server va credential'lar uchun: undagi bazaga tegilmaydi, test bazasi (`VERIFY_DB`, standart `matchup_test`) `postgres` bazasi orqali noldan yaratiladi. Bir serverda parallel ishga tushirishda `VERIFY_DB` ni farqli qiling.
+
+## 3. Docker image'lar
+
+Ikkala Dockerfile ham repo ildizidan build qilinadi: `turbo prune <paket> --docker` -> faqat kerakli workspace'lar va qisqartirilgan lockfile (API uchun ~650 paket, Expo/RN'siz) -> `pnpm install` (BuildKit cache) -> build -> minimal runtime stage. Ikkalasi ham `node` (uid 1000) foydalanuvchisi ostida, `HEALTHCHECK` bilan.
+
+```bash
+docker build -f apps/api/Dockerfile -t matchup-api .
+```
+
+```bash
+docker build -f apps/admin/Dockerfile -t matchup-admin .
+```
+
+**API** (`node:24-alpine`, ~480 MB):
+- `dist/` + `pnpm deploy --prod` node_modules + `db/migrations/`. Dev seed image'da **yo'q**.
+- Migratsiya — alohida bir martalik buyruq: `node dist/scripts/migrate.js` (`MIGRATIONS_DIR=/app/db/migrations` image'da o'rnatilgan).
+- RDS CA bundle (`NODE_EXTRA_CA_CERTS`) — `DATABASE_URL ...?sslmode=verify-full` bilan sertifikat va hostname tekshiriladi.
+- Entrypoint: ilova Ed25519 kalitlarni faqat fayldan o'qiydi (`*_KEY_FILE`). Kalit env orqali PEM matni sifatida kelsa (`JWT_PRIVATE_KEY=...`, ECS), entrypoint uni `/tmp/matchup-keys/` ga 0600 bilan yozadi, `*_KEY_FILE` ni o'rnatadi va PEM'ni env'dan o'chiradi. Fayl orqali kelsa (docker secrets) hech narsa qilinmaydi.
+- `/health` DB va Valkey'ni tekshiradi.
+
+**Admin** (Next.js `output: 'standalone'`, ~330 MB): `apps/admin/server.js`, port 3100. Runtime env: `API_URL`, `SENTRY_DSN`, `SENTRY_ENVIRONMENT`. Brauzer Sentry DSN build vaqtida inline qilinadi: `--build-arg NEXT_PUBLIC_SENTRY_DSN=...`.
+
+## 4. Terraform
+
+```
+infra/terraform/
+  bootstrap/          state uchun S3 bucket (bir marta, lokal state)
+  modules/cell/       bitta region cell'i: VPC, ECS, ALB, RDS, Valkey, S3+CloudFront, ECR, Secrets, KMS, IAM, loglar
+  envs/staging/       staging: modulni chaqiradi, backend, provider (eu-central-1)
+  check.sh            fmt -check + validate (Docker, credential'siz)
+```
+
+| Resurs | Staging | Modul standarti (prod uchun) |
+|---|---|---|
+| VPC | 2 AZ, public + private subnet, 1 NAT | har AZ'da NAT |
+| ECS Fargate | api (1-2 task, FARGATE_SPOT), admin, migrate task def; ARM64 | api 2-6 task, FARGATE |
+| ALB + ACM | HTTPS (TLS 1.3 siyosati), HTTP -> HTTPS, host bo'yicha marshrut | — |
+| RDS PostgreSQL 18 | db.t4g.medium, **Multi-AZ**, PITR 7 kun, KMS, `rds.force_ssl` | db.m7g.large, PITR 35 kun, deletion protection |
+| ElastiCache Valkey | 1 node, TLS + AUTH, `noeviction` (BullMQ) | 2 node, failover, Multi-AZ |
+| S3 + CloudFront | private bucket, OAC, `raw/` 30 kunda o'chadi | ixtiyoriy signed URL (`media_signing_public_key_pem`) |
+| ECR | `matchup-staging/api`, `/admin` — immutable teglar, push'da skan | — |
+| Secrets Manager | §5 | — |
+| CloudWatch Logs | 30 kun, KMS | 90 kun |
+
+Xavfsizlik bo'yicha:
+- **Eng kam huquq:** har task turi (api, migrate, admin) uchun alohida execution role — faqat o'z ECR repo'si, log group'i va secret'lari. API task role faqat media bucket obyektlariga. DB va Valkey'ga faqat API security group'idan kirish.
+- **Parollar state'ga yozilmaydi:** RDS master paroli va Valkey AUTH token — `ephemeral "random_password"` + write-only argumentlar (`password_wo`, `auth_token_wo`, `secret_string_wo`), Terraform >= 1.11.
+- **Data residency guard:** region `allowed_regions` (standart `["eu-central-1"]`) da bo'lmasa, plan precondition bilan to'xtaydi.
+- Loglarda PII yo'q: RDS `log_parameter_max_length = 0` (sekin so'rovlar logiga bind parametrlar — telefon va h.k. — yozilmaydi).
+
+### Birinchi marta sozlash (operator, AWS credential bilan)
+
+1. State bucket:
+   ```bash
+   cd infra/terraform/bootstrap && terraform init && terraform apply
+   ```
+2. `envs/staging/terraform.tfvars` da `route53_zone_id`, `api_domain`, `admin_domain` ni haqiqiy qiymatlar bilan almashtiring (domen Route53'da bo'lishi kerak — ACM DNS validatsiyasi va alias yozuvlar avtomatik).
+3. Init (bucket nomi bootstrap output'idan):
+   ```bash
+   cd infra/terraform/envs/staging && terraform init -backend-config="bucket=matchup-terraform-state-<account_id>"
+   ```
+4. Avval ECR'ni yaratib image'larni push qiling (ECS servislari mavjud tegni kutadi):
+   ```bash
+   terraform apply -target=module.cell.aws_ecr_repository.app
+   ```
+   Image'lar Fargate arxitekturasi uchun build qilinadi (standart ARM64): `docker buildx build --platform linux/arm64 -f apps/api/Dockerfile -t <ecr>/api:<sha> --push .`
+5. To'liq `terraform apply -var api_image_tag=<sha> -var admin_image_tag=<sha>`.
+6. Qo'lda to'ldiriladigan secret'larni kiriting (§5), so'ng migratsiya (§6) va servislarni qayta deploy qiling:
+   ```bash
+   aws ecs update-service --cluster matchup-staging --service api --force-new-deployment
+   ```
+
+### Prod qo'shish
+
+`envs/staging` ni `envs/prod` ga nusxalang va: backend `key = "cells/uz-1/prod.tfstate"`, `name = "matchup-prod"`, `environment = "prod"`, yangi `vpc_cidr` (masalan `10.30.0.0/16`), staging override'larini olib tashlang (modul standartlari prod uchun mo'ljallangan: Multi-AZ, PITR 35 kun, har AZ'da NAT, FARGATE, deletion protection, ECS Exec o'chiq). `check.sh` dagi ro'yxatga `envs/prod` ni qo'shing. Yangi davlat cell'i ham xuddi shunday — `allowed_regions` o'sha davlat qonuniga qarab.
+
+## 5. Secret'lar
+
+Barcha maxfiy qiymatlar Secrets Manager'da (`matchup-<env>/...`, cell KMS kaliti bilan shifrlangan). ECS ularni task start'da env sifatida beradi; image va Terraform state'da secret yo'q.
+
+| Secret | JSON kalitlari -> env | Kim to'ldiradi |
+|---|---|---|
+| `database-url` | butun qiymat -> `DATABASE_URL` (api, migrate) | Terraform (write-only) |
+| `redis-url` | butun qiymat -> `REDIS_URL` | Terraform (write-only) |
+| `signing-keys` | `jwt_private_key`, `jwt_public_key`, `ticket_private_key`, `ticket_public_key` -> `JWT_PRIVATE_KEY` ... (entrypoint faylga yozadi) | qo'lda |
+| `payme` | `merchant_id`, `key` -> `PAYME_MERCHANT_ID`, `PAYME_KEY` | qo'lda |
+| `click` | `service_id`, `merchant_id`, `secret_key` -> `CLICK_*` | qo'lda |
+| `eskiz` | `email`, `password` -> `ESKIZ_EMAIL`, `ESKIZ_PASSWORD` | qo'lda |
+| `sentry` | `api_dsn` -> api `SENTRY_DSN`, `admin_dsn` -> admin `SENTRY_DSN` (bo'sh = o'chiq) | qo'lda |
+
+Terraform qo'lda to'ldiriladigan secret'larga bir marta bo'sh JSON skeletini yozadi va keyin ularga tegmaydi. To'ldirish (kalitlar `pnpm keys:gen` dagi kabi Ed25519, PKCS#8 / SPKI PEM):
+
+```bash
+aws secretsmanager put-secret-value --secret-id matchup-staging/signing-keys --secret-string file://signing-keys.json
+```
+
+Bo'sh qoldirilsa: `eskiz` yoki `signing-keys` — API start olmaydi (aniq xato xabari bilan), `sentry` — monitoring o'chiq. Secret o'zgargandan keyin servisni `--force-new-deployment` bilan qayta ishga tushiring (ECS secret'ni faqat start'da o'qiydi).
+
+Rotatsiya: DB paroli — `db_password_version` ni 1 ga oshirib apply (RDS va `database-url` bir run'da yangilanadi), keyin servislarni qayta deploy; Valkey — `cache_auth_token_version` (ROTATE strategiyasi: eski token o'tish davrida ishlaydi).
+
+Mobil va lokal:
+
+| O'zgaruvchi | Qayerda |
+|---|---|
+| `EXPO_PUBLIC_SENTRY_DSN` | EAS environment variables (`eas env:create`), profil bo'yicha |
+| `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_AUTH_TOKEN` | EAS secret — source map yuklash (berilmasa plugin o'chiq) |
+| `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, `SENTRY_TRACES_SAMPLE_RATE` | API / admin runtime env (lokal `.env`) |
+
+## 6. Deploy va migratsiya tartibi
+
+Migratsiyalar **har doim kod deploy'idan oldin** va **orqaga mos** (expand -> contract) bo'lishi kerak: yangi sxema bilan eski kod ham ishlay olsin. Ustun/jadvalni o'chirish yoki nomini o'zgartirish — keyingi relizda, kod unga murojaat qilmay qo'ygandan keyin. Mavjud migratsiya fayllari o'zgartirilmaydi (README).
+
+1. Image'larni git SHA tegi bilan build va ECR'ga push qiling.
+2. Faqat migratsiya task'ini yangilang (api hali eski tegda):
+   ```bash
+   terraform apply -var migrate_image_tag=<yangi> -var api_image_tag=<joriy> -var admin_image_tag=<joriy>
+   ```
+3. Migratsiyani ishga tushiring va natijani kuting (subnet va SG — `terraform output cell` dagi `migrate_network`):
+   ```bash
+   aws ecs run-task --cluster matchup-staging --task-definition matchup-staging-migrate --launch-type FARGATE --network-configuration "awsvpcConfiguration={subnets=[subnet-aaa,subnet-bbb],securityGroups=[sg-api],assignPublicIp=DISABLED}"
+   ```
+   ```bash
+   aws ecs wait tasks-stopped --cluster matchup-staging --tasks <task-arn>
+   ```
+   ```bash
+   aws ecs describe-tasks --cluster matchup-staging --tasks <task-arn> --query "tasks[0].containers[0].exitCode"
+   ```
+   `0` bo'lmasa — to'xtang, `/ecs/matchup-staging/migrate` logini ko'ring. Runner har faylni o'z tranzaksiyasida qo'llaydi va `schema_migrations` da qayd etadi, qayta ishga tushirish xavfsiz.
+4. Kodni deploy qiling:
+   ```bash
+   terraform apply -var api_image_tag=<yangi> -var admin_image_tag=<yangi> -var migrate_image_tag=<yangi>
+   ```
+   ECS rolling deploy: yangi task'lar `/health` dan o'tmaguncha eski task'lar ishlaydi.
+
+## 7. Rollback
+
+| Holat | Harakat |
+|---|---|
+| Yangi task'lar sog'lom bo'lmadi | ECS deployment circuit breaker avtomatik oldingi task definition'ga qaytaradi |
+| Deploy o'tdi, lekin xato bor | Oldingi tegni qayta apply qiling: `terraform apply -var api_image_tag=<oldingi> -var admin_image_tag=<oldingi>` (ECR oxirgi 50 ta image'ni saqlaydi) |
+| Migratsiya xato qildi | Migratsiyalar forward-only: xatoni tuzatuvchi yangi migratsiya yozing. Expand -> contract qoidasi tufayli eski kod yangi sxema bilan ishlayveradi |
+| Ma'lumot buzildi | RDS PITR: retention oynasi ichidagi istalgan soniyaga **yangi** instance'ga tiklash (`aws rds restore-db-instance-to-point-in-time`), tekshirib, `database-url` secret'ini yangi endpoint'ga o'tkazish va servislarni qayta deploy qilish |
+| Secret noto'g'ri | Secrets Manager'da oldingi versiyaga qaytarish (`AWSPREVIOUS`), servisni `--force-new-deployment` |
+
+## 8. Kuzatuv (Sentry) va loglar
+
+| Ilova | Qayerda init | DSN |
+|---|---|---|
+| API | `src/instrument.ts` — `main.ts` ning birinchi import'i | `SENTRY_DSN` |
+| Admin | `src/instrumentation.ts` (server), `src/instrumentation-client.ts` (brauzer) | `SENTRY_DSN` (runtime), `NEXT_PUBLIC_SENTRY_DSN` (build) |
+| Player, Host | `src/lib/sentry.ts` — `src/app/_layout.tsx` ning birinchi import'i | `EXPO_PUBLIC_SENTRY_DSN` |
+
+- DSN bo'sh bo'lsa SDK umuman yuklanmaydi (API'da `require` ham qilinmaydi, admin'da chunk yuklanmaydi, mobil'da native modul chaqirilmaydi — Expo Go'da xavfsiz).
+- API'da kutilmagan xatolar: `ProblemFilter` ularni pino'ga `error` darajasida yozadi -> Sentry `pinoIntegration` event yaratadi (AppModule'ga tegilmagan).
+- **PII:** SDK `dataCollection` bilan user, cookie, body, query string, DB parametrlarini yig'maydi; qo'shimcha `beforeSend` pino `redact` bilan bir xil kalitlarni (authorization, cookie, phone, code, *token, IP) va telefon raqamlarini (`+998…`, URL-encoded `%2B998…`) tozalaydi. Mobil'da screenshot, view hierarchy va console breadcrumb'lar o'chiq, URL query'lari (koordinatalar) olib tashlanadi. Lokal soxta Sentry qabul qiluvchisi bilan tekshirilgan: telefon, token, cookie, device id, IP va PEM event'ga tushmaydi.
+- Tracing standart o'chiq (`SENTRY_TRACES_SAMPLE_RATE=0`).
+- Loglar: ECS -> CloudWatch `/ecs/<name>/{api,admin,migrate}` (KMS, retention), JSON (pino) — CloudWatch Logs Insights bilan qidiriladi.
+
+## 9. Mobil build'lar (EAS)
+
+`apps/player/eas.json` va `apps/host/eas.json`, profil `APP_VARIANT` orqali `app.config.ts` ga uzatiladi (`app.json` o'zgarmagan):
+
+| Profil | Bundle id (player / host) | API | Tarqatish |
+|---|---|---|---|
+| `development` | `uz.matchup.player.dev` / `uz.matchup.host.dev` | Metro host'idagi lokal API (`:3000`) | internal, dev client |
+| `preview` | `uz.matchup.player.preview` / `uz.matchup.host.preview` | `https://api.staging.matchup.uz` | internal (Android APK) |
+| `production` | `uz.matchup.player` / `uz.matchup.host` | `https://api.matchup.uz` | store, build raqami avtomatik |
+
+Profil belgilanmagan lokal `expo start` da hamma narsa avvalgidek (Expo Go). `development` profili dev client — dev build'ga o'tilganda `npx expo install expo-dev-client` kerak bo'ladi (eas-cli buni o'zi taklif qiladi); u o'rnatilgach `expo start` standart ravishda Expo Go o'rniga dev build'ni ochadi.
+
+```bash
+cd apps/player && npx eas-cli build --profile preview --platform android
+```
+
+## Ma'lum cheklovlar va keyingi qadamlar
+
+- **Deploy avtomatlashtirilmagan:** GitHub remote ulangach — AWS OIDC role (faqat ECR push + ECS/Terraform uchun) va `deploy` workflow (§6 qadamlari).
+- **API'da pg Pool `error` handler yo'q** (`src/db/db.module.ts`): DB ulanishi uzilsa (masalan, RDS failover) process qulaydi. ECS uni qayta ishga tushiradi, lekin handler qo'shilishi kerak. Lokal staging'da emulyatsiyadagi postgis qayta tiklanganda shu kuzatildi.
+- API image'ning ~80 MB qismi `@sentry/nestjs` v11 olib keladigan bundler bog'liqliklari (webpack, babel) — SDK tuzilishi.
+- WAF (rate limit) va VPC flow log'lar hali yo'q; ARCHITECTURE §4.1 dagi "CDN + WAF" keyingi bosqichda.
+- DB'da ilova uchun alohida cheklangan role yo'q — api va migratsiya bitta `matchup` foydalanuvchisi bilan ishlaydi.
+- Media signed URL'lar uchun kalit juftligi va API tomoni hali yo'q (modul `media_signing_public_key_pem` ni qabul qiladi).
+- Mobil source map'lar uchun `metro.config.js` da `getSentryExpoConfig` ulanmagan (parallel ishlar bilan to'qnashmaslik uchun) — production relizdan oldin qo'shilsin.

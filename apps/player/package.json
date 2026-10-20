@@ -8,6 +8,7 @@
     "@expo/vector-icons": "^15.1.1",
     "@matchup/contracts": "workspace:*",
     "@matchup/ui": "workspace:*",
+    "@sentry/react-native": "~8.28.0",
     "@tanstack/react-query": "^5.104.4",
     "expo": "~58.0.14",
     "expo-blur": "~58.0.4",

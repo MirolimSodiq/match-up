@@ -1,0 +1,269 @@
+# -----------------------------------------------------------------------------
+# Umumiy
+# -----------------------------------------------------------------------------
+variable "name" {
+  description = "Resurs nomlari prefiksi, masalan matchup-staging"
+  type        = string
+
+  validation {
+    condition     = can(regex("^[a-z][a-z0-9-]{2,24}$", var.name))
+    error_message = "name: kichik harf, raqam va '-' (3-25 belgi)."
+  }
+}
+
+variable "environment" {
+  description = "staging | prod"
+  type        = string
+
+  validation {
+    condition     = contains(["staging", "prod"], var.environment)
+    error_message = "environment: staging yoki prod."
+  }
+}
+
+variable "allowed_regions" {
+  description = "Data residency (docs/ARCHITECTURE.md §4.3): UZ foydalanuvchilari ma'lumotlari faqat shu regionlarda"
+  type        = list(string)
+  default     = ["eu-central-1"]
+}
+
+# -----------------------------------------------------------------------------
+# Tarmoq
+# -----------------------------------------------------------------------------
+variable "vpc_cidr" {
+  type    = string
+  default = "10.20.0.0/16"
+}
+
+variable "az_count" {
+  description = "Availability zone'lar soni (public + private subnet har birida)"
+  type        = number
+  default     = 2
+
+  validation {
+    condition     = var.az_count >= 2
+    error_message = "ALB va RDS Multi-AZ kamida 2 AZ talab qiladi."
+  }
+}
+
+variable "single_nat_gateway" {
+  description = "true — bitta NAT (staging, arzon); false — har AZ'da NAT (prod, AZ nosozligiga chidamli)"
+  type        = bool
+  default     = false
+}
+
+# -----------------------------------------------------------------------------
+# Domen, TLS, kirish
+# -----------------------------------------------------------------------------
+variable "route53_zone_id" {
+  description = "api_domain va admin_domain joylashgan Route53 hosted zone (ACM DNS validatsiyasi va alias yozuvlar)"
+  type        = string
+}
+
+variable "api_domain" {
+  description = "Masalan api.staging.matchup.uz"
+  type        = string
+}
+
+variable "admin_domain" {
+  description = "Masalan admin.staging.matchup.uz"
+  type        = string
+}
+
+variable "admin_allowed_cidrs" {
+  description = "Admin panelga faqat shu IP'lardan kirish (ALB qoidasi, maks. 5 ta). Bo'sh — hamma joydan (OTP + admin roli baribir talab qilinadi)"
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = length(var.admin_allowed_cidrs) <= 5
+    error_message = "ALB source_ip sharti ko'pi bilan 5 ta CIDR qabul qiladi."
+  }
+}
+
+variable "alb_idle_timeout" {
+  description = "Soniyalarda. WebSocket ulanishlari uchun 60 dan uzunroq"
+  type        = number
+  default     = 120
+}
+
+# -----------------------------------------------------------------------------
+# ECS Fargate
+# -----------------------------------------------------------------------------
+variable "cpu_architecture" {
+  description = "ARM64 (Graviton, arzonroq) yoki X86_64. Image'lar shu platformada build qilinishi kerak"
+  type        = string
+  default     = "ARM64"
+
+  validation {
+    condition     = contains(["ARM64", "X86_64"], var.cpu_architecture)
+    error_message = "cpu_architecture: ARM64 yoki X86_64."
+  }
+}
+
+variable "use_fargate_spot" {
+  description = "Servislar FARGATE_SPOT'da (staging uchun arzon; prod'da false)"
+  type        = bool
+  default     = false
+}
+
+variable "enable_execute_command" {
+  description = "ECS Exec (aws ecs execute-command) — debug uchun; prod'da odatda false"
+  type        = bool
+  default     = false
+}
+
+variable "api_image_tag" {
+  description = "ECR'dagi api image tegi (git SHA). Deploy = shu qiymatni o'zgartirib apply"
+  type        = string
+}
+
+variable "admin_image_tag" {
+  description = "ECR'dagi admin image tegi (git SHA)"
+  type        = string
+}
+
+variable "migrate_image_tag" {
+  description = "Migratsiya task'i image tegi. Deploy'da avval shu yangilanadi va migratsiya ishga tushiriladi, keyin api_image_tag (null — api_image_tag)"
+  type        = string
+  default     = null
+}
+
+variable "api_cpu" {
+  type    = number
+  default = 512
+}
+
+variable "api_memory" {
+  type    = number
+  default = 1024
+}
+
+variable "api_min_count" {
+  type    = number
+  default = 2
+}
+
+variable "api_max_count" {
+  type    = number
+  default = 6
+}
+
+variable "admin_cpu" {
+  type    = number
+  default = 256
+}
+
+variable "admin_memory" {
+  type    = number
+  default = 512
+}
+
+variable "admin_desired_count" {
+  type    = number
+  default = 1
+}
+
+variable "api_environment" {
+  description = "API uchun qo'shimcha oddiy (maxfiy bo'lmagan) env, masalan PAYME_CHECKOUT_URL"
+  type        = map(string)
+  default     = {}
+}
+
+variable "log_retention_days" {
+  type    = number
+  default = 90
+}
+
+# -----------------------------------------------------------------------------
+# PostgreSQL (RDS)
+# -----------------------------------------------------------------------------
+variable "db_engine_version" {
+  description = "Major versiya; minor'lar avtomatik yangilanadi"
+  type        = string
+  default     = "18"
+}
+
+variable "db_instance_class" {
+  type    = string
+  default = "db.m7g.large"
+}
+
+variable "db_allocated_storage" {
+  type    = number
+  default = 50
+}
+
+variable "db_max_allocated_storage" {
+  description = "Storage autoscaling yuqori chegarasi (GB)"
+  type        = number
+  default     = 500
+}
+
+variable "db_multi_az" {
+  type    = bool
+  default = true
+}
+
+variable "db_backup_retention_days" {
+  description = "PITR oynasi (kun). Privacy policy'dagi backup muddati bilan mos bo'lsin (ARCHITECTURE §4.8: 35)"
+  type        = number
+  default     = 35
+}
+
+variable "db_password_version" {
+  description = "DB master paroli (write-only, state'ga yozilmaydi). Rotatsiya: qiymatni 1 ga oshirib apply"
+  type        = number
+  default     = 1
+}
+
+variable "deletion_protection" {
+  description = "RDS va ALB uchun o'chirishdan himoya"
+  type        = bool
+  default     = true
+}
+
+# -----------------------------------------------------------------------------
+# Valkey (ElastiCache)
+# -----------------------------------------------------------------------------
+variable "cache_engine_version" {
+  type    = string
+  default = "8.1"
+}
+
+variable "cache_node_type" {
+  type    = string
+  default = "cache.t4g.small"
+}
+
+variable "cache_node_count" {
+  description = "1 — faqat primary; 2+ — replica'lar, avtomatik failover va Multi-AZ"
+  type        = number
+  default     = 2
+}
+
+# -----------------------------------------------------------------------------
+# Media (S3 + CloudFront)
+# -----------------------------------------------------------------------------
+variable "media_raw_expiration_days" {
+  description = "raw/ prefiksidagi xom videolar shuncha kundan keyin o'chiriladi (ARCHITECTURE §4.10)"
+  type        = number
+  default     = 30
+}
+
+variable "cloudfront_price_class" {
+  type    = string
+  default = "PriceClass_200"
+}
+
+variable "media_signing_public_key_pem" {
+  description = "CloudFront signed URL'lar uchun public key (PEM). Berilsa — media faqat imzolangan URL bilan ochiladi"
+  type        = string
+  default     = null
+}
+
+variable "cache_auth_token_version" {
+  description = "Valkey AUTH token (write-only). Rotatsiya: qiymatni 1 ga oshirib apply"
+  type        = number
+  default     = 1
+}
