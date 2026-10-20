@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { CurrentUser, OptionalAuth, Public, ReqLocale, ZQuery, type AuthUser } from '../common/http';
 import type { Locale } from '../common/i18n';
 import { MatchesService } from './matches.service';
+import { WaitlistService } from './waitlist.service';
 
 const csv = z
   .string()
@@ -53,5 +54,5 @@ export class MatchesController {
   }
 }
 
-@Module({ controllers: [MatchesController], providers: [MatchesService], exports: [MatchesService] })
+@Module({ controllers: [MatchesController], providers: [MatchesService, WaitlistService], exports: [MatchesService, WaitlistService] })
 export class MatchesModule {}

@@ -12,6 +12,7 @@ export { AuthLayout } from './native/AuthLayout';
 export { BottomSheet } from './native/BottomSheet';
 export { FloatingTabBar, type FloatingTabBarProps } from './native/TabBar';
 export { type LanguageOption, LanguageSwitch, type LanguageSwitchVariant } from './native/LanguageSwitch';
+export { LiveDot } from './native/LiveDot';
 export { Markdown } from './native/Markdown';
 export { Perforation } from './native/Perforation';
 export { DayColumn, SportBlock, SportPill, TimelineDay } from './native/SportBlock';

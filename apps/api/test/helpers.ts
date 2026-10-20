@@ -3,6 +3,7 @@ import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { AppModule, configureApp } from '../src/app.module';
 import { OTP_SENDER, type OtpSender } from '../src/identity/otp-senders';
+import { type PushMessage, type PushReceipt, PUSH_SENDERS, type PushSender, type PushTicket } from '../src/notifications/push/push-sender';
 
 /** OTP kodlarini yuborish o'rniga ushlab qoladigan fake sender. */
 export class CapturingOtpSender implements OtpSender {
@@ -12,18 +13,62 @@ export class CapturingOtpSender implements OtpSender {
   }
 }
 
+/** Expo o'rniga: xabarlarni ushlab qoladi; token/ticket bo'yicha xatolarni simulyatsiya qiladi. */
+export class FakePushSender implements PushSender {
+  readonly provider = 'expo' as const;
+  sent: PushMessage[] = [];
+  /** token -> provider xatosi (masalan, DeviceNotRegistered) */
+  readonly failTokens = new Map<string, string>();
+  /** ticket id -> receipt xatosi */
+  readonly receiptErrors = new Map<string, string>();
+  /** Keyingi N ta `send` tarmoq xatosi bilan tugaydi. */
+  throwNext = 0;
+  private seq = 0;
+
+  async send(messages: PushMessage[]): Promise<PushTicket[]> {
+    if (this.throwNext > 0) {
+      this.throwNext--;
+      throw new Error('fake: network down');
+    }
+    this.sent.push(...messages);
+    return messages.map((m) => {
+      const error = this.failTokens.get(m.to);
+      return error ? { ok: false as const, error } : { ok: true as const, id: `ticket-${++this.seq}` };
+    });
+  }
+
+  async receipts(ids: string[]): Promise<Map<string, PushReceipt>> {
+    return new Map(
+      ids.map((id) => {
+        const error = this.receiptErrors.get(id);
+        return [id, error ? { ok: false as const, error } : { ok: true as const }];
+      }),
+    );
+  }
+
+  to(token: string): PushMessage[] {
+    return this.sent.filter((m) => m.to === token);
+  }
+}
+
 export interface TestCtx {
   app: INestApplication;
+  url: string;
   http: () => ReturnType<typeof request>;
   otp: CapturingOtpSender;
+  push: FakePushSender;
   close: () => Promise<void>;
 }
 
 export async function createTestApp(): Promise<TestCtx> {
   const otp = new CapturingOtpSender();
+  const push = new FakePushSender();
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(OTP_SENDER)
     .useValue(otp)
+    // E2E hech qachon haqiqiy Expo Push API'ga chiqmaydi
+    .overrideProvider(PUSH_SENDERS)
+    .useValue([push])
     .compile();
   const app = moduleRef.createNestApplication({ logger: false });
   configureApp(app);
@@ -32,8 +77,10 @@ export async function createTestApp(): Promise<TestCtx> {
   const url = await app.getUrl();
   return {
     app,
+    url,
     http: () => request(url),
     otp,
+    push,
     close: () => app.close(),
   };
 }

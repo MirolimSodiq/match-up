@@ -196,6 +196,8 @@ export const deviceTokens = pgTable("device_tokens", {
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	disabledAt: timestamp("disabled_at", { withTimezone: true, mode: 'string' }),
+	provider: text().default('expo').notNull(),
+	disabledReason: text("disabled_reason"),
 }, (table) => [
 	index("device_tokens_user_idx").using("btree", table.userId.asc().nullsLast().op("uuid_ops")).where(sql`(disabled_at IS NULL)`),
 	foreignKey({
@@ -204,6 +206,7 @@ export const deviceTokens = pgTable("device_tokens", {
 			name: "device_tokens_user_id_fkey"
 		}),
 	unique("device_tokens_push_token_key").on(table.pushToken),
+	check("device_tokens_provider_check", sql`provider = ANY (ARRAY['expo'::text, 'fcm'::text, 'apns'::text])`),
 ]);
 
 export const sports = pgTable("sports", {
@@ -553,8 +556,9 @@ export const matchWaitlist = pgTable("match_waitlist", {
 	offerExpiresAt: timestamp("offer_expires_at", { withTimezone: true, mode: 'string' }),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
+	index("match_waitlist_offer_expiry_idx").using("btree", table.offerExpiresAt.asc().nullsLast().op("timestamptz_ops")).where(sql`(status = 'notified'::waitlist_status)`),
 	uniqueIndex("match_waitlist_one_active").using("btree", table.matchId.asc().nullsLast().op("uuid_ops"), table.userId.asc().nullsLast().op("uuid_ops")).where(sql`(status = ANY (ARRAY['waiting'::waitlist_status, 'notified'::waitlist_status]))`),
-	index("match_waitlist_queue_idx").using("btree", table.matchId.asc().nullsLast().op("timestamptz_ops"), table.createdAt.asc().nullsLast().op("timestamptz_ops")).where(sql`(status = 'waiting'::waitlist_status)`),
+	index("match_waitlist_queue_idx").using("btree", table.matchId.asc().nullsLast().op("uuid_ops"), table.createdAt.asc().nullsLast().op("timestamptz_ops")).where(sql`(status = 'waiting'::waitlist_status)`),
 	foreignKey({
 			columns: [table.matchId],
 			foreignColumns: [matches.id],
@@ -1166,6 +1170,37 @@ export const highlights = pgTable("highlights", {
 	check("highlights_match_offset_ms_check", sql`match_offset_ms >= 0`),
 ]);
 
+export const notifications = pgTable("notifications", {
+	id: uuid().default(sql`uuidv7()`).primaryKey().notNull(),
+	userId: uuid("user_id").notNull(),
+	type: text().notNull(),
+	channel: notificationChannel().notNull(),
+	status: notificationStatus().default('queued').notNull(),
+	locale: text().notNull(),
+	payload: jsonb().notNull(),
+	providerMessageId: text("provider_message_id"),
+	error: text(),
+	scheduledFor: timestamp("scheduled_for", { withTimezone: true, mode: 'string' }),
+	sentAt: timestamp("sent_at", { withTimezone: true, mode: 'string' }),
+	readAt: timestamp("read_at", { withTimezone: true, mode: 'string' }),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	dedupeKey: text("dedupe_key"),
+	category: text().default('transactional').notNull(),
+	attempts: smallint().default(0).notNull(),
+	nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true, mode: 'string' }),
+}, (table) => [
+	uniqueIndex("notifications_dedupe_key_idx").using("btree", table.dedupeKey.asc().nullsLast().op("text_ops")),
+	index("notifications_retry_idx").using("btree", table.nextAttemptAt.asc().nullsLast().op("timestamptz_ops")).where(sql`(status = 'queued'::notification_status)`),
+	index("notifications_unread_idx").using("btree", table.userId.asc().nullsLast().op("uuid_ops")).where(sql`(read_at IS NULL)`),
+	index("notifications_user_idx").using("btree", table.userId.asc().nullsLast().op("uuid_ops"), table.createdAt.desc().nullsFirst().op("uuid_ops")),
+	foreignKey({
+			columns: [table.userId],
+			foreignColumns: [users.id],
+			name: "notifications_user_id_fkey"
+		}),
+	check("notifications_category_check", sql`category = ANY (ARRAY['transactional'::text, 'marketing'::text])`),
+]);
+
 export const highlightShares = pgTable("highlight_shares", {
 	id: uuid().default(sql`uuidv7()`).primaryKey().notNull(),
 	highlightId: uuid("highlight_id").notNull(),
@@ -1183,29 +1218,6 @@ export const highlightShares = pgTable("highlight_shares", {
 			columns: [table.userId],
 			foreignColumns: [users.id],
 			name: "highlight_shares_user_id_fkey"
-		}),
-]);
-
-export const notifications = pgTable("notifications", {
-	id: uuid().default(sql`uuidv7()`).primaryKey().notNull(),
-	userId: uuid("user_id").notNull(),
-	type: text().notNull(),
-	channel: notificationChannel().notNull(),
-	status: notificationStatus().default('queued').notNull(),
-	locale: text().notNull(),
-	payload: jsonb().notNull(),
-	providerMessageId: text("provider_message_id"),
-	error: text(),
-	scheduledFor: timestamp("scheduled_for", { withTimezone: true, mode: 'string' }),
-	sentAt: timestamp("sent_at", { withTimezone: true, mode: 'string' }),
-	readAt: timestamp("read_at", { withTimezone: true, mode: 'string' }),
-	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-}, (table) => [
-	index("notifications_user_idx").using("btree", table.userId.asc().nullsLast().op("timestamptz_ops"), table.createdAt.desc().nullsFirst().op("timestamptz_ops")),
-	foreignKey({
-			columns: [table.userId],
-			foreignColumns: [users.id],
-			name: "notifications_user_id_fkey"
 		}),
 ]);
 
@@ -1414,6 +1426,33 @@ export const mediaProcessingJobs = pgTable("media_processing_jobs", {
 			foreignColumns: [mediaAssets.id],
 			name: "media_processing_jobs_media_asset_id_fkey"
 		}),
+]);
+
+export const pushDeliveries = pgTable("push_deliveries", {
+	id: uuid().default(sql`uuidv7()`).primaryKey().notNull(),
+	notificationId: uuid("notification_id").notNull(),
+	deviceTokenId: uuid("device_token_id").notNull(),
+	provider: text().notNull(),
+	ticketId: text("ticket_id"),
+	status: text().notNull(),
+	error: text(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	receiptCheckedAt: timestamp("receipt_checked_at", { withTimezone: true, mode: 'string' }),
+}, (table) => [
+	index("push_deliveries_device_idx").using("btree", table.deviceTokenId.asc().nullsLast().op("uuid_ops")),
+	index("push_deliveries_notification_idx").using("btree", table.notificationId.asc().nullsLast().op("uuid_ops")),
+	index("push_deliveries_receipt_idx").using("btree", table.createdAt.asc().nullsLast().op("timestamptz_ops")).where(sql`((status = 'sent'::text) AND (ticket_id IS NOT NULL) AND (receipt_checked_at IS NULL))`),
+	foreignKey({
+			columns: [table.deviceTokenId],
+			foreignColumns: [deviceTokens.id],
+			name: "push_deliveries_device_token_id_fkey"
+		}).onDelete("cascade"),
+	foreignKey({
+			columns: [table.notificationId],
+			foreignColumns: [notifications.id],
+			name: "push_deliveries_notification_id_fkey"
+		}),
+	check("push_deliveries_status_check", sql`status = ANY (ARRAY['sent'::text, 'delivered'::text, 'failed'::text])`),
 ]);
 
 export const venueAmenities = pgTable("venue_amenities", {

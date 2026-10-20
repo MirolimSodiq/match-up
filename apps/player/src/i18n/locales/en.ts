@@ -89,6 +89,7 @@ const en: Messages = {
     calendarAdded: 'Added to calendar',
     shareText: '{{title}} — {{when}}. Match Up code: {{code}}',
     notFound: 'Game not found',
+    live: 'Live',
     players: 'Players',
     minToPlay: 'The game happens with at least {{count}} players',
     level: 'Level',

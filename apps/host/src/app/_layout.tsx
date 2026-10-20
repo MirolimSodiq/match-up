@@ -12,6 +12,7 @@ import { useTranslation } from 'react-i18next';
 import { colors, fontAssets, fontFamily, navigationColors, ToastProvider, type UIConfig, UIProvider } from '@matchup/ui';
 import { ApiError } from '@/api/errors';
 import { SessionProvider, useSession } from '@/auth/session';
+import { PushNotifications } from '@/notifications/PushNotifications';
 import { errorMessage } from '@/i18n/errors';
 import { syncEngine } from '@/offline/sync';
 
@@ -53,6 +54,7 @@ export default function RootLayout() {
               <ToastProvider>
                 <StatusBar style="dark" />
                 {fontsLoaded || fontError ? <RootNavigator /> : null}
+                <PushNotifications />
               </ToastProvider>
             </LocalizedUI>
           </SessionProvider>

@@ -7,12 +7,15 @@ import { AdminModule } from '../admin/admin.module';
 import { AdminService } from '../admin/admin.service';
 import { CommerceModule } from '../commerce/commerce.module';
 import { SeatsService } from '../commerce/seats.service';
+import { EVENTS_STREAM } from '../common/outbox';
 import { DB, type Db, rows } from '../db/db';
 import { HostModule } from '../host/host.module';
 import { DispatchService } from '../host/host.service';
+import { NotificationJobs } from '../notifications/notification-jobs';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { REDIS } from '../redis/redis.module';
 
-export const EVENTS_STREAM = 'matchup:events';
+export { EVENTS_STREAM } from '../common/outbox';
 
 /** Outbox relay: yozilgan domain event'larni Redis Stream'ga chiqaradi (consumer'lar idempotent). */
 @Injectable()
@@ -45,7 +48,10 @@ export class OutboxRelay {
   }
 }
 
-/** BullMQ job scheduler: hold expiry, host dispatch, minimum o'yinchi tekshiruvi, outbox relay. */
+/**
+ * BullMQ job scheduler: hold expiry, host dispatch, minimum o'yinchi tekshiruvi, outbox relay,
+ * eslatmalar (T-24h/T-2h), kutish ro'yxati takliflari muddati, push retry va receipt'lar.
+ */
 @Injectable()
 export class JobsService implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger('Jobs');
@@ -59,13 +65,23 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     private readonly dispatch: DispatchService,
     private readonly admin: AdminService,
     private readonly outbox: OutboxRelay,
+    private readonly notifications: NotificationJobs,
   ) {}
 
   async onModuleInit() {
     if (!this.env.RUN_WORKERS) return;
     this.connection = new Redis(this.env.REDIS_URL, { maxRetriesPerRequest: null });
     this.queue = new Queue('maintenance', { connection: this.connection });
-    const every = { 'expire-holds': 30_000, 'dispatch-hosts': 60_000, 'cancel-underfilled': 300_000, 'outbox-relay': 2_000 };
+    const every = {
+      'expire-holds': 30_000,
+      'dispatch-hosts': 60_000,
+      'cancel-underfilled': 300_000,
+      'outbox-relay': 2_000,
+      'match-reminders': 60_000,
+      'waitlist-offers': 30_000,
+      'push-retry': 30_000,
+      'push-receipts': 300_000,
+    };
     for (const [name, ms] of Object.entries(every)) {
       await this.queue.upsertJobScheduler(name, { every: ms }, { name, opts: { removeOnComplete: 100, removeOnFail: 500 } });
     }
@@ -84,6 +100,14 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
         return { cancelled: await this.admin.cancelUnderfilled() };
       case 'outbox-relay':
         return { published: await this.outbox.run() };
+      case 'match-reminders':
+        return this.notifications.reminders();
+      case 'waitlist-offers':
+        return this.notifications.waitlistOffers();
+      case 'push-retry':
+        return { retried: await this.notifications.retryQueued() };
+      case 'push-receipts':
+        return this.notifications.checkReceipts();
       default:
         throw new Error(`Noma'lum job: ${name}`);
     }
@@ -97,7 +121,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
 }
 
 @Module({
-  imports: [CommerceModule, HostModule, AdminModule],
+  imports: [CommerceModule, HostModule, AdminModule, NotificationsModule],
   providers: [JobsService, OutboxRelay],
   exports: [JobsService, OutboxRelay],
 })

@@ -11,6 +11,7 @@ import { Button, Card, colors, Divider, ErrorText, ErrorView, fontFamily, IconBu
 import { api, call } from '@/api/client';
 import { qk, useBooking, useMatch } from '@/api/queries';
 import { checkoutUrlFor, closeCheckout, startPayment } from '@/features/payment';
+import { useBookingLive } from '@/realtime/live';
 import { currentLocale } from '@/i18n';
 import { formatDay, formatTime } from '@/lib/datetime';
 import { uuid } from '@/lib/device';
@@ -23,6 +24,8 @@ export default function BookingScreen() {
   const queryClient = useQueryClient();
   const booking = useBooking(id);
   const status = booking.data?.status;
+  // To'lov tasdig'i WebSocket orqali darhol keladi; polling zaxira sifatida qoladi
+  useBookingLive(id);
 
   // Checkout'dan kelganda to'lov sahifasini bir marta avtomatik ochamiz (native — WebView ekrani, web — yangi oyna)
   const autoOpened = useRef(false);

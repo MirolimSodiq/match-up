@@ -1,0 +1,271 @@
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { sql } from 'drizzle-orm';
+import { tr } from '../../common/i18n';
+import { formatMoney } from '../../common/money';
+import { DB, type Db, type Executor, iso, one, rows } from '../../db/db';
+import { WaitlistService } from '../../matches/waitlist.service';
+import { type NotificationDraft, NotificationsService } from '../notifications.service';
+import { formatTime, formatWhen, type TemplateParams, type TextLocale } from '../templates';
+import type { OutboxEvent } from './stream-consumer';
+
+interface MatchCtx {
+  id: string;
+  title: unknown;
+  sport_name: unknown;
+  format: string;
+  starts_at: string;
+  timezone: string;
+  venue_name: string;
+  venue_address: unknown;
+  venue_lat: number;
+  venue_lng: number;
+}
+
+export async function loadMatchCtx(ex: Executor, matchId: string): Promise<MatchCtx | undefined> {
+  return one<MatchCtx>(
+    ex,
+    sql`SELECT m.id, m.title, s.name AS sport_name, m.format, m.starts_at, v.timezone,
+               v.name AS venue_name, v.address AS venue_address,
+               ST_Y(v.location::geometry) AS venue_lat, ST_X(v.location::geometry) AS venue_lng
+        FROM matches m
+        JOIN sports s ON s.id = m.sport_id
+        JOIN pitches p ON p.id = m.pitch_id
+        JOIN venues v ON v.id = p.venue_id
+        WHERE m.id = ${matchId}`,
+  );
+}
+
+/** Match haqidagi matn parametrlari — foydalanuvchi tilida, venue vaqt zonasida. */
+export function matchParams(m: MatchCtx, locale: TextLocale): TemplateParams {
+  const startsAt = new Date(iso(m.starts_at)!);
+  return {
+    match: tr(m.title, locale) || `${tr(m.sport_name, locale)} ${m.format}`,
+    when: formatWhen(startsAt, m.timezone, locale),
+    time: formatTime(startsAt, m.timezone),
+    venue: m.venue_name,
+    address: tr(m.venue_address, locale) || m.venue_name,
+  };
+}
+
+export const mapUrl = (m: MatchCtx) => `https://maps.google.com/?q=${m.venue_lat},${m.venue_lng}`;
+
+/**
+ * Outbox event -> foydalanuvchiga xabar. Idempotent: `dedupe_key` = event id (+ qabul qiluvchi),
+ * shuning uchun event qayta yetkazilsa (at-least-once) yangi xabar yaratilmaydi.
+ */
+@Injectable()
+export class NotificationEvents {
+  private readonly log = new Logger('NotificationEvents');
+
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    private readonly notifications: NotificationsService,
+    private readonly waitlist: WaitlistService,
+  ) {}
+
+  async handle(e: OutboxEvent): Promise<void> {
+    switch (e.type) {
+      case 'BookingConfirmed':
+        return this.bookingConfirmed(e);
+      case 'BookingCancelled':
+        return this.bookingCancelled(e);
+      case 'RefundIssued':
+        return this.refundIssued(e);
+      case 'MatchCancelled':
+        return this.matchCancelled(e);
+      case 'MatchCompleted':
+        return this.matchCompleted(e);
+      case 'HostOffered':
+        return this.hostOffered(e);
+      case 'SlotsReleased':
+        await this.offerWaitlist(e.aggregateId);
+        return;
+      case 'MatchPublished':
+        return this.matchPublished(e);
+      default:
+        return;
+    }
+  }
+
+  private key(e: OutboxEvent, userId: string) {
+    return `evt:${e.id}:${userId}`;
+  }
+
+  private async bookingConfirmed(e: OutboxEvent) {
+    const bookingId = e.aggregateId;
+    const b = await one<{ user_id: string; match_id: string }>(this.db, sql`SELECT user_id, match_id FROM bookings WHERE id = ${bookingId}`);
+    if (!b) return;
+    // Kutish ro'yxatidan joy olgan bo'lsa — yozuv yopiladi (taklif oynasi bo'shaydi)
+    await this.waitlist.markConverted(this.db, b.match_id, b.user_id);
+    const m = await loadMatchCtx(this.db, b.match_id);
+    if (!m) return;
+    await this.notifications.notify([
+      {
+        userId: b.user_id,
+        type: 'booking.confirmed',
+        dedupeKey: this.key(e, b.user_id),
+        params: (l) => matchParams(m, l),
+        data: { url: `/booking/${bookingId}`, booking_id: bookingId, match_id: b.match_id },
+      },
+    ]);
+  }
+
+  private async bookingCancelled(e: OutboxEvent) {
+    // To'lanmagan checkout'dan chiqish — xabar shart emas; match bekor bo'lsa MatchCancelled xabari bor
+    if (e.payload.previous_status !== 'confirmed' || e.payload.reason === 'match_cancelled') return;
+    const bookingId = e.aggregateId;
+    const b = await one<{ user_id: string; match_id: string }>(this.db, sql`SELECT user_id, match_id FROM bookings WHERE id = ${bookingId}`);
+    const m = b && (await loadMatchCtx(this.db, b.match_id));
+    if (!b || !m) return;
+    await this.notifications.notify([
+      {
+        userId: b.user_id,
+        type: 'booking.cancelled',
+        dedupeKey: this.key(e, b.user_id),
+        params: (l) => matchParams(m, l),
+        data: { url: `/booking/${bookingId}`, booking_id: bookingId, match_id: b.match_id },
+      },
+    ]);
+  }
+
+  private async refundIssued(e: OutboxEvent) {
+    const r = await one<{ user_id: string; booking_id: string; match_id: string; amount: number; currency: string; destination: string }>(
+      this.db,
+      sql`SELECT b.user_id, b.id AS booking_id, b.match_id, r.amount, r.currency, r.destination
+          FROM refunds r JOIN bookings b ON b.id = r.booking_id
+          WHERE r.id = ${e.aggregateId}`,
+    );
+    const m = r && (await loadMatchCtx(this.db, r.match_id));
+    if (!r || !m) return;
+    // Event'dagi summa hamyon bonusini ham o'z ichiga oladi (admin bekor qilishda)
+    const amount = typeof e.payload.amount === 'number' ? e.payload.amount : r.amount;
+    const destination = typeof e.payload.destination === 'string' ? e.payload.destination : r.destination;
+    await this.notifications.notify([
+      {
+        userId: r.user_id,
+        type: 'refund.issued',
+        dedupeKey: this.key(e, r.user_id),
+        params: (l) => ({ ...matchParams(m, l), amount: formatMoney(amount, r.currency, l), destination }),
+        data: { url: `/booking/${r.booking_id}`, booking_id: r.booking_id, match_id: r.match_id, refund_id: e.aggregateId },
+      },
+    ]);
+  }
+
+  private async matchCancelled(e: OutboxEvent) {
+    const matchId = e.aggregateId;
+    const m = await loadMatchCtx(this.db, matchId);
+    if (!m) return;
+    // To'langan (confirmed bo'lgan) booking egalari
+    const list = await rows<{ user_id: string; booking_id: string }>(
+      this.db,
+      sql`SELECT DISTINCT ON (user_id) user_id, id AS booking_id FROM bookings
+          WHERE match_id = ${matchId} AND status = 'cancelled' AND cancel_reason = 'match_cancelled'
+            AND confirmed_at IS NOT NULL
+          ORDER BY user_id, created_at DESC`,
+    );
+    await this.notifications.notify(
+      list.map((b) => ({
+        userId: b.user_id,
+        type: 'match.cancelled' as const,
+        dedupeKey: this.key(e, b.user_id),
+        params: (l: TextLocale) => matchParams(m, l),
+        data: { url: `/booking/${b.booking_id}`, booking_id: b.booking_id, match_id: matchId },
+      })),
+    );
+  }
+
+  private async matchCompleted(e: OutboxEvent) {
+    const matchId = e.aggregateId;
+    const m = await loadMatchCtx(this.db, matchId);
+    if (!m) return;
+    const players = await rows<{ user_id: string }>(
+      this.db,
+      sql`SELECT DISTINCT user_id FROM match_participants
+          WHERE match_id = ${matchId} AND status = 'checked_in' AND user_id IS NOT NULL`,
+    );
+    await this.notifications.notify(
+      players.map((p) => ({
+        userId: p.user_id,
+        type: 'match.rate' as const,
+        dedupeKey: this.key(e, p.user_id),
+        params: (l: TextLocale) => matchParams(m, l),
+        data: { url: `/match/${matchId}?rate=1`, match_id: matchId },
+      })),
+    );
+  }
+
+  private async hostOffered(e: OutboxEvent) {
+    const hostId = String(e.payload.host_user_id ?? '');
+    const a = await one<{ id: string; fee_amount: number; currency: string; ttl: number; status: string }>(
+      this.db,
+      sql`SELECT id, fee_amount, currency, status,
+                 greatest(extract(epoch FROM offer_expires_at - now()), 0)::int AS ttl
+          FROM host_assignments WHERE match_id = ${e.aggregateId} AND host_user_id = ${hostId}`,
+    );
+    // Taklif allaqachon yopilgan (boshqa host oldi / muddati o'tdi) — push kechikib bormasin
+    if (!a || a.status !== 'offered' || a.ttl <= 0) return;
+    const m = await loadMatchCtx(this.db, e.aggregateId);
+    if (!m) return;
+    await this.notifications.notify([
+      {
+        userId: hostId,
+        type: 'host.offer',
+        dedupeKey: this.key(e, hostId),
+        params: (l) => ({ ...matchParams(m, l), fee: formatMoney(a.fee_amount, a.currency, l) }),
+        data: { url: `/?offer=${a.id}`, assignment_id: a.id, match_id: e.aggregateId },
+        ttlSec: a.ttl,
+      },
+    ]);
+  }
+
+  /**
+   * SlotsReleased (yoki muddati o'tgan taklif) -> kutish ro'yxatidagi navbatdagilarga eksklyuziv taklif.
+   * Taklif va xabar bitta tranzaksiyada yoziladi: crash bo'lsa ham taklif "xabarsiz" qolmaydi.
+   */
+  async offerWaitlist(matchId: string): Promise<number> {
+    const m = await loadMatchCtx(this.db, matchId);
+    if (!m) return 0;
+    const ids = await this.db.transaction(async (tx) => {
+      const offers = await this.waitlist.offerNext(tx, matchId);
+      return this.notifications.enqueue(
+        tx,
+        offers.map((o) => ({
+          userId: o.user_id,
+          type: 'waitlist.offer' as const,
+          dedupeKey: `waitlist:${o.id}`,
+          params: (l: TextLocale) => matchParams(m, l),
+          data: { url: `/match/${matchId}`, match_id: matchId, offer_expires_at: iso(o.offer_expires_at) },
+          ttlSec: WaitlistService.OFFER_MINUTES * 60,
+        })),
+      );
+    });
+    await this.notifications.deliver(ids);
+    if (ids.length) this.log.log(`waitlist: ${ids.length} ta taklif (match ${matchId})`);
+    return ids.length;
+  }
+
+  /** Marketing: shahar + sport bo'yicha qiziqqan o'yinchilarga yangi o'yin (faqat consent bilan). */
+  private async matchPublished(e: OutboxEvent) {
+    const matchId = e.aggregateId;
+    const m = await loadMatchCtx(this.db, matchId);
+    if (!m) return;
+    const users = await rows<{ id: string }>(
+      this.db,
+      sql`SELECT u.id FROM matches mt
+          JOIN users u ON u.home_city_id = mt.city_id
+          JOIN player_sport_profiles psp ON psp.user_id = u.id AND psp.sport_id = mt.sport_id
+          JOIN user_current_consents c ON c.user_id = u.id AND c.purpose = 'marketing_push' AND c.granted
+          WHERE mt.id = ${matchId} AND mt.status = 'open' AND mt.visibility = 'public'
+            AND u.status = 'active' AND u.deleted_at IS NULL
+          LIMIT 500`,
+    );
+    const drafts: NotificationDraft[] = users.map((u) => ({
+      userId: u.id,
+      type: 'match.new',
+      dedupeKey: this.key(e, u.id),
+      params: (l) => matchParams(m, l),
+      data: { url: `/match/${matchId}`, match_id: matchId },
+    }));
+    await this.notifications.notify(drafts);
+  }
+}

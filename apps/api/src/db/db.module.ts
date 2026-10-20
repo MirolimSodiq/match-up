@@ -1,4 +1,4 @@
-import { Global, Inject, Module, type OnApplicationShutdown } from '@nestjs/common';
+import { Global, Inject, Logger, Module, type OnApplicationShutdown } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool, types } from 'pg';
 import { ENV, type Env } from '../config/env';
@@ -19,8 +19,16 @@ types.setTypeParser(1082, (v) => v);
     {
       provide: PG_POOL,
       inject: [ENV],
-      useFactory: (env: Env) =>
-        new Pool({ connectionString: env.DATABASE_URL, max: env.DATABASE_POOL_MAX, application_name: 'matchup-api' }),
+      useFactory: (env: Env) => {
+        const pool = new Pool({ connectionString: env.DATABASE_URL, max: env.DATABASE_POOL_MAX, application_name: 'matchup-api' });
+        // Ulanish uzilsa (DB restart, pg_terminate_backend) listener'siz pg 'error' event'i butun process'ni
+        // yiqitadi. Bo'sh client'ni pool o'zi tashlaydi; band client'da (tranzaksiya so'rovlari orasida)
+        // keyingi so'rov xato bilan tugaydi va oddiy xato sifatida qayta ishlanadi.
+        const log = new Logger('Db');
+        pool.on('error', (err) => log.warn(`idle client uzildi: ${err.message}`));
+        pool.on('connect', (client) => client.on('error', (err) => log.warn(`client uzildi: ${err.message}`)));
+        return pool;
+      },
     },
     { provide: DB, inject: [PG_POOL], useFactory: (pool: Pool) => drizzle(pool, { schema: fullSchema }) },
   ],

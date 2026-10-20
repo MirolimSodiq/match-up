@@ -46,6 +46,10 @@ const EnvSchema = z.object({
   CLICK_MERCHANT_ID: z.string().default('2000'),
   CLICK_SECRET_KEY: z.string().default('click_test_secret'),
   CLICK_CHECKOUT_URL: z.url().default('https://my.click.uz/services/pay'),
+
+  /** Expo Push API (push/send, push/getReceipts). Access token — Expo "enhanced security" yoqilgan bo'lsa. */
+  EXPO_PUSH_URL: z.url().default('https://exp.host/--/api/v2/push'),
+  EXPO_ACCESS_TOKEN: z.string().optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

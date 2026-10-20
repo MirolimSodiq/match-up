@@ -1,15 +1,17 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FlatList, RefreshControl, StyleSheet, View } from 'react-native';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import * as Haptics from 'expo-haptics';
-import { colors, EmptyState, ErrorView, ListRow, Divider, Loading, PageTitle, ScreenGlow, space, TAB_BAR_SPACE, useToast, useUI, BottomSheet } from '@matchup/ui';
+import { colors, EmptyState, ErrorView, ListRow, Divider, LiveDot, Loading, PageTitle, ScreenGlow, space, TAB_BAR_SPACE, useToast, useUI, BottomSheet } from '@matchup/ui';
 import { api, call } from '@/api/client';
 import { ApiError } from '@/api/errors';
 import { qk, useOffers } from '@/api/queries';
+import { useSession } from '@/auth/session';
 import { OfferCard } from '@/features/MatchBlocks';
 import { usePullRefresh } from '@/lib/usePullRefresh';
+import { useRealtimeRoom } from '@/realtime/socket';
 
 type DeclineReason = 'busy' | 'too_far' | 'other';
 const REASONS: DeclineReason[] = ['busy', 'too_far', 'other'];
@@ -22,11 +24,32 @@ export default function OffersScreen() {
   const offers = useOffers();
   const pull = usePullRefresh(offers.refetch);
   const [declining, setDeclining] = useState<string>();
+  const { user } = useSession();
+  const { offer: pushedOffer } = useLocalSearchParams<{ offer?: string }>();
 
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: qk.offers });
     void queryClient.invalidateQueries({ queryKey: ['host-matches'] });
   };
+
+  // Jonli takliflar (WebSocket): 20 soniyalik polling'ni kutmasdan ro'yxatga tushadi
+  const { live } = useRealtimeRoom(user ? `host:${user.id}` : null, 'offer.created', () => {
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    toast({ message: t('offers.newOffer'), icon: 'flash' });
+    void queryClient.invalidateQueries({ queryKey: qk.offers });
+  });
+  // Boshqa host oldi — kartani olib tashlaymiz
+  useRealtimeRoom(user ? `host:${user.id}` : null, 'offer.closed', () => void queryClient.invalidateQueries({ queryKey: qk.offers }));
+
+  // Push'dan kelindi (`/?offer=<id>`): yangi ro'yxatda bu taklif yo'q bo'lsa — aytamiz
+  useEffect(() => {
+    if (!pushedOffer) return;
+    void offers.refetch().then((r) => {
+      if (r.data && !r.data.some((o) => o.assignment_id === pushedOffer)) toast({ message: t('offers.gone'), icon: 'time-outline' });
+      router.setParams({ offer: undefined });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pushedOffer]);
 
   const accept = useMutation({
     mutationFn: (assignmentId: string) => call(api.POST('/v1/host/offers/{assignmentId}/accept', { params: { path: { assignmentId } } })),
@@ -63,7 +86,7 @@ export default function OffersScreen() {
   return (
     <View style={styles.root}>
       <ScreenGlow />
-      <PageTitle title={t('offers.title')} subtitle={t('offers.subtitle')} />
+      <PageTitle title={t('offers.title')} subtitle={t('offers.subtitle')} right={live ? <LiveDot label={t('offers.live')} /> : undefined} />
       <FlatList
         data={list}
         keyExtractor={(o) => o.assignment_id ?? ''}

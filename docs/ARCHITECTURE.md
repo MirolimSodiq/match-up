@@ -573,7 +573,7 @@ flowchart LR
 | Payments | payments, payment_events, refunds, wallet_*, payment_provider_configs | `PaymentSucceeded`, `RefundIssued` | **o'rta** (PCI/audit izolyatsiyasi) |
 | HostOps | host_profiles, host_assignments, checkin_events, host_payouts | `HostAssigned`, `HostArrived`, `PlayerCheckedIn` | o'rta |
 | Media | media_assets, highlights, highlight_* | `HighlightReady` | **yuqori** (allaqachon alohida worker) |
-| Notifications | notifications | — | **yuqori** (birinchi ajraladi) |
+| Notifications | notifications, push_deliveries; device_tokens (`PUT /v1/me/devices`) | — (outbox consumer: `notifications`, `realtime` group'lari) | **yuqori** (birinchi ajraladi) |
 | Compliance | waiver_*, consents, data_subject_requests, audit_logs | `ConsentChanged` | past |
 | Competitions (Phase 2) | teams, competitions, competition_entries, match_events | `EntryConfirmed`, `StandingsChanged` | o'rta |
 
@@ -708,10 +708,11 @@ export interface PaymentProvider {
 | Job | Trigger | Mantiq |
 |---|---|---|
 | Hold expiry | har 30 s | `expire_holds.sql` → `SlotsReleased` |
-| Waitlist offer | `SlotsReleased` | navbatdagi birinchiga push, 10 daqiqalik eksklyuziv oyna |
+| Waitlist offer | `SlotsReleased` (outbox consumer) + har 30 s muddati o'tganlar | navbatdagi birinchiga push, 10 daqiqalik eksklyuziv oyna (`SeatsService.hold` faol takliflarni hisobga oladi); muddat o'tsa — keyingisiga |
 | Min players check | `min_players_deadline` (odatda T-3h) | `confirmed < min_players` → match bekor + 100% refund + push |
 | **Host dispatch** | `MatchFull` darhol **yoki** T-12h da `confirmed ≥ min_players` | `dispatch_candidates.sql` → 1-to'lqin: eng yaqin 3 ta hostga parallel offer (10 daq), birinchi accept yutadi → javob bo'lmasa keyingi 5 ta → T-6h hali host yo'q → admin alert |
-| Eslatmalar | T-24h, T-2h | push / Telegram: vaqt, manzil, xarita havolasi |
+| Eslatmalar | har 60 s: T-24h, T-2h | push: vaqt, manzil, xarita havolasi; har biri bir marta (`notifications.dedupe_key`) |
+| Push retry / receipt | har 30 s / 5 daq | `queued` xabarlar backoff bilan qayta yuboriladi (5 urinish); Expo receipt'lari, `DeviceNotRegistered` -> `device_tokens.disabled_at` |
 | Host no-show | kick-off - 15 daq, `arrived` yo'q | admin alert + zaxira host |
 | Post-match | `MatchCompleted` | Glicko reyting, feedback so'rovi, no-show statistikasi |
 | Host payout | haftalik | `host_assignments.completed` → `host_payouts` |
@@ -719,6 +720,26 @@ export interface PaymentProvider {
 | DSR | har kun | export tayyorlash, erasure grace muddati o'tganlarni anonimlashtirish |
 
 > **Dispatch bo'yicha tavsiya:** host'ni faqat match **to'lganda** chaqirish operatsion xavfli — 12/14 o'yinchi bilan ham o'yin bo'ladi, oxirgi soatlarda to'lgan match'ga host topish qiyin. Shuning uchun ikki trigger: to'lganda darhol yoki T-12h da minimumga yetganda.
+
+#### Push va real-time (Notifications moduli)
+
+```mermaid
+flowchart LR
+    TX[Biznes tranzaksiya<br/>emit()] --> OB[(outbox_events)]
+    OB -->|OutboxRelay 2 s| ST[[Redis Stream<br/>matchup:events]]
+    ST -->|XREADGROUP notifications| NE[NotificationEvents]
+    ST -->|XREADGROUP realtime| RE[RealtimeEvents]
+    NE --> NT[(notifications<br/>dedupe_key)]
+    NT --> PS[PushSender<br/>Expo / FCM / APNs]
+    PS --> PD[(push_deliveries)]
+    RE --> GW[Socket.IO gateway<br/>+ Redis adapter]
+    GW --> APP[Player / Host ilovalari]
+```
+
+* **Idempotentlik:** `notifications.dedupe_key` (`evt:<event_id>:<user_id>`, `reminder_24h:<booking_id>`, `waitlist:<entry_id>`) — at-least-once yetkazishda ham bitta xabar. WS payload'lari holat snapshot'i — takroriy event zararsiz.
+* **Consumer group'lar alohida:** sekin push provayderi WS yangilanishlarini ushlab turmaydi. Xato bergan event ACK qilinmaydi va `XPENDING`/`XCLAIM` bilan qayta olinadi; 5 urinishdan keyin `matchup:events:dead`.
+* **Matn:** `users.locale` (uz-Latn, ru, en; uz-Cyrl -> uz-Latn), sana venue vaqt zonasida. Marketing (`match.new`) — faqat `marketing_push` consent bilan; tranzaksion — har doim.
+* **WS xonalari:** `match:{id}` (ochiq) -> `slots.updated`; `booking:{id}` (faqat egasi) -> `booking.updated`; `host:{userId}` -> `offer.created` / `offer.closed`. Ulanish: `path: /ws`, `auth: { token }`.
 
 ### 4.10 Video highlight pipeline
 

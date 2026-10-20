@@ -89,6 +89,7 @@ const ru: Messages = {
     calendarAdded: 'Добавлено в календарь',
     shareText: '{{title}} — {{when}}. Код Match Up: {{code}}',
     notFound: 'Игра не найдена',
+    live: 'В эфире',
     players: 'Игроки',
     minToPlay: 'Игра состоится при {{count}} участниках',
     level: 'Уровень',

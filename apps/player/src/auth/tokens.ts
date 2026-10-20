@@ -11,6 +11,9 @@ interface Pair {
 
 let current: Pair | null = null;
 const listeners = new Set<(reason: SessionEndReason) => void>();
+const beforeLogout = new Set<() => Promise<void>>();
+/** Logout'ni tarmoq sekin bo'lsa ham ushlab turmaslik uchun. */
+const BEFORE_LOGOUT_TIMEOUT_MS = 3000;
 
 /** Access/refresh token juftligi: xotirada + secure storage'da. */
 export const tokens = {
@@ -37,6 +40,11 @@ export const tokens = {
   /** Token'larni o'chiradi va sessiya tinglovchilariga xabar beradi. */
   async end(reason: SessionEndReason): Promise<void> {
     const had = current !== null;
+    // Foydalanuvchi o'zi chiqyapti — token hali yaroqli: server tomondagi bog'lanishlarni uzamiz (push token)
+    if (had && reason === 'logout' && beforeLogout.size) {
+      const hooks = Promise.allSettled([...beforeLogout].map((fn) => fn()));
+      await Promise.race([hooks, new Promise((r) => setTimeout(r, BEFORE_LOGOUT_TIMEOUT_MS))]);
+    }
     current = null;
     await Promise.all([storage.remove(KEYS.accessToken), storage.remove(KEYS.refreshToken)]);
     if (had) listeners.forEach((fn) => fn(reason));
@@ -45,5 +53,11 @@ export const tokens = {
   onEnd(fn: (reason: SessionEndReason) => void): () => void {
     listeners.add(fn);
     return () => listeners.delete(fn);
+  },
+
+  /** Logout'da token o'chirilishidan OLDIN (access token hali yaroqli) chaqiriladi. */
+  beforeLogout(fn: () => Promise<void>): () => void {
+    beforeLogout.add(fn);
+    return () => beforeLogout.delete(fn);
   },
 };
