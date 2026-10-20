@@ -86,6 +86,18 @@ async function authFetch(request: Request): Promise<Response> {
   return fetch(new Request(retry, { headers: withCommonHeaders(new Headers(retry.headers), fresh) }));
 }
 
+/**
+ * `fetch`dan tashqari so'rovlar (expo-file-system yuklashlari) uchun umumiy header'lar va Bearer token.
+ * 401 bo'lsa chaqiruvchi `refreshOnce()` bilan yangilab qayta urinadi.
+ */
+export function authHeaders(token = tokens.access): Record<string, string> {
+  const out: Record<string, string> = {};
+  withCommonHeaders(new Headers(), token).forEach((value, key) => {
+    out[key] = value;
+  });
+  return out;
+}
+
 /** `api/openapi.yaml` bo'yicha tiplangan client. */
 export const api = createClient<paths>({ baseUrl: API_URL, fetch: authFetch });
 

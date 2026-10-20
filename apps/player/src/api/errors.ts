@@ -1,7 +1,7 @@
 import type { Problem } from '@matchup/contracts';
 
 /** Client tomonida paydo bo'ladigan kodlar (server Problem `code`'lariga qo'shimcha). */
-export type ClientErrorCode = 'NETWORK' | 'UNKNOWN' | 'SOCIAL_NOT_CONFIGURED' | 'SOCIAL_EXPO_GO';
+export type ClientErrorCode = 'NETWORK' | 'UNKNOWN' | 'SOCIAL_NOT_CONFIGURED' | 'SOCIAL_EXPO_GO' | 'SHARING_UNAVAILABLE';
 
 /**
  * RFC 9457 Problem Details asosidagi xato. UI matnni `code` bo'yicha lokal tarjimadan oladi,

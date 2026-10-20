@@ -1,12 +1,15 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { router } from 'expo-router';
 import { useTranslation } from 'react-i18next';
-import { Avatar, Card, colors, Divider, ErrorView, fontFamily, gradients, Group, ListRow, Loading, PageTitle, radius, ScreenGlow, space, sportColors, SportIcon, TAB_BAR_SPACE, type } from '@matchup/ui';
-import { useCities, useMe, useSports, useWallet } from '@/api/queries';
+import { Avatar, Card, colors, Divider, ErrorView, fontFamily, gradients, Group, ListRow, Loading, Notice, PageTitle, radius, ScreenGlow, space, sportColors, SportIcon, states, TAB_BAR_SPACE, type } from '@matchup/ui';
+import { openErasure, useCities, useDataRequests, useMe, useSports, useWallet } from '@/api/queries';
 import { useSession } from '@/auth/session';
 import { LanguagePicker } from '@/features/LanguagePicker';
 import { prettyPhone } from '@/features/phone';
+import { currentLocale } from '@/i18n';
+import { deviceTimeZone, formatDay } from '@/lib/datetime';
 import { APP_VERSION } from '@/lib/device';
 import { money } from '@/lib/money';
 
@@ -18,6 +21,8 @@ export default function ProfileScreen() {
   const sports = useSports();
   const city = cities.data?.find((c) => c.id === me.data?.home_city_id);
   const wallet = useWallet();
+  // Grace davridagi o'chirish so'rovi — profil tepasida eslatma (bekor qilish imkoni)
+  const erasure = openErasure(useDataRequests().data?.items);
 
   const body = () => {
     if (me.isPending) return <Loading />;
@@ -25,6 +30,21 @@ export default function ProfileScreen() {
     const u = me.data;
     return (
       <ScrollView style={styles.flex} contentContainerStyle={styles.content}>
+        {erasure ? (
+          <Pressable
+            testID="erasure-banner"
+            accessibilityRole="button"
+            onPress={() => router.push('/account/privacy')}
+            style={({ pressed }) => pressed && styles.pressed}
+          >
+            <Notice tone="danger" icon="trash-outline">
+              {erasure.blocked_reasons?.length
+                ? t('profile.erasureBlocked')
+                : t('profile.erasurePending', { date: formatDay(erasure.due_at, deviceTimeZone(), currentLocale()) })}
+            </Notice>
+          </Pressable>
+        ) : null}
+
         {/* Hisob kartasi */}
         <Card tone="white" style={styles.account}>
           <Avatar name={u.display_name} size={60} />
@@ -72,6 +92,24 @@ export default function ProfileScreen() {
                 />
               </View>
             ))}
+          </Card>
+        </Group>
+
+        <Group title={t('profile.security')}>
+          <Card tone="white" style={styles.list}>
+            <ListRow
+              icon="key-outline"
+              title={t('profile.signInMethods')}
+              accessory="chevron"
+              onPress={() => router.push('/account/sign-in-methods')}
+            />
+            <Divider />
+            <ListRow
+              icon="shield-checkmark-outline"
+              title={t('profile.privacy')}
+              accessory="chevron"
+              onPress={() => router.push('/account/privacy')}
+            />
           </Card>
         </Group>
 
@@ -133,4 +171,5 @@ const styles = StyleSheet.create({
   statValue: { fontFamily: fontFamily.display, fontSize: 34, lineHeight: 40, color: colors.text },
   list: { paddingVertical: space.xs, gap: 0 },
   version: { textAlign: 'center', marginTop: space.sm },
+  pressed: { opacity: states.pressedOpacity },
 });
