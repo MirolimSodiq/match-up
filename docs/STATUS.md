@@ -12,7 +12,7 @@
 | Media worker (`services/media-worker`) | Python 3.12 + FFmpeg: Redis Stream `matchup:media-jobs` → HLS 720p/480p, thumbnail, 9:16 vertikal MP4; `recording_v1` (alohida `…:recording` lane, 1080p/720p/480p bitta o'tishda), `clip_v1` (yozuv HLS'idan kadr aniqligida kesish) | pytest 38/38 |
 | Player ilovasi (`apps/player`) | Expo, yorug' sport dizayni, to'lov WebView (Uzum ham), QR chipta, social login, profil (kirish usullari, maxfiylik), push va deep link'lar, jonli slot'lar, highlight feed; **AI-Cam A**: to'liq o'yin videosi (kameralar, lahzalar, kliplar) | tsc |
 | Host ilovasi (`apps/host`) | takliflar, offline roster, QR skaner (Ed25519 offline), jamoalar, yakunlash, push, highlight yozish va resumable yuklash; **AI-Cam A**: kamera rejimi, pult, yozuv yuklash, bib | vitest 58/58 |
-| Admin panel (`apps/admin`) | Next.js BFF, match/venue/host/refund/dashboard | build |
+| Admin panel (`apps/admin`) | Next.js BFF, match/venue/host/refund/dashboard, reconciliation (run'lar, qo'lda ishga tushirish, farqlar) | build |
 | Dizayn tizimi | `packages/ui` (tokenlar + RN komponentlar), `packages/contracts` (OpenAPI tiplari) | tsc |
 | CI va infra | GitHub Actions (typecheck, e2e, worker pytest, lint, build), Dockerfile'lar, lokal staging, Terraform (eu-central-1, media bucket'lar, worker ECS — klip va yozuv lane'lari), Sentry, EAS | terraform validate, actionlint |
 
@@ -40,7 +40,7 @@ Loyiha ikki kishi o'rtasida bo'lingan. Har yo'nalish o'z papkalariga ega — bir
 
 | # | Ish | Fayllar | Holat |
 |---|---|---|---|
-| B1 | Admin'da reconciliation sahifasi (`GET/POST /v1/admin/finance/reconciliation`, `GET …/{runId}`) — backend tayyor, stack bilan tanishish uchun birinchi ish | `apps/admin/` | — |
+| B1 | Admin'da reconciliation sahifasi (`GET/POST /v1/admin/finance/reconciliation`, `GET …/{runId}`) — backend tayyor, stack bilan tanishish uchun birinchi ish | `apps/admin/` | ✅ `feat/admin-reconciliation` |
 | B2 | `UserErased` event'i uchun handler (hozircha xabarnoma/tozalash yo'q) | `apps/api/src/notifications`, `privacy` | — |
 | B3 | Yetishmayotgan job'lar (`ARCHITECTURE.md` §4.9 da bor, `jobs.module.ts` da yo'q): post-match (Glicko reyting, feedback so'rovi, no-show statistikasi), haftalik host payout (`host_payouts`), host no-show alert (kick-off − 15 daq, `arrived` yo'q) | `apps/api/src/jobs`, `host` | — |
 | B4 | Admin'da highlight moderatsiyasi | `apps/api/src/admin`, `apps/admin` | — |
