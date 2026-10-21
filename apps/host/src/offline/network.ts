@@ -10,18 +10,22 @@ import { KEYS, storage } from '@/lib/storage';
 type Listener = () => void;
 
 let systemOnline = true;
+let systemWifi = false;
 let forcedOffline = false;
 const listeners = new Set<Listener>();
-let snapshot = { online: true, forcedOffline: false };
+let snapshot = { online: true, forcedOffline: false, wifi: false };
 
 function update() {
   const online = systemOnline && !forcedOffline;
-  if (snapshot.online === online && snapshot.forcedOffline === forcedOffline) return;
-  snapshot = { online, forcedOffline };
+  const wifi = online && systemWifi;
+  if (snapshot.online === online && snapshot.forcedOffline === forcedOffline && snapshot.wifi === wifi) return;
+  snapshot = { online, forcedOffline, wifi };
   listeners.forEach((fn) => fn());
 }
 
 const fromState = (s: Network.NetworkState) => s.isConnected !== false && s.isInternetReachable !== false;
+/** Katta yozuv fayllari mobil internetda yuklanmaydi (standart) — Wi-Fi yoki kabel. */
+const isWifi = (s: Network.NetworkState) => s.type === Network.NetworkStateType.WIFI || s.type === Network.NetworkStateType.ETHERNET;
 
 export const network = {
   get forcedOffline() {
@@ -30,17 +34,23 @@ export const network = {
   get online() {
     return snapshot.online;
   },
+  get wifi() {
+    return snapshot.wifi;
+  },
 
   /** Ilova ishga tushganda bir marta. */
   async start(): Promise<void> {
     forcedOffline = __DEV__ && (await storage.get(KEYS.devOffline)) === '1';
     try {
-      systemOnline = fromState(await Network.getNetworkStateAsync());
+      const s = await Network.getNetworkStateAsync();
+      systemOnline = fromState(s);
+      systemWifi = isWifi(s);
     } catch {
       systemOnline = true;
     }
     Network.addNetworkStateListener((s) => {
       systemOnline = fromState(s);
+      systemWifi = isWifi(s);
       update();
     });
     update();

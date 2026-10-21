@@ -38,7 +38,8 @@ import { formatDay, formatTime } from '@/lib/datetime';
 import { money } from '@/lib/money';
 import { formatDistance, useNow } from '@/lib/time';
 import { HighlightsSection } from '@/features/Highlights';
-import { CheckinProgress, ParticipantRow, SyncBanner } from '@/features/Roster';
+import { RecordingSection } from '@/features/Recording';
+import { BibEditor, CheckinProgress, ParticipantRow, SyncBanner } from '@/features/Roster';
 import { useMatchControl } from '@/features/useMatchControl';
 import { type CheckinAction, distanceFromDetail, distanceMeters, type ParticipantView } from '@/offline/core';
 import { enqueueCheckin, syncMatch } from '@/offline/sync';
@@ -205,6 +206,7 @@ export default function MatchControlScreen() {
             )}
           </Card>
 
+          <RecordingSection matchId={id} canRecord={active || status === 'completed'} />
           <HighlightsSection matchId={id} canUpload={active || status === 'completed'} />
         </View>
       </ScrollView>
@@ -223,6 +225,7 @@ export default function MatchControlScreen() {
             ) : null}
             {selected.status !== 'confirmed' ? <Button title={t('match.undo')} icon="arrow-undo" variant="secondary" onPress={() => act(selected, 'undo')} /> : null}
             {selected.status === 'confirmed' ? <Button title={t('match.noShow')} icon="close-circle-outline" variant="danger" onPress={() => act(selected, 'no_show')} /> : null}
+            {selected.status !== 'no_show' ? <BibEditor key={selected.participant_id} matchId={id} p={selected} /> : null}
           </View>
         ) : null}
       </BottomSheet>
