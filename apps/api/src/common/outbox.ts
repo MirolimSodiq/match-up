@@ -12,6 +12,7 @@ export type DomainEvent =
   | 'MatchCompleted'
   | 'SlotsReleased'
   | 'PaymentSucceeded'
+  | 'ReconciliationMismatch'
   | 'RefundRequested'
   | 'RefundIssued'
   | 'HostOffered'

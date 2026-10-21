@@ -788,9 +788,23 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Uzum Bank Merchant API
-         * @description Operatsiyalar: `check` (to'lash mumkinmi), `create`, `confirm` (-> confirm_payment.sql), `reverse` (refund), `status`.
-         *     Basic auth. Payload Uzum spetsifikatsiyasiga ko'ra adapter ichida normalizatsiya qilinadi.
+         * Uzum Bank Merchant API (check / create / confirm / reverse / status)
+         * @description Rasmiy spetsifikatsiya: <https://developer.uzumbank.uz/merchant>. Uzum bizning endpointlarni chaqiradi:
+         *     `check` -> `create` -> (Uzum mijozdan pul yechadi) -> `confirm`; bekor qilish — `reverse`;
+         *     `confirm` da server xatosi yoki timeout bo'lsa — `status` (10 martagacha). JSON, summalar tiyin'da, vaqtlar ms.
+         *     Muvaffaqiyat — HTTP 200; xato — HTTP 400 va `errorCode` (string); kutilmagan server xatosi — 500 va `99999`.
+         *     Booking id `params.booking_id` da (kalit — `UZUM_ACCOUNT_PARAM`, Uzum servis sozlamasida kelishiladi).
+         *
+         *     | Operatsiya | Biznes mantiq |
+         *     |---|---|
+         *     | `check` | booking `pending_payment` (hold muddati o'tgan bo'lsa joy bor ekan — qayta hold); to'langan — `10008`; bekor qilingan yoki joy qolmagan — `10009` (pul yechilmaydi) |
+         *     | `create` | summa booking summasiga teng bo'lishi shart (`10011`); `payments` qatori (`provider_transaction_id = transId`, `CREATED`), hold uzaytiriladi; o'sha `transId` bilan takroriy chaqiruv — `10010`, ikkinchi qator yaratilmaydi |
+         *     | `confirm` | `confirm_payment.sql` + `PaymentSucceeded` outbox. Joy qolmagan yoki booking boshqa usul bilan to'langan — `10015` (FAILED, Uzum mijozga pulni qaytaradi, ikki marta yechilmaydi). `create` dan 30 daqiqa o'tgan — `10015`. Takroriy — `10016` |
+         *     | `reverse` | `CREATED` — bekor, hold ozod; `CONFIRMED` — o'yin boshlanmagan bo'lsa refund (`refunds`, joy qaytadi), boshlangan bo'lsa — `10017`; takroriy — `10018` |
+         *     | `status` | `CREATED` / `CONFIRMED` / `REVERSED` (200) yoki `FAILED` (400, `10015`) |
+         *
+         *     Har bir chaqiruv (auth xatosi bilan ham) `payment_events` ga yoziladi (`processed_at`, `processing_error`, `payment_id`; mijoz telefoni maskalanadi).
+         *     POST bo'lmagan so'rov yoki noma'lum operatsiya — `10003`; buzilgan JSON — `10002`.
          */
         post: operations["uzumMerchantApi"];
         delete?: never;
@@ -1357,6 +1371,62 @@ export interface paths {
          *     * `fill_rate` = confirmed / max (bekor qilinmagan match'lar); `no_show_rate` = no_show / (checked_in + no_show)
          */
         get: operations["adminDashboard"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/finance/reconciliation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * To'lovlarni provider ma'lumoti bilan solishtirish (reconciliation) natijalari
+         * @description Har kecha (`RECONCILE_CRON`, Asia/Tashkent; alohida `reconciliation` BullMQ navbati) oldingi kun uchun yoki admin qo'lda ishga tushiradi.
+         *     Bizning `payments` (`created_at` davr ichida; `succeeded`, `partially_refunded`, `refunded`, `cancelled`) ↔ provider ro'yxati —
+         *     `provider_transaction_id` bo'yicha, Payme `GetStatement` uslubida. Provider'dan davr ±1 soat padding bilan olinadi.
+         *
+         *     Farq turlari: `missing_at_provider` (bizda bor, providerda yo'q), `missing_locally` (providerda pul harakati bor, bizda yo'q),
+         *     `amount_mismatch`, `status_mismatch` (provider holati yakuniy bo'lsa). Har farq `reconciliation_items`, `audit_logs`
+         *     (`reconciliation.mismatch`) va outbox'ga (`ReconciliationMismatch`) bitta tranzaksiyada yoziladi.
+         *
+         *     | Provider | Manba |
+         *     |---|---|
+         *     | Payme | Subscribe API `receipts.get_all` (X-Auth: kassa id + kalit, sahifa 50 tadan); `PAYME_RECONCILE_ENABLED=true` bo'lsa |
+         *     | Click | yo'q — Merchant API'da davr bo'yicha ro'yxat yo'q (faqat bitta to'lov holati, summasiz) |
+         *     | Uzum | yo'q — Merchant API faqat webhook'lardan iborat |
+         */
+        get: operations["adminListReconciliationRuns"];
+        put?: never;
+        /**
+         * Solishtirishni qo'lda ishga tushirish
+         * @description Sinxron bajariladi va natija darhol qaytadi. `provider` berilmasa — davr bo'yicha ro'yxat bera oladigan barcha provider'lar.
+         *     Davr 31 kundan oshmaydi. Ro'yxat API'si yo'q provider — 422 (`errors[0].code = unsupported`, sababi bilan).
+         *     Shu provider va davr uchun ishlayotgan run bo'lsa — 409. Provider API xatosi — run `failed` (`error` bilan), HTTP 201.
+         *     Run `audit_logs` ga (`reconciliation.run`) yoziladi.
+         */
+        post: operations["adminRunReconciliation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/finance/reconciliation/{runId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Run tafsiloti — topilgan farqlar bilan */
+        get: operations["adminGetReconciliationRun"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2051,6 +2121,123 @@ export interface components {
             error: 0 | -1 | -2 | -3 | -4 | -5 | -6 | -7 | -8 | -9;
             error_note: string;
         };
+        /**
+         * @description Maydonlar operatsiyaga qarab: `check` — `params`; `create` — `transId`, `params`, `amount`;
+         *     `confirm` — `transId`, `paymentSource`, `phone` (+ `tariff`, `processingReferenceNumber`, `cardType`); `reverse`, `status` — `transId`.
+         */
+        UzumRequest: {
+            /**
+             * Format: int64
+             * @example 101202
+             */
+            serviceId: number;
+            /**
+             * Format: int64
+             * @description So'rov vaqti (ms)
+             */
+            timestamp: number;
+            /**
+             * Format: uuid
+             * @description Uzum tranzaksiya id
+             */
+            transId?: string;
+            params?: {
+                /** Format: uuid */
+                booking_id?: string;
+            } & {
+                [key: string]: unknown;
+            };
+            /**
+             * Format: int64
+             * @description tiyin
+             */
+            amount?: number;
+            /**
+             * @example UZCARD
+             * @example HUMO
+             * @example VISA
+             * @example MASTERCARD
+             * @example VISA_DOMESTIC
+             * @example MASTERCARD_DOMESTIC
+             * @example INSTALLMENT
+             * @example CASHBACK
+             * @example ACCOUNT
+             * @example WALLET
+             * @example VISAUZS
+             * @example UZUM_DEBIT_VISA
+             */
+            paymentSource?: string;
+            /** @description Faqat INSTALLMENT uchun */
+            tariff?: string | null;
+            processingReferenceNumber?: string | null;
+            /** @description Mijoz telefoni (payment_events'da maskalanadi) */
+            phone?: string;
+            /**
+             * @description 1 — korporativ, 2 — shaxsiy karta
+             * @enum {integer}
+             */
+            cardType?: 1 | 2;
+        };
+        /** @description Uzum ilovasida ko'rsatiladigan qo'shimcha ma'lumot (`kalit -> {value}`) */
+        UzumData: {
+            [key: string]: {
+                value: string;
+            };
+        };
+        UzumResponse: {
+            /** Format: int64 */
+            serviceId: number;
+            /** Format: uuid */
+            transId?: string;
+            /**
+             * @description `check` — OK, `status` — CREATED / CONFIRMED / REVERSED
+             * @enum {string}
+             */
+            status: "OK" | "CREATED" | "CONFIRMED" | "REVERSED";
+            /**
+             * Format: int64
+             * @description `check`
+             */
+            timestamp?: number;
+            /**
+             * Format: int64
+             * @description `create`, `status`
+             */
+            transTime?: number;
+            /** Format: int64 */
+            confirmTime?: number | null;
+            /** Format: int64 */
+            reverseTime?: number | null;
+            /**
+             * Format: int64
+             * @description tiyin
+             */
+            amount?: number;
+            data?: components["schemas"]["UzumData"];
+        };
+        UzumError: {
+            /** Format: int64 */
+            serviceId: number;
+            transId?: string;
+            /** @constant */
+            status: "FAILED";
+            /** Format: int64 */
+            timestamp?: number;
+            /** Format: int64 */
+            transTime?: number | null;
+            /** Format: int64 */
+            confirmTime?: number | null;
+            /** Format: int64 */
+            reverseTime?: number | null;
+            /**
+             * @description 10001 auth, 10002 JSON, 10003 operatsiya / HTTP metod, 10005 majburiy parametr yo'q, 10006 serviceId,
+             *     10007 booking topilmadi, 10008 allaqachon to'langan, 10009 bekor qilingan / joy yo'q, 10010 transId band,
+             *     10011 summa, 10014 tranzaksiya topilmadi, 10015 tranzaksiya bekor, 10016 tasdiqlangan,
+             *     10017 bekor qilib bo'lmaydi, 10018 bekor qilingan, 99999 ichki xato
+             * @enum {string}
+             */
+            errorCode: "10001" | "10002" | "10003" | "10005" | "10006" | "10007" | "10008" | "10009" | "10010" | "10011" | "10014" | "10015" | "10016" | "10017" | "10018" | "99999";
+        };
         HostOffer: {
             /** Format: uuid */
             assignment_id?: string;
@@ -2685,6 +2872,82 @@ export interface components {
             total: number;
             /** @description Filtr bo'yicha valyuta kesimidagi jamilar */
             totals: components["schemas"]["CurrencyTotal"][];
+        };
+        ReconciliationRun: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            provider: "payme" | "click" | "uzum";
+            period: {
+                /** Format: date-time */
+                from: string;
+                /**
+                 * Format: date-time
+                 * @description Kiritilmaydi
+                 */
+                to: string;
+            };
+            /** @enum {string} */
+            status: "running" | "completed" | "failed";
+            /** @enum {string} */
+            trigger: "schedule" | "manual";
+            triggered_by: {
+                /** Format: uuid */
+                id: string;
+                display_name: string | null;
+            } | null;
+            counts: {
+                /** @description Bizning davrdagi yakuniy to'lovlar */
+                local: number;
+                /** @description Provider'ning davrdagi tranzaksiyalari */
+                provider: number;
+                /** @description Ikkala tomonda topilgan juftliklar */
+                matched: number;
+                diffs: number;
+            };
+            diffs_by_kind: {
+                missing_at_provider: number;
+                missing_locally: number;
+                amount_mismatch: number;
+                status_mismatch: number;
+            };
+            /** @description `failed` — provider API xatosi */
+            error: string | null;
+            /** Format: date-time */
+            started_at: string;
+            /** Format: date-time */
+            finished_at: string | null;
+        };
+        ReconciliationRunList: {
+            items: components["schemas"]["ReconciliationRun"][];
+            total: number;
+        };
+        ReconciliationSide: {
+            amount: components["schemas"]["Money"] | null;
+            /** @description Bizda — payments.status; providerda — succeeded / refunded / cancelled / pending */
+            status: string | null;
+        };
+        ReconciliationItem: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            kind: "missing_at_provider" | "missing_locally" | "amount_mismatch" | "status_mismatch";
+            /** Format: uuid */
+            payment_id: string | null;
+            provider_transaction_id: string | null;
+            /** Format: uuid */
+            booking_id: string | null;
+            local: components["schemas"]["ReconciliationSide"];
+            provider: components["schemas"]["ReconciliationSide"];
+            /** @description Provider'ning xom holati (masalan Payme chek `state`) */
+            details: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            created_at: string;
+        };
+        ReconciliationRunDetail: components["schemas"]["ReconciliationRun"] & {
+            items: components["schemas"]["ReconciliationItem"][];
         };
         AdminRefund: {
             /** Format: uuid */
@@ -4258,38 +4521,37 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": {
-                    serviceId: number;
-                    /** Format: int64 */
-                    timestamp: number;
-                    transId?: string;
-                    /**
-                     * Format: int64
-                     * @description tiyin
-                     */
-                    amount?: number;
-                    params?: {
-                        /** Format: uuid */
-                        booking_id?: string;
-                    };
-                } & {
-                    [key: string]: unknown;
-                };
+                "application/json": components["schemas"]["UzumRequest"];
             };
         };
         responses: {
-            /** @description Uzum javobi */
+            /** @description Muvaffaqiyat */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["UzumResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
+            /** @description Uzum formatidagi xato */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UzumError"];
+                };
+            };
+            /** @description Kutilmagan server xatosi (`99999`) — `confirm` da Uzum `status` bilan haqiqiy holatni so'raydi */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UzumError"];
+                };
+            };
         };
     };
     stripeWebhook: {
@@ -5319,6 +5581,109 @@ export interface operations {
             };
             403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    adminListReconciliationRuns: {
+        parameters: {
+            query?: {
+                /** @description Vergul bilan */
+                provider?: string;
+                /** @description Vergul bilan */
+                status?: string;
+                has_diffs?: boolean;
+                /** @description Run davri shu vaqtdan keyin tugaydi */
+                date_from?: string;
+                /** @description Run davri shu vaqtdan oldin boshlanadi */
+                date_to?: string;
+                limit?: components["parameters"]["AdminLimit"];
+                /** @description Admin jadvallari offset pagination ishlatadi (javobda `total`) */
+                offset?: components["parameters"]["Offset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Run'lar (eng yangisi birinchi) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReconciliationRunList"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    adminRunReconciliation: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    provider?: "payme" | "click" | "uzum";
+                    /**
+                     * Format: date-time
+                     * @description Kiritiladi
+                     */
+                    date_from: string;
+                    /**
+                     * Format: date-time
+                     * @description Kiritilmaydi
+                     */
+                    date_to: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Bajarilgan run'lar */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["ReconciliationRun"][];
+                    };
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    adminGetReconciliationRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Run va farqlar */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReconciliationRunDetail"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
 }

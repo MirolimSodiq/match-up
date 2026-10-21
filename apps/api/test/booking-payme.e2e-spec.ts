@@ -82,9 +82,9 @@ describe('Discovery -> waiver -> booking -> Payme', () => {
     expect(after.body).toMatchObject({ signed: true, signature_id: ok.body.signature_id });
   });
 
-  it("to'lov usullari: wallet + Payme + Click (priority bo'yicha)", async () => {
+  it("to'lov usullari: wallet + Payme + Click + Uzum (priority bo'yicha)", async () => {
     const r = await ctx.http().get(`/v1/payment-methods?match_id=${race}`).set(p2.auth).expect(200);
-    expect(r.body.methods.map((m: { provider: string }) => m.provider)).toEqual(['wallet', 'payme', 'click']);
+    expect(r.body.methods.map((m: { provider: string }) => m.provider)).toEqual(['wallet', 'payme', 'click', 'uzum']);
     expect(r.body.wallet_balance.amount).toBe(0);
   });
 

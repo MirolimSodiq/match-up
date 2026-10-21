@@ -448,7 +448,7 @@ GET /v1/matches?lat=41.2995&lng=69.2401&radius_km=15&sport=football&min_slots=1
 | GET | `/v1/me/bookings?scope=upcoming\|past` | |
 | POST | `/v1/webhooks/payme` | JSON-RPC: `CheckPerformTransaction`, `CreateTransaction`, `PerformTransaction`, `CancelTransaction`, `CheckTransaction`, `GetStatement` |
 | POST | `/v1/webhooks/click/prepare`, `/complete` | form-urlencoded, MD5 `sign_string` |
-| POST | `/v1/webhooks/uzum/{check\|create\|confirm\|reverse\|status}` | Basic auth |
+| POST | `/v1/webhooks/uzum/{check\|create\|confirm\|reverse\|status}` | Uzum Merchant API: Basic auth, JSON, tiyin; xato — HTTP 400 + `errorCode` |
 | POST | `/v1/webhooks/stripe` | `Stripe-Signature` |
 
 ```json
@@ -520,7 +520,7 @@ POST /v1/host/matches/01a1…/checkins
 
 **QR check-in xavfsizligi:** chipta `{participant_id, match_id, exp}` — server private key bilan **Ed25519** imzolanadi. Host app roster bilan birga public key'ni oladi → stadionda internet bo'lmasa ham imzoni tekshiradi va check-in'ni lokal yozadi, keyin batch yuboradi. Skrinshot bilan kirish: chipta faqat o'sha match uchun, roster'da `checked_in` bo'lgach ikkinchi skan `duplicate`.
 
-**Admin:** `POST /v1/admin/matches` (lease bilan birga, ustma-ust lease → `409 LEASE_OVERLAP`), `POST /v1/admin/matches/{id}/publish`, `POST /v1/admin/matches/{id}/cancel` (barcha booking'larga 100% refund, ixtiyoriy wallet bonus). Ichki panel uchun: venue/pitch katalogi (`/venues`, `/pitches`), match jadvali va tafsiloti (roster, booking, to'lov, refund, host, audit), host'lar (telefon bo'yicha host qilish, tasdiqlash, suspend), to'lovlar, refund navbati (`original_method` refund'lari provider kabinetida qo'lda bajariladi → `POST /v1/admin/refunds/{id}/complete` `provider_refund_id` bilan, `payments.refunded_amount` yangilanadi), dashboard (match'lar, to'lish, GMV, ijara, host to'lovlari, yalpi marja, no-show, bekor qilishlar). Jadvallar offset pagination (`limit`, `offset` → `total`). Har bir mutatsiya `audit_logs` ga (ip, request_id bilan) yoziladi.
+**Admin:** `POST /v1/admin/matches` (lease bilan birga, ustma-ust lease → `409 LEASE_OVERLAP`), `POST /v1/admin/matches/{id}/publish`, `POST /v1/admin/matches/{id}/cancel` (barcha booking'larga 100% refund, ixtiyoriy wallet bonus). Ichki panel uchun: venue/pitch katalogi (`/venues`, `/pitches`), match jadvali va tafsiloti (roster, booking, to'lov, refund, host, audit), host'lar (telefon bo'yicha host qilish, tasdiqlash, suspend), to'lovlar, refund navbati (`original_method` refund'lari provider kabinetida qo'lda bajariladi → `POST /v1/admin/refunds/{id}/complete` `provider_refund_id` bilan, `payments.refunded_amount` yangilanadi), reconciliation (`GET/POST /v1/admin/finance/reconciliation`, `GET …/{runId}` — §4.6), dashboard (match'lar, to'lish, GMV, ijara, host to'lovlari, yalpi marja, no-show, bekor qilishlar). Jadvallar offset pagination (`limit`, `offset` → `total`). Har bir mutatsiya `audit_logs` ga (ip, request_id bilan) yoziladi.
 
 ---
 
@@ -672,14 +672,25 @@ export interface PaymentProvider {
 |---|---|---|---|
 | **Payme** | merchant API (JSON-RPC) — Payme bizni chaqiradi | UZ | Summalar tiyin; `CheckPerformTransaction`'da hold qayta tekshiriladi → joy yo'q bo'lsa pul **yechilmaydi** |
 | **Click** | merchant API (Prepare / Complete) | UZ | MD5 `sign_string`; summa so'mda |
-| **Uzum Bank** | merchant API (check / create / confirm / reverse / status) | UZ | Basic auth |
+| **Uzum Bank** | merchant API (check / create / confirm / reverse / status) — Uzum bizni chaqiradi | UZ | Basic auth (`UZUM_LOGIN:UZUM_PASSWORD`, `timingSafeEqual`); JSON, tiyin; xato — HTTP 400 + `errorCode`. To'lov Uzum Bank ilovasida: checkout = `UZUM_CHECKOUT_URL?serviceId=…&booking_id=…&amount=…` (havola formati rasmiy hujjatda yo'q — Uzum menejeri bilan tasdiqlanadi) |
 | **Stripe** | async webhook (PaymentIntent) | xalqaro | Apple Pay / Google Pay — Stripe Payment Sheet orqali. Kech `succeeded` → avto-refund yoki waitlist |
 | **PayPal** | async webhook | xalqaro (talab bo'lsa) | Phase 3 |
 | **Wallet** | ichki | hammasi | Refund kreditlari; provider komissiyasi yo'q |
 
 - **Routing:** `payment_provider_configs` (davlat, valyutalar, priority, `is_enabled`, `secret_ref` → Vault/Secrets Manager). Yangi davlat = konfiguratsiya qatori, kod emas.
 - **Idempotency 3 qavat:** `Idempotency-Key` (client) → `payment_events UNIQUE (provider, provider_event_id)` (webhook dublikatlari) → `payments_one_success_per_booking` partial unique (ikki marta to'lov).
-- **Reconciliation:** har kecha Payme `GetStatement`, Click/Uzum hisobotlari, Stripe balance transactions ↔ `payments` → farq bo'lsa alert + avto-tuzatish job'i.
+- **Uzum Merchant API** ([developer.uzumbank.uz/merchant](https://developer.uzumbank.uz/merchant)), `UzumService`; holat `payments.provider_state` da (`CREATED` / `CONFIRMED` / `REVERSED` / bizning `FAILED`):
+  - `check` — booking to'lovga yaroqli (Payme `CheckPerformTransaction` bilan bir xil: muddati o'tgan bo'lsa joy bor ekan — qayta hold); to'langan → `10008`, bekor qilingan yoki joy yo'q → `10009` — pul **yechilmaydi**;
+  - `create` — summa mos (`10011`), `payments` qatori (`provider_transaction_id = transId`), hold uzaytiriladi; hujjat bo'yicha takroriy `transId` → `10010` (ikkinchi qator yo'q);
+  - `confirm` — Uzum pulni `create` dan keyin yechadi, shuning uchun bu yerda `confirmPaid`: joy qolmagan yoki booking boshqa usul bilan to'langan → `10015` (FAILED, Uzum pulni qaytaradi — ikki marta yechilmaydi); `create` dan 30 daqiqa o'tgan → FAILED; takroriy → `10016`; muvaffaqiyat → `PaymentSucceeded` outbox;
+  - `reverse` — `CREATED` → bekor + hold ozod; `CONFIRMED` → o'yin boshlanmagan bo'lsa refund (`refunds`, joy qaytadi), aks holda `10017`; takroriy → `10018`;
+  - `status` — `confirm` timeout'idan keyin Uzum so'raydi; muddati o'tgan `CREATED` shu yerda FAILED ga o'tadi;
+  - har chaqiruv (auth xatosi bilan ham) `payment_events` ga (`processed_at`, `processing_error`, telefon maskalangan); buzilgan JSON → `10002` (`uzumJsonBody` global body-parser'dan oldin).
+- **Reconciliation** (`ReconciliationService`, migratsiya 0007): Payme `GetStatement` uslubida — bizning `payments` (`created_at` davr ichida; `succeeded` / `partially_refunded` / `refunded` / `cancelled`) ↔ provider ro'yxati `provider_transaction_id` bo'yicha. Adapter: `fetchTransactions(from, to)`, provider'dan ±1 soat padding bilan.
+  - Farqlar: `missing_at_provider`, `missing_locally` (providerda pul harakati bor, bizda yo'q), `amount_mismatch`, `status_mismatch` (provider holati yakuniy bo'lsa) → `reconciliation_runs` + `reconciliation_items`; har farq bitta tranzaksiyada `audit_logs` (`reconciliation.mismatch`) va outbox (`ReconciliationMismatch`) ga.
+  - Trigger: har kecha (`RECONCILE_CRON`, standart `30 3 * * *` Asia/Tashkent, oldingi kun; alohida `reconciliation` BullMQ navbati) va admin qo'lda (`POST /v1/admin/finance/reconciliation`, sinxron, `audit_logs` ← `reconciliation.run`). Bir provider + davr uchun bir vaqtda bitta `running` run (partial unique index).
+  - Manbalar: **Payme** — Subscribe API `receipts.get_all` (X-Auth `kassa_id:kalit`, 50 tadan sahifa; chek `state` 4 → succeeded, 50 → `pay_time > 0` bo'lsa refunded, aks holda cancelled), `PAYME_RECONCILE_ENABLED=true` bo'lganda. **Click** — stub: Merchant API'da davr bo'yicha ro'yxat yo'q (faqat `payment/status/:service_id/:payment_id`, summasiz). **Uzum** — stub: Merchant API faqat webhook'lardan iborat. Stub adapter kechki job'da o'tkazib yuboriladi, qo'lda — 422. Stripe balance transactions — xalqaro bosqichda.
+  - Avto-tuzatish yo'q: farqlar admin tomonidan ko'rib chiqiladi (outbox event — keyinchalik alert consumer uchun).
 - ⚠️ **Yuridik:** Stripe va PayPal O'zbekistonda ro'yxatdan o'tgan yuridik shaxsga merchant akkaunt bermaydi → xalqaro bosqichda chet el yuridik shaxsi (UAE / UK / Estoniya) va o'sha cell'lar uchun alohida merchant akkauntlar kerak.
 
 ### 4.7 Liability waiver va sug'urta
@@ -724,7 +735,7 @@ export interface PaymentProvider {
 | Host no-show | kick-off - 15 daq, `arrived` yo'q | admin alert + zaxira host |
 | Post-match | `MatchCompleted` | Glicko reyting, feedback so'rovi, no-show statistikasi |
 | Host payout | haftalik | `host_assignments.completed` → `host_payouts` |
-| Reconciliation | har kecha | provider hisobotlari ↔ `payments` |
+| Reconciliation | har kecha (`RECONCILE_CRON`, Asia/Tashkent; `reconciliation` navbati) + admin qo'lda | provider ro'yxati (Payme `receipts.get_all`) ↔ `payments` → `reconciliation_items` + audit + outbox (§4.6) |
 | DSR eksport | har daqiqa (`dsr-exports`) | JSON fayl → `completed` + `DataExportReady`; muddati o'tgan fayllarni o'chirish |
 | DSR erasure | har soat (`dsr-erasures`) | grace muddati o'tgan so'rovlar: bloklovchilarni tekshirish → booking'larni bekor qilish → anonimlashtirish (§4.8) |
 

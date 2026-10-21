@@ -20,6 +20,7 @@ import { JobsModule } from './jobs/jobs.module';
 import { MatchesModule } from './matches/matches.controller';
 import { NotificationsModule } from './notifications/notifications.module';
 import { PaymentsModule } from './payments/payments.module';
+import { uzumJsonBody } from './payments/uzum.service';
 import { PrivacyModule } from './privacy/privacy.module';
 import { REDIS, RedisModule } from './redis/redis.module';
 import { WaiversModule } from './waivers/waivers.module';
@@ -95,6 +96,8 @@ export function configureApp(app: INestApplication): INestApplication {
   express.disable('x-powered-by');
   const locale = new LocaleMiddleware();
   express.use(locale.use.bind(locale));
+  // Uzum: buzilgan JSON -> Uzum formatidagi 10002 (global body-parser'dan oldin)
+  express.use('/v1/webhooks/uzum', uzumJsonBody);
   express.useLogger(express.get(Logger));
   express.enableShutdownHooks();
   return app;
