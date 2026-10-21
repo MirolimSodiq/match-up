@@ -130,7 +130,7 @@ data "aws_iam_policy_document" "api_task" {
   statement {
     sid       = "RawUploads"
     actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload", "s3:ListMultipartUploadParts"]
-    resources = ["${aws_s3_bucket.media_raw.arn}/highlights/*"]
+    resources = ["${aws_s3_bucket.media_raw.arn}/highlights/*", "${aws_s3_bucket.media_raw.arn}/recordings/*"]
   }
 }
 
