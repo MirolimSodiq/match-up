@@ -6,6 +6,11 @@ import { REDIS } from '../redis/redis.module';
 /** `media_processing_jobs.type` (0002) — transcode hozir, AI job'lar Phase 2 (AI-Cam). */
 export type MediaJobType = 'transcode' | 'thumbnail' | 'ai_detect_events' | 'ai_auto_clip' | 'face_blur';
 export type MediaJobTransport = 'redis_stream' | 'sqs';
+/**
+ * Bitta transport ichidagi navbat: `default` — kliplar (daqiqalar), `recording` — to'liq o'yin yozuvlari
+ * (soatlar, katta disk). Har lane'ni o'z worker servisi o'qiydi, shuning uchun uzun yozuv kliplarni kutdirmaydi.
+ */
+export type MediaJobLane = 'default' | 'recording';
 
 /**
  * Navbat xabari (v1) — transportdan mustaqil. Xabarda faqat identifikatorlar: worker job tafsilotlarini
@@ -23,7 +28,7 @@ export interface MediaJobMessage {
 export interface MediaJobQueue {
   readonly transport: MediaJobTransport;
   /** Xabar id'sini qaytaradi (Redis Stream entry id / SQS MessageId). */
-  publish(message: MediaJobMessage): Promise<string>;
+  publish(message: MediaJobMessage, lane?: MediaJobLane): Promise<string>;
 }
 
 export const MEDIA_JOB_QUEUES = Symbol('MEDIA_JOB_QUEUES');
@@ -41,21 +46,26 @@ export const JOB_ROUTES: Record<MediaJobType, MediaJobTransport> = {
   face_blur: 'sqs',
 };
 
+/** Profil -> lane (`media-sql.ts` dagi `MediaProfile`). */
+export function laneFor(profile: string | null | undefined): MediaJobLane {
+  return profile === 'recording_v1' ? 'recording' : 'default';
+}
+
 @Injectable()
 export class RedisStreamMediaQueue implements MediaJobQueue {
   readonly transport = 'redis_stream' as const;
-  readonly stream: string;
+  readonly streams: Record<MediaJobLane, string>;
 
   constructor(
     @Inject(REDIS) private readonly redis: Redis,
     @Inject(ENV) env: Env,
   ) {
-    this.stream = env.MEDIA_JOBS_STREAM;
+    this.streams = { default: env.MEDIA_JOBS_STREAM, recording: env.MEDIA_RECORDING_JOBS_STREAM };
   }
 
-  async publish(m: MediaJobMessage): Promise<string> {
+  async publish(m: MediaJobMessage, lane: MediaJobLane = 'default'): Promise<string> {
     const id = await this.redis.xadd(
-      this.stream, 'MAXLEN', '~', '100000', '*',
+      this.streams[lane], 'MAXLEN', '~', '100000', '*',
       'v', String(m.v), 'job_id', m.job_id, 'type', m.type, 'media_id', m.media_id, 'enqueued_at', m.enqueued_at,
     );
     if (!id) throw new Error('media queue: XADD id qaytarmadi');

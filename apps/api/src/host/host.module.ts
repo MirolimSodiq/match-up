@@ -1,10 +1,11 @@
-import { Controller, Get, HttpCode, Module, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
+import { Controller, Delete, Get, HttpCode, Module, Param, ParseUUIDPipe, Patch, Post, Put } from '@nestjs/common';
 import { z } from 'zod';
 import { CurrentUser, ReqLocale, Roles, ZBody, ZQuery, type AuthUser } from '../common/http';
 import type { Locale } from '../common/i18n';
 import { HighlightsService } from '../media/highlights.service';
-import { HighlightUploadBody, MediaModule } from '../media/media.module';
+import { CameraBody, CameraUploadBody, HighlightUploadBody, MarkersBody, MediaModule } from '../media/media.module';
 import { MediaService } from '../media/media.service';
+import { RecordingsService } from '../media/recordings.service';
 import { DispatchService, HostService } from './host.service';
 
 const GeoPoint = z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) });
@@ -29,8 +30,13 @@ const Checkins = z.object({
     .max(100),
 });
 const ParticipantPatch = z
-  .object({ side_no: z.number().int().min(1).optional(), status: z.enum(['checked_in', 'no_show']).optional() })
-  .refine((v) => v.side_no !== undefined || v.status !== undefined, 'side_no yoki status kerak');
+  .object({
+    side_no: z.number().int().min(1).optional(),
+    status: z.enum(['checked_in', 'no_show']).optional(),
+    // null — raqamni olib tashlash
+    bib_number: z.number().int().min(1).max(99).nullable().optional(),
+  })
+  .refine((v) => v.side_no !== undefined || v.status !== undefined || v.bib_number !== undefined, 'side_no, status yoki bib_number kerak');
 const Complete = z.object({
   scores: z.array(z.object({ side_no: z.number().int().min(1), score: z.number().int().min(0).max(99) })).min(2),
   mvp_participant_id: z.uuid().nullable().optional(),
@@ -53,6 +59,7 @@ export class HostController {
     private readonly host: HostService,
     private readonly media: MediaService,
     private readonly highlights: HighlightsService,
+    private readonly recordings: RecordingsService,
   ) {}
 
   @Get('offers')
@@ -126,6 +133,51 @@ export class HostController {
   async matchHighlights(@Param('matchId', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
     await this.media.requireUploader(user.id, id);
     return this.highlights.hostMatchHighlights(user.id, id);
+  }
+
+  // --- AI-Cam A: to'liq o'yin yozuvi ------------------------------------------------------------------
+  @Get('matches/:matchId/recording')
+  recording(@Param('matchId', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    return this.recordings.hostView(user.id, id);
+  }
+
+  /** Kamera faylini ro'yxatga olish: yozish boshlanganda va to'xtaganda (idempotent, offline'dan keyin ham). */
+  @Put('matches/:matchId/recording/cameras/:clientCameraId')
+  camera(
+    @Param('matchId', ParseUUIDPipe) id: string,
+    @Param('clientCameraId', ParseUUIDPipe) cameraId: string,
+    @ZBody(CameraBody) body: z.infer<typeof CameraBody>,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.recordings.putCamera(user.id, id, cameraId, body);
+  }
+
+  /** Yozuv faylini yuklash (S3 multipart); davomi `GET /v1/media/{id}/upload`, yakuni `POST /v1/media/{id}/complete`. */
+  @Post('matches/:matchId/recording/cameras/:clientCameraId/upload')
+  @HttpCode(201)
+  cameraUpload(
+    @Param('matchId', ParseUUIDPipe) id: string,
+    @Param('clientCameraId', ParseUUIDPipe) cameraId: string,
+    @ZBody(CameraUploadBody) body: z.infer<typeof CameraUploadBody>,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.recordings.initCameraUpload(user.id, id, cameraId, body);
+  }
+
+  @Post('matches/:matchId/recording/markers')
+  @HttpCode(200)
+  markers(@Param('matchId', ParseUUIDPipe) id: string, @ZBody(MarkersBody) body: z.infer<typeof MarkersBody>, @CurrentUser() user: AuthUser) {
+    return this.recordings.addMarkers(user.id, id, body.markers);
+  }
+
+  @Delete('matches/:matchId/recording/markers/:clientMarkerId')
+  @HttpCode(204)
+  async deleteMarker(
+    @Param('matchId', ParseUUIDPipe) id: string,
+    @Param('clientMarkerId', ParseUUIDPipe) markerId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    await this.recordings.deleteMarker(user.id, id, markerId);
   }
 }
 

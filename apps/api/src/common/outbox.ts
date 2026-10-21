@@ -21,6 +21,7 @@ export type DomainEvent =
   | 'PlayerCheckedIn'
   | 'HighlightReady'
   | 'HighlightShared'
+  | 'RecordingReady'
   | 'DataExportReady'
   | 'UserErased';
 

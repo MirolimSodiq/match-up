@@ -185,12 +185,13 @@ export class HostService {
       is_guest: boolean;
       level: string | null;
       side_no: number | null;
+      bib_number: number | null;
       status: string;
       checked_in_at: string | null;
     }>(
       this.db,
       sql`SELECT mp.id, coalesce(u.display_name, mp.guest_name) AS name, mp.user_id IS NULL AS is_guest,
-                 psp.self_level AS level, mp.side_no, mp.status, mp.checked_in_at
+                 psp.self_level AS level, mp.side_no, mp.bib_number, mp.status, mp.checked_in_at
           FROM match_participants mp
           JOIN matches m ON m.id = mp.match_id
           LEFT JOIN users u ON u.id = mp.user_id
@@ -215,6 +216,7 @@ export class HostService {
         is_guest: p.is_guest,
         level: p.level,
         side_no: p.side_no,
+        bib_number: p.bib_number,
         status: p.status,
         checked_in_at: iso(p.checked_in_at),
       })),
@@ -315,13 +317,19 @@ export class HostService {
     }
   }
 
-  async updateParticipant(userId: string, matchId: string, participantId: string, body: { side_no?: number; status?: 'checked_in' | 'no_show' }) {
+  async updateParticipant(
+    userId: string,
+    matchId: string,
+    participantId: string,
+    body: { side_no?: number; status?: 'checked_in' | 'no_show'; bib_number?: number | null },
+  ) {
     await this.requireAssigned(userId, matchId);
     try {
       const r = await one<{ id: string }>(
         this.db,
         sql`UPDATE match_participants
                SET side_no = coalesce(${body.side_no ?? null}::smallint, side_no),
+                   bib_number = CASE WHEN ${body.bib_number !== undefined}::boolean THEN ${body.bib_number ?? null}::smallint ELSE bib_number END,
                    status = coalesce(${body.status ?? null}::participant_status, status),
                    checked_in_at = CASE WHEN ${body.status ?? null} = 'checked_in' THEN coalesce(checked_in_at, now()) ELSE checked_in_at END,
                    checked_in_by = CASE WHEN ${body.status ?? null} = 'checked_in' THEN ${userId}::uuid ELSE checked_in_by END
@@ -331,6 +339,7 @@ export class HostService {
       if (!r) throw new AppError('NOT_FOUND');
     } catch (err) {
       if (pgError(err)?.code === PG.FOREIGN_KEY_VIOLATION) throw new AppError('VALIDATION_FAILED', {}, [{ field: 'side_no', code: 'invalid', message: 'side_no mavjud emas' }]);
+      if (pgError(err)?.constraint === 'match_participants_bib_unique') throw new AppError('BIB_TAKEN', { bib_number: body.bib_number ?? 0 });
       throw err;
     }
     return (await this.roster(userId, matchId, 'uz-Latn')).participants.find((p) => p.participant_id === participantId);
