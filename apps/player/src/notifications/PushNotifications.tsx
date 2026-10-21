@@ -38,6 +38,7 @@ function refreshFor(queryClient: QueryClient, data: unknown) {
   // Eksport tayyor: "Maxfiylik" ekrani polling'ni kutmasdan "Tayyor" holatiga o'tadi
   if (d.type === 'privacy.export_ready') void queryClient.invalidateQueries({ queryKey: qk.dataRequests });
   if (d.type?.startsWith('highlight.')) void queryClient.invalidateQueries({ queryKey: ['highlights'] });
+  if (d.type === 'recording.ready' && d.match_id) void queryClient.invalidateQueries({ queryKey: ['match-recording', d.match_id] });
 }
 
 /**
