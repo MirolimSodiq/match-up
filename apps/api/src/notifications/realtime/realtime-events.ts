@@ -36,6 +36,10 @@ export class RealtimeEvents {
         return this.offerCreated(e);
       case 'HostAssigned':
         return this.offerClosed(e);
+      case 'UserErased':
+        // Erasure'dan keyin ilova booking/host xonalarida qolmasin; qayta ulanish handshake'da rad etiladi
+        this.gateway.disconnectUser(e.aggregateId);
+        return;
       default:
         return;
     }

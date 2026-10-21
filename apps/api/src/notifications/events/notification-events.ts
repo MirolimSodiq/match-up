@@ -116,6 +116,8 @@ export class NotificationEvents {
         return this.highlightShared(e);
       case 'DataExportReady':
         return this.dataExportReady(e);
+      case 'UserErased':
+        return this.userErased(e);
       default:
         return;
     }
@@ -308,6 +310,25 @@ export class NotificationEvents {
         ttlSec: r.ttl,
       },
     ]);
+  }
+
+  /**
+   * GDPR erasure -> in-app xabarlar tarixi o'chiriladi (matnlarda match'lar, summalar, teglar bor).
+   * Yangi xabar yozilmaydi: `enqueue` anonimlashtirilgan foydalanuvchini o'tkazib yuboradi. Faqat haqiqatan
+   * anonimlashtirilgan akkaunt uchun ishlaydi; qayta yetkazilsa — o'chiradigan narsa qolmagan.
+   */
+  private async userErased(e: OutboxEvent) {
+    const userId = e.aggregateId;
+    const erased = await one(this.db, sql`SELECT 1 FROM users WHERE id = ${userId} AND anonymized_at IS NOT NULL`);
+    if (!erased) return;
+    const removed = await this.db.transaction(async (tx) => {
+      // Push tarixi device_tokens bilan birga o'chgan (ON DELETE CASCADE); bu — qolgan-qutgani uchun
+      await tx.execute(
+        sql`DELETE FROM push_deliveries WHERE notification_id IN (SELECT id FROM notifications WHERE user_id = ${userId})`,
+      );
+      return (await tx.execute(sql`DELETE FROM notifications WHERE user_id = ${userId}`)).rowCount ?? 0;
+    });
+    if (removed) this.log.log(`erasure: ${removed} ta xabar o'chirildi (user ${userId})`);
   }
 
   /** Marketing: shahar + sport bo'yicha qiziqqan o'yinchilarga yangi o'yin (faqat consent bilan). */
