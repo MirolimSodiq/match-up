@@ -1,4 +1,10 @@
-"""Highlight pipeline (profil `highlight_v1`): download -> probe -> validate -> hls -> thumbnail -> vertical -> upload.
+"""Qayta ishlash profillari (job `profile`):
+
+  * `highlight_v1` — host klipi: download -> probe -> validate -> hls (720p/480p) -> thumbnail -> vertical -> upload;
+  * `recording_v1` — to'liq o'yin (AI-Cam A): download -> probe -> validate -> hls (1080p/720p/480p, bitta o'tish)
+    -> thumbnail (60-soniya) -> upload; 9:16 yo'q (markazdan crop butun maydon uchun ma'nosiz);
+  * `clip_v1` — host belgisidan klip: cut (yozuv HLS'idan faqat kerakli segmentlar yuklanadi, ulanib aniq kesiladi)
+    -> keyin `highlight_v1` bilan bir xil. Kesilgan manba `source.mp4` sifatida natijalar bilan yuklanadi.
 
 Idempotentlik:
   * har bosqich natijasi ish papkasida (`work/<job_id>/`) va `.done-<stage>` belgisi bilan — bir container ichida
@@ -23,7 +29,12 @@ from .storage import Storage
 
 log = logging.getLogger("media_worker.pipeline")
 
-PROFILE = "highlight_v1"
+HIGHLIGHT = "highlight_v1"
+RECORDING = "recording_v1"
+CLIP = "clip_v1"
+PROFILES = (HIGHLIGHT, RECORDING, CLIP)
+#: Yozuv thumbnail'i — o'yin boshlangandan keyingi kadr (boshida odatda shtativ o'rnatilmoqda)
+RECORDING_THUMB_AT_S = 60.0
 Progress = Callable[[str], None]
 
 
@@ -50,13 +61,15 @@ class Pipeline:
 
     def run(self, job: dict, progress: Progress = lambda _s: None) -> dict:
         """`job` — `POST /internal/media/jobs/{id}/start` javobi. Natija — API `result.output`."""
-        if job.get("profile", PROFILE) != PROFILE:
-            raise JobError("UNSUPPORTED_PROFILE", str(job.get("profile")))
+        profile = job.get("profile", HIGHLIGHT)
+        if profile not in PROFILES:
+            raise JobError("UNSUPPORTED_PROFILE", str(profile))
+        recording = profile == RECORDING
         out_bucket, prefix = job["output"]["bucket"], job["output"]["prefix"]
         media = job["media"]
 
         manifest = self.storage.get_json(out_bucket, prefix + "manifest.json")
-        if manifest and manifest.get("profile") == PROFILE and manifest.get("source_size") == media.get("size_bytes"):
+        if manifest and manifest.get("profile") == profile and manifest.get("source_size") == media.get("size_bytes"):
             log.info("job %s: manifest bor — qayta kodlanmaydi", job["job_id"])
             return manifest["output"]
 
@@ -72,15 +85,19 @@ class Pipeline:
             fn()
             marker.touch()
 
-        src = work / ("source" + Path(job["source"]["key"]).suffix.lower())
+        if profile == CLIP:
+            src = out / "source.mp4"
+            step("cut", lambda: self.cut(job["source"], work / "clip-src", src))
+        else:
+            src = work / ("source" + Path(job["source"]["key"]).suffix.lower())
 
-        def download() -> None:
-            self.storage.download(job["source"]["bucket"], job["source"]["key"], src)
-            expected = media.get("checksum_sha256")
-            if expected and sha256_file(src) != expected.lower():
-                raise JobError("CHECKSUM_MISMATCH", "sha256 client e'lon qilgani bilan mos emas")
+            def download() -> None:
+                self.storage.download(job["source"]["bucket"], job["source"]["key"], src)
+                expected = media.get("checksum_sha256")
+                if expected and sha256_file(src) != expected.lower():
+                    raise JobError("CHECKSUM_MISMATCH", "sha256 client e'lon qilgani bilan mos emas")
 
-        step("download", download)
+            step("download", download)
 
         probe_file = work / "probe.json"
 
@@ -92,19 +109,24 @@ class Pipeline:
 
         step("validate", lambda: ffmpeg.validate(p, job["limits"]["max_duration_ms"], job["limits"]["max_bytes"]))
 
-        specs = ffmpeg.plan_renditions(p)
+        specs = ffmpeg.plan_renditions(p, ffmpeg.RECORDING_LADDER if recording else ffmpeg.LADDER)
 
         def hls() -> None:
-            entries = []
-            for spec in specs:
-                pl = ffmpeg.encode_hls(src, out / "hls" / spec.name, p, spec, self.preset, self.threads)
-                entries.append((spec, ffmpeg.peak_bandwidth(pl)))
+            if recording:
+                playlists = ffmpeg.encode_hls_multi(src, out / "hls", p, specs, self.preset, self.threads)
+                entries = [(spec, ffmpeg.peak_bandwidth(pl)) for spec, pl in zip(specs, playlists)]
+            else:
+                entries = []
+                for spec in specs:
+                    pl = ffmpeg.encode_hls(src, out / "hls" / spec.name, p, spec, self.preset, self.threads)
+                    entries.append((spec, ffmpeg.peak_bandwidth(pl)))
             ffmpeg.write_master(out / "hls" / "master.m3u8", entries, p.has_audio)
             (work / "renditions.json").write_text(json.dumps([[s.__dict__, bw] for s, bw in entries]))
 
         step("hls", hls)
-        step("thumbnail", lambda: ffmpeg.thumbnail(src, out / "thumb.jpg", p))
-        step("vertical", lambda: ffmpeg.encode_vertical(src, out / "vertical.mp4", p, self.preset, self.threads))
+        step("thumbnail", lambda: ffmpeg.thumbnail(src, out / "thumb.jpg", p, RECORDING_THUMB_AT_S if recording else 1.0))
+        if not recording:
+            step("vertical", lambda: ffmpeg.encode_vertical(src, out / "vertical.mp4", p, self.preset, self.threads))
 
         def upload() -> None:
             files = sorted(f for f in out.rglob("*") if f.is_file())
@@ -130,7 +152,7 @@ class Pipeline:
                 for s, bw in rendered
             ],
             "thumbnail_key": f"{prefix}thumb.jpg",
-            "vertical_key": f"{prefix}vertical.mp4",
+            "vertical_key": None if recording else f"{prefix}vertical.mp4",
             "duration_ms": p.duration_ms,
             "width": p.width,
             "height": p.height,
@@ -149,6 +171,30 @@ class Pipeline:
         self.storage.put_json(
             out_bucket,
             prefix + "manifest.json",
-            {"profile": PROFILE, "worker_version": WORKER_VERSION, "job_id": job["job_id"], "source_size": media.get("size_bytes"), "output": output},
+            {"profile": profile, "worker_version": WORKER_VERSION, "job_id": job["job_id"], "source_size": media.get("size_bytes"), "output": output},
         )
         return output
+
+    def cut(self, source: dict, work: Path, dst: Path) -> None:
+        """`clip_v1`: yozuv playlist'i -> [start, start+duration) segmentlari (bir necha MB) -> ulash -> aniq kesish."""
+        if source.get("kind") != "hls":
+            raise JobError("UNSUPPORTED_SOURCE", str(source.get("kind")))
+        work.mkdir(parents=True, exist_ok=True)
+        playlist = work / "index.m3u8"
+        self.storage.download(source["bucket"], source["key"], playlist)
+        start_s, duration_s = source["start_ms"] / 1000, source["duration_ms"] / 1000
+        picked, first_start = ffmpeg.select_segments(ffmpeg.parse_playlist(playlist), start_s, start_s + duration_s)
+        if not picked:
+            raise JobError("CLIP_OUT_OF_RANGE", f"{start_s:.1f} s yozuvdan tashqarida")
+        base = source["key"].rsplit("/", 1)[0] + "/"
+        joined = work / "joined.ts"
+        with joined.open("wb") as fh:
+            for name, _dur in picked:
+                if "/" in name or name.startswith(".") or "://" in name:
+                    raise JobError("BAD_PLAYLIST", name)
+                seg = work / name
+                self.storage.download(source["bucket"], base + name, seg)
+                with seg.open("rb") as part:
+                    shutil.copyfileobj(part, fh)
+                seg.unlink()
+        ffmpeg.cut_clip(joined, dst, start_s - first_start, duration_s, self.preset, self.threads)
