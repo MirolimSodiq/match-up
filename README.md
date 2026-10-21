@@ -14,7 +14,7 @@ Pickup sports platformasi (Plei / Birgo uslubida): o'yinchilar tayyor havaskor o
 | [apps/api](apps/api) | **Backend** — NestJS modular monolith (TypeScript) |
 | [apps/player](apps/player) | **O'yinchi ilovasi** — Expo (React Native, TypeScript) |
 | [apps/host](apps/host) | **Match Host ilovasi** — Expo: takliflar, offline QR check-in, jamoalar, yakunlash |
-| [apps/admin](apps/admin) | **Admin panel** — Next.js (App Router), Tailwind, TanStack Query/Table; BFF orqali OTP login (faqat `admin` roli) |
+| [apps/admin](apps/admin) | **Admin panel** — Next.js (App Router), Tailwind, TanStack Query/Table; BFF orqali OTP login (faqat `admin` roli); match, venue, host, to'lov, refund, reconciliation |
 | [services/media-worker](services/media-worker) | **Media worker** — Python 3.12 + FFmpeg: highlight kliplari -> HLS (720p/480p), thumbnail, 9:16 MP4 |
 | [packages/contracts](packages/contracts) | `api/openapi.yaml` dan generatsiya qilingan API tiplari (openapi-typescript) |
 | [packages/ui](packages/ui) | Dizayn tizimi: sof TS tokenlar (`@matchup/ui/tokens`, web ham) + RN komponentlar |
@@ -37,7 +37,7 @@ Pickup sports platformasi (Plei / Birgo uslubida): o'yinchilar tayyor havaskor o
 | Social login, GDPR job'lari | ✅ | Google / Apple / Telegram, identity bog'lash; ma'lumot eksporti, 30 kunlik grace bilan anonimlashtirish |
 | Push va real-time | ✅ | Expo Push, eslatmalar, waitlist takliflari; Socket.IO (`match:*`, `booking:*`, `host:*`) |
 | Highlight video | ✅ | S3/MinIO presigned multipart (davom ettiriladigan), Redis Stream -> Python worker (HLS, thumbnail, 9:16), match va profil feed'i, like, imzolangan ulashish havolasi |
-| Keyingi iteratsiya | ⏳ | AI-Cam ([docs/AI_CAM.md](docs/AI_CAM.md)), admin reconciliation sahifasi, provider refund'lari, Stripe — to'liq ro'yxat: [docs/STATUS.md](docs/STATUS.md) |
+| Keyingi iteratsiya | ⏳ | AI-Cam ([docs/AI_CAM.md](docs/AI_CAM.md)), provider refund'lari, Stripe — to'liq ro'yxat: [docs/STATUS.md](docs/STATUS.md) |
 
 Rejalashtirilgan endpointlar hozircha `501 NOT_IMPLEMENTED` qaytaradi.
 

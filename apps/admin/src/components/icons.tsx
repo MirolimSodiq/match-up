@@ -30,3 +30,4 @@ export const IconExternal = (p: P) => <Icon {...p} paths={['M18 13v6a2 2 0 0 1-2
 export const IconEdit = (p: P) => <Icon {...p} paths={['M12 20h9', 'M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z']} />;
 export const IconClock = (p: P) => <Icon {...p} paths={['M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z', 'M12 6v6l4 2']} />;
 export const IconBall = (p: P) => <Icon {...p} paths={['M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z', 'M12 7l4.5 3.3-1.7 5.2H9.2l-1.7-5.2z', 'M12 2v5', 'M21.5 9.5l-5 0.8', 'M2.5 9.5l5 0.8', 'M6 20l3.2-4.5', 'M18 20l-3.2-4.5']} />;
+export const IconScale = (p: P) => <Icon {...p} paths={['M12 3v18', 'M7 21h10', 'M3 7h18', 'M6 7l-3 7a3 3 0 0 0 6 0z', 'M18 7l-3 7a3 3 0 0 0 6 0z']} />;
