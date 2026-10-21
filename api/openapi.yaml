@@ -3805,8 +3805,8 @@ components:
         occurred_at: { type: string, format: date-time, description: Belgi qurilmasi soati (NTP) }
         side: { type: [string, 'null'], enum: [left, right, null], description: Qaysi darvoza tomoni -> qaysi kamera }
         participant_id: { type: [string, 'null'], format: uuid, description: 'Kim (consent bo''lsa klipda teglanadi)' }
-        pre_ms: { type: integer, minimum: 0, maximum: 55000, default: 12000 }
-        post_ms: { type: integer, minimum: 0, maximum: 30000, default: 3000, description: '`pre_ms + post_ms` — 3..60 s' }
+        pre_ms: { type: integer, minimum: 0, maximum: 55000, description: 'Belgidan oldin, ms (standart 12000)' }
+        post_ms: { type: integer, minimum: 0, maximum: 30000, description: 'Belgidan keyin, ms (standart 3000); `pre_ms + post_ms` — 3..60 s' }
     RecordingMarker:
       type: object
       required: [id, client_marker_id, kind, occurred_at, pre_ms, post_ms, created_at]

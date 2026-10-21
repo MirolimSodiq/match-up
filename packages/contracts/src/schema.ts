@@ -2897,13 +2897,10 @@ export interface components {
              * @description Kim (consent bo'lsa klipda teglanadi)
              */
             participant_id?: string | null;
-            /** @default 12000 */
-            pre_ms: number;
-            /**
-             * @description `pre_ms + post_ms` — 3..60 s
-             * @default 3000
-             */
-            post_ms: number;
+            /** @description Belgidan oldin, ms (standart 12000) */
+            pre_ms?: number;
+            /** @description Belgidan keyin, ms (standart 3000); `pre_ms + post_ms` — 3..60 s */
+            post_ms?: number;
         };
         RecordingMarker: {
             /** Format: uuid */
