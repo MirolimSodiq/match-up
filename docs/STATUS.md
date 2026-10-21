@@ -1,6 +1,6 @@
 # Loyiha holati
 
-> Oxirgi yangilanish: 2026-10-21, `main` (GitHub'ga push qilingan). Yangi Claude sessiyasi shu fayldan davom ettirishi mumkin: avval shuni, keyin `docs/ARCHITECTURE.md` ni o'qing.
+> Oxirgi yangilanish: 2026-10-21. Repo: https://github.com/MirolimSodiq/match-up (private), `main` — CI yashil. Yangi Claude sessiyasi shu fayldan davom ettirishi mumkin: avval shuni, keyin `docs/ARCHITECTURE.md` ni o'qing.
 
 ## Bajarildi (`main` da)
 
@@ -30,7 +30,7 @@ Yo'q. Barcha `claude/*` branch'lar `main` ga qo'shilgan; ular faqat lokal tarix 
 | 4 | Provider refund'larni avtomatlashtirish | hozir admin navbatida qo'lda; Payme/Click/Uzum API imkoniyatlariga bog'liq |
 | 5 | `UserErased` event'i uchun handler | hozircha xabarnoma/tozalash yo'q |
 | 6 | Stripe / Apple Pay / PayPal | chet el yuridik shaxsi kerak (Phase 3) |
-| 7 | Sinalmagan qismlar | push bosilganda deep link (haqiqiy qurilmada); haqiqiy client ID bilan Apple/Google login; Uzum checkout havolasi formati (Uzum menejeri bilan tasdiqlash); CI'ning birinchi haqiqiy GitHub run'i |
+| 7 | Sinalmagan qismlar | push bosilganda deep link (haqiqiy qurilmada); haqiqiy client ID bilan Apple/Google login; Uzum checkout havolasi formati (Uzum menejeri bilan tasdiqlash) |
 | 8 | Phase 1.5 / 2 | roster asosidagi sug'urta, balanslangan jamoalar, Teams/Leagues/Tournaments UI, social feed |
 | 9 | Yuridik | biometrik ta'rif (video), davlat reyestri, waiver kuchi, host'lar bilan shartnoma (`ARCHITECTURE.md` §6) |
 
