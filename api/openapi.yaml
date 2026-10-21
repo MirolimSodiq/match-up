@@ -2514,6 +2514,7 @@ components:
         - waitlist.offer
         - host.offer
         - match.new
+        - privacy.export_ready
     Notification:
       type: object
       required: [id, type, category, title, body, data, created_at, read_at]

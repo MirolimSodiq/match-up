@@ -7,6 +7,8 @@ import { OutboxRelay } from '../src/jobs/jobs.module';
 import { NotificationEvents } from '../src/notifications/events/notification-events';
 import { EventConsumers, NotificationJobs } from '../src/notifications/notification-jobs';
 import { NotificationsService } from '../src/notifications/notifications.service';
+import { formatWhen } from '../src/notifications/templates';
+import { DataExportService } from '../src/privacy/data-export.service';
 import { REDIS } from '../src/redis/redis.module';
 import { bookAndPayWithPayme, createTestApp, login, payme, q, signatureId, uuid, type Session, type TestCtx } from './helpers';
 
@@ -486,5 +488,47 @@ describe('Notifications: push, eslatmalar, kutish ro\'yxati, WebSocket', () => {
     expect(push.body).toMatch(/150\s000 so'm/);
     expect(push.ttl).toBeGreaterThan(500);
     await q(ctx, "UPDATE matches SET confirmed_slots = 0, status = 'open' WHERE id = $1", [matchId]);
+  });
+
+  it("DataExportReady -> eksport egasiga push (users.locale, shahar vaqt zonasi, /account/privacy); o'chirilgan fayl uchun push yo'q", async () => {
+    const en = await login(ctx, '+998937009001');
+    const uz = await login(ctx, '+998937009002');
+    await ctx.http().patch('/v1/me').set(en.auth).send({ locale: 'en', home_city_id: 1 }).expect(200);
+    const tEn = await registerDevice(en);
+    const tUz = await registerDevice(uz);
+    const reqEn = (await ctx.http().post('/v1/me/data-export').set(en.auth).expect(202)).body.id as string;
+    const reqUz = (await ctx.http().post('/v1/me/data-export').set(uz.auth).expect(202)).body.id as string;
+    await pump();
+    expect(ctx.push.to(tEn)).toHaveLength(0); // so'rov qabul qilindi — hali xabar yo'q
+
+    expect((await ctx.app.get(DataExportService).run()).exported).toBeGreaterThanOrEqual(2);
+    // uz: push yetib borguncha fayl o'chirildi (muddat o'tdi) — kechikkan xabar yuborilmaydi
+    await q(ctx, "UPDATE data_subject_requests SET export_expires_at = now() - interval '1 second', export_path = NULL WHERE id = $1", [reqUz]);
+    await pump();
+
+    const [dsr] = await q(ctx, 'SELECT export_expires_at FROM data_subject_requests WHERE id = $1', [reqEn]);
+    const msgs = ctx.push.to(tEn);
+    expect(msgs).toEqual([
+      expect.objectContaining({
+        title: 'Your data is ready',
+        body: `Download a copy of your personal data by ${formatWhen(dsr!.export_expires_at, 'Asia/Tashkent', 'en')}.`,
+        data: expect.objectContaining({ type: 'privacy.export_ready', url: '/account/privacy', request_id: reqEn }),
+        priority: 'default',
+      }),
+    ]);
+    expect(msgs[0]!.body).toMatch(/by \w+ \d{1,2} at \d{2}:\d{2}\.$/); // "October 27 at 19:00"
+    expect(msgs[0]!.ttl).toBeGreaterThan(6 * 24 * 3600); // fayl muddati (7 kun) tugaguncha
+    expect((await notificationsOf(en.userId, 'privacy.export_ready'))[0]).toMatchObject({ status: 'sent', locale: 'en', category: 'transactional' });
+
+    expect(ctx.push.to(tUz)).toHaveLength(0);
+    expect(await notificationsOf(uz.userId, 'privacy.export_ready')).toHaveLength(0);
+
+    // uz-Latn matni (shablon) — yangi eksport, shahar tanlanmagan -> mamlakat vaqt zonasi
+    const reqUz2 = (await ctx.http().post('/v1/me/data-export').set(uz.auth).expect(202)).body.id as string;
+    await ctx.app.get(DataExportService).run();
+    await pump();
+    const [uzMsg] = ctx.push.to(tUz);
+    expect(uzMsg).toMatchObject({ title: "Ma'lumotlaringiz tayyor", data: { url: '/account/privacy', request_id: reqUz2 } });
+    expect(uzMsg!.body).toMatch(/^Shaxsiy ma'lumotlaringiz nusxasini \d{1,2}-\S+, \d{2}:\d{2} gacha yuklab olishingiz mumkin\.$/);
   });
 });

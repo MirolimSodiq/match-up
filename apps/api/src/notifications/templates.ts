@@ -14,7 +14,8 @@ export type NotificationType =
   | 'match.reminder_2h'
   | 'waitlist.offer'
   | 'host.offer'
-  | 'match.new';
+  | 'match.new'
+  | 'privacy.export_ready';
 
 export type NotificationCategory = 'transactional' | 'marketing';
 export type TextLocale = 'uz-Latn' | 'ru' | 'en';
@@ -29,6 +30,8 @@ export interface TemplateParams {
   fee?: string;
   /** refund.issued: 'wallet' | 'original_method' */
   destination?: string;
+  /** privacy.export_ready: yuklab olish muddati (foydalanuvchi shahri vaqt zonasida). */
+  expires?: string;
 }
 
 type Render = (p: TemplateParams) => { title: string; body: string };
@@ -144,6 +147,15 @@ export const TEMPLATES: Record<NotificationType, Template> = {
       'uz-Latn': (p) => ({ title: "Yangi o'yin", body: `${p.match} — ${p.when}, ${p.venue}. Joylar cheklangan.` }),
       ru: (p) => ({ title: 'Новая игра', body: `«${p.match}» — ${p.when}, ${p.venue}. Мест немного.` }),
       en: (p) => ({ title: 'New game near you', body: `${p.match} — ${p.when}, ${p.venue}. Spots are limited.` }),
+    },
+  },
+  'privacy.export_ready': {
+    category: 'transactional',
+    priority: 'normal',
+    text: {
+      'uz-Latn': (p) => ({ title: "Ma'lumotlaringiz tayyor", body: `Shaxsiy ma'lumotlaringiz nusxasini ${p.expires} gacha yuklab olishingiz mumkin.` }),
+      ru: (p) => ({ title: 'Ваши данные готовы', body: `Копию ваших персональных данных можно скачать до ${p.expires}.` }),
+      en: (p) => ({ title: 'Your data is ready', body: `Download a copy of your personal data by ${p.expires}.` }),
     },
   },
 };
