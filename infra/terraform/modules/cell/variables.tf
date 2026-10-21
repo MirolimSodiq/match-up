@@ -246,7 +246,7 @@ variable "cache_node_count" {
 # Media (S3 + CloudFront)
 # -----------------------------------------------------------------------------
 variable "media_raw_expiration_days" {
-  description = "raw/ prefiksidagi xom videolar shuncha kundan keyin o'chiriladi (ARCHITECTURE §4.10)"
+  description = "Xom videolar (media-raw bucket) shuncha kundan keyin o'chiriladi (ARCHITECTURE §4.10)"
   type        = number
   default     = 30
 }
@@ -260,6 +260,38 @@ variable "media_signing_public_key_pem" {
   description = "CloudFront signed URL'lar uchun public key (PEM). Berilsa — media faqat imzolangan URL bilan ochiladi"
   type        = string
   default     = null
+}
+
+variable "media_worker_image_tag" {
+  description = "services/media-worker image tegi (git SHA)"
+  type        = string
+  default     = "initial"
+}
+
+variable "media_worker_cpu" {
+  type    = number
+  default = 1024
+}
+
+variable "media_worker_memory" {
+  type    = number
+  default = 2048
+}
+
+variable "media_worker_min_count" {
+  type    = number
+  default = 1
+}
+
+variable "media_worker_max_count" {
+  type    = number
+  default = 4
+}
+
+variable "media_worker_token_version" {
+  description = "MEDIA_WORKER_TOKEN (write-only). Rotatsiya: qiymatni 1 ga oshirib apply, keyin api va media-worker'ni qayta deploy"
+  type        = number
+  default     = 1
 }
 
 variable "cache_auth_token_version" {

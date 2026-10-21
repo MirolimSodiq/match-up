@@ -103,3 +103,15 @@ export function useHostMatch(matchId: string) {
     refetch: () => Promise.all([today.refetch(), upcoming.refetch(), past.refetch()]),
   };
 }
+
+/** Host ilovasi: shu match'ning kliplari (qayta ishlanayotganlari bilan). */
+export function useHostHighlights(matchId: string, enabled = true) {
+  return useQuery({
+    queryKey: ['host-highlights', matchId] as const,
+    queryFn: () => call(api.GET('/v1/host/matches/{matchId}/highlights', { params: { path: { matchId } } })),
+    enabled,
+    staleTime: 10_000,
+    // Worker ishlayotgan klip bo'lsa — tez-tez yangilaymiz
+    refetchInterval: (q) => (q.state.data?.items.some((h) => h.status === 'processing') ? 5_000 : false),
+  });
+}

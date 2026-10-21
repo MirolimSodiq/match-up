@@ -2,7 +2,7 @@
 # Deploy = yangi image tegi bilan apply; circuit breaker muvaffaqiyatsiz deploy'ni avtomatik qaytaradi.
 
 resource "aws_cloudwatch_log_group" "app" {
-  for_each = toset(["api", "admin", "migrate"])
+  for_each = toset(["api", "admin", "migrate", "media-worker"])
 
   name              = "/ecs/${var.name}/${each.key}"
   retention_in_days = var.log_retention_days
@@ -49,6 +49,7 @@ resource "aws_service_discovery_service" "api" {
 
 locals {
   capacity_provider = var.use_fargate_spot ? "FARGATE_SPOT" : "FARGATE"
+  media_cdn_signed  = var.media_signing_public_key_pem != null
 
   api_image     = "${aws_ecr_repository.app["api"].repository_url}:${var.api_image_tag}"
   admin_image   = "${aws_ecr_repository.app["admin"].repository_url}:${var.admin_image_tag}"
@@ -74,8 +75,14 @@ locals {
       OTP_PROVIDER       = "eskiz"
       SENTRY_ENVIRONMENT = var.environment
       MEDIA_BUCKET       = aws_s3_bucket.media.bucket
-      MEDIA_CDN_DOMAIN   = aws_cloudfront_distribution.media.domain_name
+      MEDIA_RAW_BUCKET   = aws_s3_bucket.media_raw.bucket
+      S3_REGION          = local.region
     },
+    # CloudFront signed URL faqat key group ulanganda; aks holda API S3 presigned GET beradi
+    local.media_cdn_signed ? {
+      MEDIA_CDN_DOMAIN      = aws_cloudfront_distribution.media.domain_name
+      MEDIA_CDN_KEY_PAIR_ID = aws_cloudfront_public_key.media[0].id
+    } : {},
     var.api_environment,
   )
 
@@ -95,7 +102,10 @@ locals {
     ESKIZ_EMAIL        = "${local.secret.eskiz}:email::"
     ESKIZ_PASSWORD     = "${local.secret.eskiz}:password::"
     SENTRY_DSN         = "${local.secret.sentry}:api_dsn::"
+    MEDIA_WORKER_TOKEN = aws_secretsmanager_secret.media_worker_token.arn
   }
+  # Entrypoint PEM'ni faylga yozadi -> MEDIA_CDN_PRIVATE_KEY_FILE
+  api_media_secrets = local.media_cdn_signed ? { MEDIA_CDN_PRIVATE_KEY = "${aws_secretsmanager_secret.manual["media-cdn"].arn}:private_key::" } : {}
 
   log_options = { for k, g in aws_cloudwatch_log_group.app : k => {
     logDriver = "awslogs"
@@ -139,7 +149,7 @@ resource "aws_ecs_task_definition" "api" {
     readonlyRootFilesystem = true
     portMappings           = [{ containerPort = local.api_port, protocol = "tcp" }]
     environment            = [for k, v in local.api_env : { name = k, value = v }]
-    secrets                = [for k, v in local.api_secrets : { name = k, valueFrom = v }]
+    secrets                = [for k, v in merge(local.api_secrets, local.api_media_secrets) : { name = k, valueFrom = v }]
     mountPoints            = [{ sourceVolume = "tmp", containerPath = "/tmp" }]
     linuxParameters        = { initProcessEnabled = true }
     stopTimeout            = 30

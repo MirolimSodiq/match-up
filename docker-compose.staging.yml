@@ -1,10 +1,11 @@
-# Lokal "staging": production image'lar (apps/api, apps/admin Dockerfile) + alohida DB va Valkey.
+# Lokal "staging": production image'lar (apps/api, apps/admin, services/media-worker) + alohida DB, Valkey va MinIO.
 # Dev stack'dan (docker-compose.yml, 5432/6379) to'liq ajratilgan: boshqa project nomi, volume va 3200+ portlar.
 #
 #   ./infra/local/gen-staging-keys.sh
 #   docker compose -f docker-compose.staging.yml up -d --build
 #   curl localhost:3200/health          # API
 #   open http://localhost:3201          # admin
+#   http://localhost:3204               # MinIO S3 API (presigned URL'lar shu host bilan imzolanadi)
 #
 # NODE_ENV=production: OTP_PROVIDER=console taqiqlangan, shuning uchun eskiz. Haqiqiy SMS uchun
 # ESKIZ_EMAIL/ESKIZ_PASSWORD ni shell env yoki .env.staging orqali bering (--env-file .env.staging).
@@ -30,6 +31,16 @@ x-api-env: &api-env
   CLICK_SECRET_KEY: ${CLICK_SECRET_KEY:-click_test_secret}
   SENTRY_DSN: ${SENTRY_DSN_API:-}
   SENTRY_ENVIRONMENT: staging-local
+  # Highlight video: API konteyner ichidan minio:9000 ga, telefon/brauzer esa localhost:3204 ga ulanadi
+  S3_ENDPOINT: http://minio:9000
+  S3_PUBLIC_ENDPOINT: http://localhost:${STAGING_MINIO_PORT:-3204}
+  S3_REGION: us-east-1
+  S3_ACCESS_KEY_ID: matchup
+  S3_SECRET_ACCESS_KEY: ${STAGING_MINIO_PASSWORD:-matchup_staging_local}
+  S3_FORCE_PATH_STYLE: "true"
+  MEDIA_RAW_BUCKET: matchup-media-raw
+  MEDIA_BUCKET: matchup-media
+  MEDIA_WORKER_TOKEN: ${STAGING_MEDIA_WORKER_TOKEN:-staging-local-media-worker-token-000000000000}
 
 services:
   db:
@@ -94,6 +105,61 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  minio:
+    image: bitnamilegacy/minio:2025.7.23
+    environment:
+      MINIO_ROOT_USER: matchup
+      MINIO_ROOT_PASSWORD: ${STAGING_MINIO_PASSWORD:-matchup_staging_local}
+    ports:
+      - "${STAGING_MINIO_PORT:-3204}:9000"
+    volumes:
+      - miniodata:/bitnami/minio/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  minio-init:
+    image: bitnamilegacy/minio:2025.7.23
+    entrypoint: ["/bin/sh", "/init/minio-init.sh"]
+    environment:
+      MC: /opt/bitnami/minio-client/bin/mc
+      MC_CONFIG_DIR: /tmp/mc
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ROOT_USER: matchup
+      MINIO_ROOT_PASSWORD: ${STAGING_MINIO_PASSWORD:-matchup_staging_local}
+    volumes:
+      - ./infra/local/minio-init.sh:/init/minio-init.sh:ro
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: "no"
+
+  # Python worker (FFmpeg): Redis Stream matchup:media-jobs -> HLS/thumbnail/9:16 -> API /internal/media/...
+  media-worker:
+    image: matchup-media-worker:staging-local
+    build:
+      context: services/media-worker
+    read_only: true
+    tmpfs:
+      - /tmp:size=2g
+    environment:
+      REDIS_URL: redis://redis:6379
+      API_INTERNAL_URL: http://api:3000
+      MEDIA_WORKER_TOKEN: ${STAGING_MEDIA_WORKER_TOKEN:-staging-local-media-worker-token-000000000000}
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_ACCESS_KEY_ID: matchup
+      S3_SECRET_ACCESS_KEY: ${STAGING_MINIO_PASSWORD:-matchup_staging_local}
+      S3_FORCE_PATH_STYLE: "true"
+    depends_on:
+      api:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
   admin:
     image: matchup-admin:staging-local
     build:
@@ -123,3 +189,4 @@ secrets:
 
 volumes:
   pgdata:
+  miniodata:

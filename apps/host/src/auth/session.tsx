@@ -9,6 +9,7 @@ import { loadDeviceId } from '@/lib/device';
 import { KEYS, storage } from '@/lib/storage';
 import { network } from '@/offline/network';
 import { offlineStore } from '@/offline/store';
+import { uploadEngine } from '@/media/uploads';
 import { syncEngine } from '@/offline/sync';
 import { type SessionEndReason, tokens } from './tokens';
 
@@ -72,6 +73,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
       const host = isHost(u);
       setStatus(host ? 'signedIn' : 'notHost');
       syncEngine.setUser(host ? u.id : undefined);
+      uploadEngine.setUser(host ? u.id : undefined);
       if (!fromCache) void cacheUser(u);
     },
     [queryClient],
@@ -113,6 +115,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
         setEndedReason(reason === 'logout' ? undefined : reason);
         setStatus('signedOut');
         syncEngine.setUser(undefined);
+        uploadEngine.setUser(undefined);
         void cacheUser(undefined);
         queryClient.clear();
       }),

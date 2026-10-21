@@ -1,3 +1,4 @@
+import { CreateBucketCommand, S3Client } from '@aws-sdk/client-s3';
 import Redis from 'ioredis';
 import { Client } from 'pg';
 import { runMigrations } from '../scripts/migrate';
@@ -17,4 +18,21 @@ export default async function globalSetup() {
   const redis = new Redis(process.env.REDIS_URL!);
   await redis.flushdb();
   await redis.quit();
+
+  // MinIO bucket'lari (idempotent)
+  const s3 = new S3Client({
+    endpoint: process.env.S3_ENDPOINT,
+    region: process.env.S3_REGION,
+    forcePathStyle: true,
+    credentials: { accessKeyId: process.env.S3_ACCESS_KEY_ID!, secretAccessKey: process.env.S3_SECRET_ACCESS_KEY! },
+  });
+  for (const Bucket of [process.env.MEDIA_RAW_BUCKET!, process.env.MEDIA_BUCKET!]) {
+    try {
+      await s3.send(new CreateBucketCommand({ Bucket }));
+    } catch (err) {
+      const name = (err as { name?: string }).name;
+      if (name !== 'BucketAlreadyOwnedByYou' && name !== 'BucketAlreadyExists') throw err;
+    }
+  }
+  s3.destroy();
 }

@@ -19,6 +19,8 @@ export type DomainEvent =
   | 'HostAssigned'
   | 'HostArrived'
   | 'PlayerCheckedIn'
+  | 'HighlightReady'
+  | 'HighlightShared'
   | 'DataExportReady'
   | 'UserErased';
 

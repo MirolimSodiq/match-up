@@ -499,8 +499,23 @@ sequenceDiagram
 | POST | `/v1/host/matches/{id}/checkins` | batch, offline sync, `client_event_id` bilan idempotent |
 | PATCH | `/v1/host/matches/{id}/participants/{pid}` | `{side_no}` yoki `{status: no_show}` |
 | POST | `/v1/host/matches/{id}/complete` | `{scores, mvp_participant_id, incidents}` |
-| POST | `/v1/host/matches/{id}/highlights/uploads` | S3 multipart presigned URL'lar (≤ 60 s, ≤ 150 MB) |
-| POST | `/v1/media/{id}/complete` | `CompleteMultipartUpload` → transcode navbati |
+| POST | `/v1/host/matches/{id}/highlights/uploads` | S3 multipart presigned URL'lar (≤ 60 s, ≤ 150 MB, mp4/mov); faqat tayinlangan host |
+| GET | `/v1/host/matches/{id}/highlights` | shu match kliplari (qayta ishlanayotgan / xato berganlari bilan) |
+| GET / DELETE | `/v1/media/{id}/upload` | davom ettirish: yuklangan qismlar + yangi URL'lar / bekor qilish |
+| POST | `/v1/media/{id}/complete` | `CompleteMultipartUpload` → highlight (+ teglar) → transcode navbati (idempotent) |
+| GET | `/v1/media/{id}` | yuklash va qayta ishlash holati (egasi) |
+
+**Highlight'lar (player)**
+
+| Method | Path | Izoh |
+|---|---|---|
+| GET | `/v1/matches/{id}/highlights` | faqat ishtirokchilar (`confirmed`, `checked_in`), tayinlangan host, admin |
+| GET | `/v1/me/highlights?scope=all\|tagged` | profil feed'i (cursor) |
+| GET | `/v1/highlights/{id}` | yangi imzolangan ijro URL'lari bilan |
+| PUT / DELETE | `/v1/highlights/{id}/like` | idempotent, `likes_count` bilan bir tranzaksiyada |
+| POST | `/v1/highlights/{id}/share` | `highlight_shares` + imzolangan ochiq havola `/h/{token}` (7 kun) |
+| GET | `/v1/playback/{token}/{master\|720p\|480p}.m3u8` | HLS playlist'lar (token URL'da), segmentlar — imzolangan CDN/S3 URL |
+| POST | `/internal/media/jobs/{id}/start\|progress\|result` | faqat media worker (servis token, VPC ichida) |
 
 ```json
 POST /v1/host/matches/01a1…/checkins
@@ -737,6 +752,7 @@ export interface PaymentProvider {
 | Host payout | haftalik | `host_assignments.completed` → `host_payouts` |
 | Reconciliation | har kecha (`RECONCILE_CRON`, Asia/Tashkent; `reconciliation` navbati) + admin qo'lda | provider ro'yxati (Payme `receipts.get_all`) ↔ `payments` → `reconciliation_items` + audit + outbox (§4.6) |
 | DSR eksport | har daqiqa (`dsr-exports`) | JSON fayl → `completed` + `DataExportReady`; muddati o'tgan fayllarni o'chirish |
+| Media housekeeping | har 30 s (`media-housekeeping`) | navbatga yozilmay qolgan transcode job'larini qayta yuborish; heartbeat'i 10 daq to'xtagan `running` job'ni qayta navbatga (5 urinishdan keyin `WORKER_TIMEOUT`); muddati o'tgan multipart yuklashlarni abort |
 | DSR erasure | har soat (`dsr-erasures`) | grace muddati o'tgan so'rovlar: bloklovchilarni tekshirish → booking'larni bekor qilish → anonimlashtirish (§4.8) |
 
 > **Dispatch bo'yicha tavsiya:** host'ni faqat match **to'lganda** chaqirish operatsion xavfli — 12/14 o'yinchi bilan ham o'yin bo'ladi, oxirgi soatlarda to'lgan match'ga host topish qiyin. Shuning uchun ikki trigger: to'lganda darhol yoki T-12h da minimumga yetganda.
@@ -764,22 +780,51 @@ flowchart LR
 ### 4.10 Video highlight pipeline
 
 ```mermaid
-flowchart LR
-    A[Host app: yozish<br/>720p H.264, ≤60 s] -->|presigned multipart| B[(Object storage<br/>raw)]
-    B -->|ObjectCreated| C[[Navbat]]
-    C --> D[Python worker<br/>FFmpeg: HLS + thumbnail]
-    D --> E[(processed)]
-    D -->|media_assets.status=ready| F[(PostgreSQL)]
-    F -->|HighlightReady outbox| G[Push: 'Sizning golingiz tayyor']
-    E --> H[CDN signed URL]
-    D -. Phase 2 .-> I[GPU worker: event detection<br/>to'p/gol, olomon shovqini]
-    I -.-> J[Auto-clip → highlights.source = ai_generated]
+sequenceDiagram
+    autonumber
+    participant H as Host app
+    participant API as API (Media moduli)
+    participant RAW as S3 media-raw / MinIO
+    participant Q as Redis Stream<br/>matchup:media-jobs
+    participant W as Python worker<br/>(services/media-worker)
+    participant OUT as S3 media + CloudFront
+    participant P as Player app
+    H->>API: POST /host/matches/{id}/highlights/uploads
+    API->>RAW: CreateMultipartUpload
+    API-->>H: media_assets (uploading) + qism URL'lari (Content-Length imzoda)
+    H->>RAW: PUT har qism (native upload, progress) → ETag
+    Note over H,RAW: Internet uzilsa — pauza; GET /media/{id}/upload<br/>yuklangan qismlar + yangi URL'lar → davom
+    H->>API: POST /media/{id}/complete (ETag'lar, sha256)
+    API->>RAW: CompleteMultipartUpload + HEAD (≤ 150 MB)
+    API->>API: TX: media processing, highlights (host_manual, participants),<br/>teglar (faqat media_appearance), media_processing_jobs (queued)
+    API->>Q: XADD {v, job_id, type, media_id}
+    Q->>W: XREADGROUP (group media-worker)
+    W->>API: POST /internal/media/jobs/{id}/start → bucket/key, prefix, cheklovlar
+    W->>RAW: GET (sha256 tekshiruvi)
+    W->>W: ffprobe → validatsiya → HLS 720p/480p → thumbnail → 9:16 MP4
+    W->>OUT: PUT natijalar + manifest.json
+    W->>API: POST .../result (ready | failed)
+    API->>API: TX: media ready, highlight published, outbox HighlightReady
+    P->>API: GET /matches/{id}/highlights · /me/highlights
+    API-->>P: thumbnail/MP4 — signed URL; HLS — /v1/playback/{token}/master.m3u8
+    P->>OUT: segmentlar (imzolangan URL, API orqali o'tmaydi)
 ```
 
-- Video **backend orqali o'tmaydi** — API faqat presigned URL beradi; trafik va CPU API'ga tegmaydi.
-- MVP: host qo'lda 15–60 soniyalik kliplar. Phase 2: venue'ga o'rnatilgan kamera butun o'yinni yozadi → GPU spot worker'lar (`ai_detect_events`, `ai_auto_clip`) `match_events` timestamp'lari va audio cho'qqilari bo'yicha avtomatik kesadi.
+| Qism | Qaror |
+|---|---|
+| Yuklash | Video **backend orqali o'tmaydi**: S3 multipart, qism 8 MiB (oxirgisidan tashqari), presigned `UploadPart` URL'larida `Content-Length` imzolangan — e'lon qilingan hajmdan ortiq yuklab bo'lmaydi; `complete` da `HEAD` bilan ≤ 150 MB qayta tekshiriladi. Sessiya 48 soat (`MEDIA_UPLOAD_SESSION_HOURS`), URL'lar 1 soat; davom ettirishda server haqiqati — `ListParts`. Highlight qatori faqat `complete` da yaratiladi (kontekst `media_assets.context` da). |
+| Host ilovasi | Galereya (iOS 60 s qirqish + 720p H.264 eksport) yoki kamera (720p, ≤ 60 s). Navbat diskda (`uploads.json` + video nusxasi): bitta yuklash, har qism native PUT (progress), internet uzilsa/xato bo'lsa backoff bilan pauza, tarmoq qaytganda / ilova faollashganda davom; ilova qayta ochilsa ham. Video nusxasi faqat worker `ready` (checksum tasdiqlangan) bo'lgach o'chiriladi. |
+| Navbat | **Redis Stream** `matchup:media-jobs` (dev va prod bir xil), consumer group `media-worker`, at-least-once: ishlov paytida `XCLAIM` bilan lease uzaytiriladi, o'lgan worker xabari `XPENDING IDLE` dan keyin boshqasiga o'tadi, 5 yetkazishdan keyin `:dead` stream va `failed`. Xabarda faqat id'lar — tafsilot `start` javobida. Transport interfeysi: API `MediaJobQueue` + `JOB_ROUTES` (`transcode` → Redis Stream; `ai_*` → SQS + AWS Batch, AI-Cam), worker `JobSource`. |
+| Holat | `media_processing_jobs` (`queued → running → succeeded / failed / cancelled`, `stage`, `attempts`, `heartbeat_at`, `transport`, `message_id`). Worker DB'ga yozmaydi — faqat `/internal/media/jobs/*` (servis token `MEDIA_WORKER_TOKEN`; tashqi ALB `/internal/*` ni yopadi). Natija tranzaksiyasi: `media_assets.ready` (renditions, thumbnail, 9:16), `highlights.published_at`, outbox `HighlightReady`. |
+| Worker | Python 3.12 + FFmpeg (`services/media-worker`): har bosqich idempotent (`.done-<stage>`), natija kalitlari deterministik, `manifest.json` — qayta yetkazilganda qayta kodlamasdan natija. HLS: H.264 Main + AAC, segment ~4 s, keyframe 2 s, upscale yo'q; 9:16 — markazdan crop, 720x1280, faststart. ECS Fargate Spot (CPU bo'yicha autoscaling). |
+| Ijro | Natija bucket'i yopiq. Thumbnail va 9:16 MP4 — CloudFront signed URL (`MEDIA_CDN_*`) yoki S3/MinIO presigned GET. HLS: AVPlayer/ExoPlayer nisbiy segmentlarga query-imzoni o'tkazmaydi, shuning uchun playlist'lar (bir necha KB) API'dan: `/v1/playback/{token}/…m3u8` — har segment imzolangan absolyut URL bilan almashtiriladi. Token — `HMAC(media_id, exp)` (JWT kalitidan HKDF), 6 soat. |
+| Kim ko'radi | `visibility = participants`: roster'dagi `confirmed`/`checked_in` o'yinchi, teglangan o'yinchi, tayinlangan host, admin; boshqalarga 403/404. Teglar faqat joriy `media_appearance` consent'i borlarga (yuklashda ham, ko'rsatishda ham — consent qaytarib olinsa teg yashiriladi). |
+| Ulashish | `POST /highlights/{id}/share` → `highlight_shares` (+ `HighlightShared`), havola `/h/{token}` — 7 kunlik imzolangan, `noindex` HTML sahifa (og:image, `<video>` HLS/MP4), ism va teglar ko'rsatilmaydi. |
+| Saqlash | `matchup-media-raw` — 30 kun (lifecycle), tugallanmagan multipart 3 kunda abort; `matchup-media` — highlight o'chirilguncha. Lokal: MinIO (`docker compose`, `infra/local/minio-init.sh`). |
+
+- MVP: host qo'lda 15–60 soniyalik kliplar. Phase 2: venue'ga o'rnatilgan kamera butun o'yinni yozadi → GPU spot worker'lar (`ai_detect_events`, `ai_auto_clip`) `match_events` timestamp'lari va audio cho'qqilari bo'yicha avtomatik kesadi (`highlights.source = ai_generated`, bitta feed).
 - **Biometrik chegara:** yuzni tanib o'yinchini avtomatik teglash biometrik ma'lumotni qayta ishlash hisoblanadi → O'zbekiston ichida bajarilishi shart (§4.3). MVP'da yuz tanish yo'q: teglash qo'lda va faqat `media_appearance` consent'i borlarga.
-- Xarajat nazorati: raw footage 30 kundan keyin arzon storage tier'ga / o'chiriladi; faqat highlight'lar uzoq saqlanadi; transcode spot/preemptible node'larda.
+- Xarajat nazorati: raw footage 30 kundan keyin o'chiriladi; transcode Fargate Spot'da (spot uzilishi xavfsiz — job idempotent).
 - **AI-Cam Engine** (Phase 2) — maydondagi 2–3 telefon rig'i, sinxronlash va kalibrovka, to'p/o'yinchi tracking, bib raqami orqali o'yinchini tanish, event'lar, FIFA uslubidagi reyting va `/v1/matches/{id}/analytics`: batafsil dizayn — [`docs/AI_CAM.md`](AI_CAM.md).
 
 ### 4.11 Masshtab triggerlari

@@ -10,6 +10,8 @@ import { SeatsService } from '../commerce/seats.service';
 import { EVENTS_STREAM } from '../common/outbox';
 import { DB, type Db, rows } from '../db/db';
 import { HostModule } from '../host/host.module';
+import { MediaModule } from '../media/media.module';
+import { MediaService } from '../media/media.service';
 import { DispatchService } from '../host/host.service';
 import { NotificationJobs } from '../notifications/notification-jobs';
 import { NotificationsModule } from '../notifications/notifications.module';
@@ -53,7 +55,8 @@ export class OutboxRelay {
 
 /**
  * BullMQ job scheduler: hold expiry, host dispatch, minimum o'yinchi tekshiruvi, outbox relay,
- * eslatmalar (T-24h/T-2h), kutish ro'yxati takliflari muddati, push retry va receipt'lar, GDPR so'rovlari.
+ * eslatmalar (T-24h/T-2h), kutish ro'yxati takliflari muddati, push retry va receipt'lar, GDPR so'rovlari,
+ * media navbati housekeeping'i (yuborilmay qolgan / to'xtab qolgan job'lar, muddati o'tgan yuklashlar).
  */
 @Injectable()
 export class JobsService implements OnModuleInit, OnModuleDestroy {
@@ -71,6 +74,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     private readonly notifications: NotificationJobs,
     private readonly dataExports: DataExportService,
     private readonly erasures: ErasureService,
+    private readonly media: MediaService,
   ) {}
 
   async onModuleInit() {
@@ -88,6 +92,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       'push-receipts': 300_000,
       'dsr-exports': 60_000,
       'dsr-erasures': 3_600_000,
+      'media-housekeeping': 30_000,
     };
     for (const [name, ms] of Object.entries(every)) {
       await this.queue.upsertJobScheduler(name, { every: ms }, { name, opts: { removeOnComplete: 100, removeOnFail: 500 } });
@@ -117,6 +122,8 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
         return this.notifications.checkReceipts();
       case 'dsr-exports':
         return this.dataExports.run();
+      case 'media-housekeeping':
+        return this.media.housekeeping();
       case 'dsr-erasures':
         return this.erasures.run();
       default:
@@ -132,7 +139,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
 }
 
 @Module({
-  imports: [CommerceModule, HostModule, AdminModule, NotificationsModule, PrivacyModule],
+  imports: [CommerceModule, HostModule, AdminModule, NotificationsModule, PrivacyModule, MediaModule],
   providers: [JobsService, OutboxRelay],
   exports: [JobsService, OutboxRelay],
 })

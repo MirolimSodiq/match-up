@@ -1015,11 +1015,77 @@ export interface paths {
         put?: never;
         /**
          * Highlight video yuklashni boshlash (S3 multipart, presigned)
-         * @description Client videoni 720p H.264 ga siqadi, keyin qismlarni to'g'ridan-to'g'ri object storage'ga yuklaydi
-         *     (backend orqali o'tmaydi). Maksimal 60 soniya / 150 MB.
+         * @description Faqat shu match'ga tayinlangan host (`accepted`, `arrived`, `completed`; match bekor qilinmagan).
+         *     Cheklovlar: ≤ 60 s, ≤ 150 MB, `video/mp4` yoki `video/quicktime`.
+         *
+         *     Video **backend orqali o'tmaydi**: client faylni `part_size_bytes` bo'laklarga bo'lib, har bir bo'lakni
+         *     `parts[].url` ga `PUT` qiladi (body — aynan `parts[].size_bytes` bayt; `Content-Length` imzoga kiradi) va
+         *     javobdagi `ETag` header'ini saqlaydi. URL'lar `expires_at` gacha amal qiladi; muddat o'tsa yoki internet
+         *     uzilsa — `GET /v1/media/{mediaId}/upload`. Hammasi yuklangach — `POST /v1/media/{mediaId}/complete`.
+         *     Highlight qatori yakunlashda yaratiladi (`source = host_manual`, `visibility = participants`).
          */
         post: operations["initHighlightUpload"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/host/matches/{matchId}/highlights": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Shu match'ning kliplari (host uchun — qayta ishlanayotgan va xato berganlari ham) */
+        get: operations["listHostMatchHighlights"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/media/{mediaId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Yuklangan fayl holati (faqat egasi)
+         * @description Host ilovasi qayta ishlash holatini (`processing.stage`) shu yerdan kuzatadi.
+         */
+        get: operations["getMedia"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/media/{mediaId}/upload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Uzilgan yuklashni davom ettirish
+         * @description Storage'dagi yuklangan qismlar (`uploaded_parts`, ETag bilan — client ularni yo'qotgan bo'lsa ham) va
+         *     qolgan qismlar uchun yangi presigned URL'lar. Hajmi to'liq bo'lmagan qism qayta yuklanadi.
+         *     Sessiya `session_expires_at` dan keyin abort qilinadi (`410 UPLOAD_EXPIRED`).
+         */
+        get: operations["resumeMediaUpload"];
+        put?: never;
+        post?: never;
+        /** Yuklashni bekor qilish (AbortMultipartUpload) */
+        delete: operations["abortMediaUpload"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1036,9 +1102,224 @@ export interface paths {
         put?: never;
         /**
          * Multipart yuklashni yakunlash
-         * @description Object storage `CompleteMultipartUpload` -> `media_assets.status = processing` -> transcode navbati (SQS -> Python worker).
+         * @description `CompleteMultipartUpload` -> `media_assets.status = processing` -> highlight qatori (+ teglar) ->
+         *     `media_processing_jobs` (`transcode`) -> Redis Stream `matchup:media-jobs` -> Python worker.
+         *     Teglar: faqat roster'dagi va `media_appearance` consent'i bor o'yinchilar; qolganlari jim tashlab yuboriladi.
+         *     Idempotent: takroriy chaqiruv (masalan, javob yo'qolgan) o'sha natijani qaytaradi.
          */
         post: operations["completeMediaUpload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/matches/{matchId}/highlights": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Match highlight'lari (faqat ishtirokchilarga)
+         * @description Ko'ra oladi: roster'dagi o'yinchi (`confirmed`, `checked_in`), tayinlangan host, admin. Boshqalarga — 403.
+         *     Faqat tayyor (worker qayta ishlagan) kliplar.
+         */
+        get: operations["listMatchHighlights"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/me/highlights": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Profil feed'i — men o'ynagan match'lar yoki men teglangan kliplar */
+        get: operations["listMyHighlights"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/highlights/{highlightId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Bitta highlight (yangi imzolangan ijro URL'lari bilan) */
+        get: operations["getHighlight"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/highlights/{highlightId}/like": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Like (idempotent) */
+        put: operations["likeHighlight"];
+        post?: never;
+        /** Like'ni olib tashlash (idempotent) */
+        delete: operations["unlikeHighlight"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/highlights/{highlightId}/share": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ulashish havolasi (imzolangan, muddatli)
+         * @description `highlight_shares` qatori + `HighlightShared` outbox event. Havola (`/h/{token}`) auth'siz ochiladi,
+         *     `SHARE_LINK_TTL_DAYS` (standart 7 kun) amal qiladi; sahifada ism va teglar ko'rsatilmaydi.
+         */
+        post: operations["shareHighlight"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/shared/highlights/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Ulashilgan highlight (ochiq, token = imzo) */
+        get: operations["getSharedHighlight"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/h/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Ulashish sahifasi (HTML, og:image / og:video — Telegram preview) */
+        get: operations["sharedHighlightPage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/playback/{token}/{file}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * HLS playlist (master yoki rendition) — `Highlight.media.playback.hls_url` shu yerga olib keladi
+         * @description Video player'lar Authorization header yubormaydi, shuning uchun token URL'da (muddati — `expires_at`).
+         *     `master.m3u8` -> rendition'lar (`720p.m3u8`, `480p.m3u8`); rendition playlist'idagi har segment
+         *     imzolangan absolyut URL (CloudFront signed URL yoki S3/MinIO presigned) bilan almashtirilgan —
+         *     segmentlar API orqali o'tmaydi.
+         */
+        get: operations["getPlaybackPlaylist"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal/media/jobs/{jobId}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Worker job'ni oldi -> `running`, attempts + 1
+         * @description Navbat xabari (`matchup:media-jobs`: `v`, `job_id`, `type`, `media_id`, `enqueued_at`) faqat id'larni olib yuradi —
+         *     tafsilotlar shu javobda. 409: job tugagan/bekor qilingan yoki boshqa worker hozir ishlayapti
+         *     (heartbeat < 2 daq) — worker xabarni ACK qilib tashlaydi.
+         */
+        post: operations["startMediaJob"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal/media/jobs/{jobId}/progress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Joriy bosqich + heartbeat */
+        post: operations["reportMediaJobProgress"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal/media/jobs/{jobId}/result": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Yakuniy natija — `ready` (HLS, thumbnail, davomiylik) yoki `failed`
+         * @description `ready`: `media_assets.status = ready`, `highlights.published_at`, outbox `HighlightReady`
+         *     (`highlight_id`, `match_id`, `media_id`, `created_by`, `tagged_user_ids`). Barcha kalitlar job'ning
+         *     `output.prefix` ichida bo'lishi shart. Idempotent: takroriy `ready` — o'zgarishsiz 200.
+         */
+        post: operations["reportMediaJobResult"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2301,23 +2582,298 @@ export interface components {
             occurred_at: string;
             location?: components["schemas"]["GeoPoint"];
         };
+        HighlightUploadCreate: {
+            /** @enum {string} */
+            content_type: "video/mp4" | "video/quicktime";
+            /** @description Aniq fayl hajmi (qismlar shundan hisoblanadi) */
+            size_bytes: number;
+            duration_ms: number;
+            /** Format: date-time */
+            recorded_at?: string;
+            /** @description Kick-off'dan beri */
+            match_offset_ms?: number;
+            title?: string;
+            /** @description Faqat roster'dagi va `media_appearance` consent'i borlar teglanadi (qolganlari jim tashlab yuboriladi) */
+            tagged_user_ids?: string[];
+            /** @description Host roster'idagi `participant_id` lar (`tagged_user_ids` bilan bir xil qoida) */
+            tagged_participant_ids?: string[];
+        };
+        /** @enum {string} */
+        MediaStatus: "uploading" | "processing" | "ready" | "failed" | "rejected" | "deleted";
+        MediaAsset: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            kind: "video" | "image";
+            status: components["schemas"]["MediaStatus"];
+            content_type: string;
+            size_bytes?: number | null;
+            duration_ms?: number | null;
+            /** @description Ko'rinadigan kenglik (aylantirish hisobga olingan) */
+            width?: number | null;
+            height?: number | null;
+            /** Format: uuid */
+            match_id?: string | null;
+            /**
+             * Format: uuid
+             * @description Yuklash yakunlangach
+             */
+            highlight_id?: string | null;
+            processing?: {
+                /** @enum {string} */
+                status?: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+                /** @example hls */
+                stage?: string | null;
+            } | null;
+            /**
+             * @example DURATION_TOO_LONG
+             * @example NOT_A_VIDEO
+             * @example UNSUPPORTED_FORMAT
+             * @example CHECKSUM_MISMATCH
+             * @example MAX_RETRIES_EXCEEDED
+             */
+            failure_code?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            uploaded_at?: string | null;
+            /** Format: date-time */
+            processed_at?: string | null;
+        };
+        UploadPartUrl: {
+            part_number: number;
+            /** @description PUT body aynan shu hajmda (`Content-Length` imzolangan) */
+            size_bytes: number;
+            /** Format: uri */
+            url: string;
+        };
+        UploadedPart: {
+            part_number: number;
+            etag: string;
+            size_bytes: number;
+        };
         UploadInit: {
             /** Format: uuid */
-            media_id?: string;
-            upload?: {
+            media_id: string;
+            media: components["schemas"]["MediaAsset"];
+            upload: {
                 /** @constant */
-                type?: "s3_multipart";
-                upload_id?: string;
+                type: "s3_multipart";
+                upload_id: string;
                 /** @example 8388608 */
-                part_size_bytes?: number;
-                /** Format: date-time */
-                expires_at?: string;
-                parts?: {
-                    part_number?: number;
-                    /** Format: uri */
-                    url?: string;
-                }[];
+                part_size_bytes: number;
+                part_count: number;
+                /**
+                 * Format: date-time
+                 * @description Presigned URL'lar muddati
+                 */
+                expires_at: string;
+                /**
+                 * Format: date-time
+                 * @description Shundan keyin yuklash abort qilinadi
+                 */
+                session_expires_at: string;
+                /** @description Storage'da allaqachon bor qismlar (davom ettirishda) */
+                uploaded_parts: components["schemas"]["UploadedPart"][];
+                /** @description Yuklanishi kerak bo'lgan qismlar */
+                parts: components["schemas"]["UploadPartUrl"][];
             };
+        };
+        CompleteUploadResult: {
+            /** Format: uuid */
+            media_id: string;
+            /** @enum {string} */
+            status: "processing" | "ready";
+            /** Format: uuid */
+            highlight_id: string | null;
+            media: components["schemas"]["MediaAsset"];
+        };
+        HighlightPlayback: {
+            /**
+             * Format: uri
+             * @description HLS master playlist (720p + 480p), `/v1/playback/{token}/master.m3u8`
+             */
+            hls_url: string;
+            /**
+             * Format: uri
+             * @description 9:16 MP4 (720x1280) — Reels/Telegram, yuklab olish
+             */
+            mp4_url: string | null;
+            /**
+             * Format: date-time
+             * @description Shundan keyin yangi URL uchun highlight'ni qayta oling
+             */
+            expires_at: string;
+        };
+        Highlight: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            match_id: string;
+            /** @enum {string} */
+            source: "host_manual" | "ai_generated" | "player_upload";
+            title?: string | null;
+            /**
+             * @description Player feed'ida doim `ready`
+             * @enum {string}
+             */
+            status: "processing" | "ready" | "failed";
+            failure_code?: string | null;
+            duration_ms?: number | null;
+            match_offset_ms?: number | null;
+            /** @enum {string} */
+            visibility?: "public" | "participants" | "private";
+            /** Format: date-time */
+            created_at?: string;
+            /** Format: date-time */
+            published_at?: string | null;
+            creator: {
+                /** Format: uuid */
+                id: string;
+                display_name: string | null;
+            };
+            /** @description Teglangan o'yinchilar (faqat joriy `media_appearance` consent'i borlar) */
+            tags: {
+                /** Format: uuid */
+                user_id: string;
+                display_name: string;
+            }[];
+            likes_count: number;
+            shares_count: number;
+            liked_by_me: boolean;
+            match: {
+                /** Format: uuid */
+                id: string;
+                /** @example MU-RACE */
+                public_code: string;
+                sport: string;
+                /** Format: date-time */
+                starts_at: string;
+                timezone: string;
+                venue_name: string;
+            };
+            media: {
+                /** Format: uuid */
+                id: string;
+                width?: number | null;
+                height?: number | null;
+                /** Format: uri */
+                thumbnail_url: string | null;
+                playback: components["schemas"]["HighlightPlayback"] | null;
+            };
+        };
+        HighlightPage: {
+            items: components["schemas"]["Highlight"][];
+            next_cursor: string | null;
+        };
+        HighlightLike: {
+            /** Format: uuid */
+            highlight_id: string;
+            liked: boolean;
+            likes_count: number;
+        };
+        HighlightShare: {
+            /** Format: uuid */
+            share_id: string;
+            /** @enum {string} */
+            channel: "telegram" | "instagram" | "link" | "other";
+            /**
+             * Format: uri
+             * @example https://api.uz-1.matchup.example/h/AaFauIS9dIqKYsgr-B33kmrYErPJO8Ze2fpngr9OTqzIwaUi
+             */
+            url: string;
+            /** @description Share sheet uchun tayyor matn (Accept-Language) */
+            text: string;
+            /** Format: date-time */
+            expires_at: string;
+        };
+        SharedHighlight: {
+            /** Format: uuid */
+            id: string;
+            title?: string | null;
+            duration_ms?: number | null;
+            width?: number | null;
+            height?: number | null;
+            match: {
+                public_code?: string;
+                sport?: string;
+                /** Format: date-time */
+                starts_at?: string;
+                timezone?: string;
+                venue_name?: string;
+            };
+            /** Format: uri */
+            thumbnail_url?: string | null;
+            playback: components["schemas"]["HighlightPlayback"];
+            /** Format: date-time */
+            expires_at: string;
+        };
+        MediaRendition: {
+            /** @example 720p */
+            name: string;
+            width: number;
+            height: number;
+            /** @description Eng og'ir segment bit/s (+10%) */
+            bandwidth: number;
+            /** @example avc1.4d4028,mp4a.40.2 */
+            codecs?: string;
+            playlist_key: string;
+        };
+        MediaJob: {
+            /** Format: uuid */
+            job_id: string;
+            /** @enum {string} */
+            type: "transcode" | "thumbnail" | "ai_detect_events" | "ai_auto_clip" | "face_blur";
+            attempt: number;
+            /** @example highlight_v1 */
+            profile: string;
+            media: {
+                /** Format: uuid */
+                id?: string;
+                content_type?: string;
+                size_bytes?: number | null;
+                declared_duration_ms?: number | null;
+                /** @description hex */
+                checksum_sha256?: string | null;
+            };
+            source: {
+                bucket?: string;
+                key?: string;
+            };
+            output: {
+                bucket?: string;
+                /** @example highlights/{match_id}/{media_id}/ */
+                prefix?: string;
+            };
+            limits: {
+                max_duration_ms?: number;
+                max_bytes?: number;
+            };
+        };
+        MediaJobResult: {
+            /** @constant */
+            status: "ready";
+            worker_version: string;
+            output: {
+                hls_master_key: string;
+                renditions: components["schemas"]["MediaRendition"][];
+                thumbnail_key: string;
+                vertical_key?: string | null;
+                duration_ms: number;
+                width: number;
+                height: number;
+                has_audio?: boolean;
+                probe?: {
+                    [key: string]: unknown;
+                };
+            };
+        } | {
+            /** @constant */
+            status: "failed";
+            worker_version: string;
+            /** @example DURATION_TOO_LONG */
+            error_code: string;
+            error_message?: string;
         };
         AdminMatchCreate: {
             /** Format: uuid */
@@ -3122,6 +3678,15 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
+        /** @description Muddati o'tgan (masalan `UPLOAD_EXPIRED`) */
+        Gone: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
         /** @description Validatsiya xatosi */
         ValidationError: {
             headers: {
@@ -3155,6 +3720,10 @@ export interface components {
         AssignmentId: string;
         PitchId: string;
         UserId: string;
+        MediaId: string;
+        HighlightId: string;
+        JobId: string;
+        ShareToken: string;
         RefundId: string;
         AdminLimit: number;
         /** @description Admin jadvallari offset pagination ishlatadi (javobda `total`) */
@@ -4879,22 +5448,11 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": {
-                    /** @enum {string} */
-                    content_type: "video/mp4" | "video/quicktime";
-                    size_bytes: number;
-                    duration_ms: number;
-                    /** Format: date-time */
-                    recorded_at?: string;
-                    match_offset_ms?: number;
-                    title?: string;
-                    /** @description Faqat `media_appearance` consent'i borlar teglanadi (qolganlari jim tashlab yuboriladi) */
-                    tagged_user_ids?: string[];
-                };
+                "application/json": components["schemas"]["HighlightUploadCreate"];
             };
         };
         responses: {
-            /** @description Yuklash URL'lari */
+            /** @description Multipart sessiya va qismlar uchun presigned URL'lar */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -4903,7 +5461,105 @@ export interface operations {
                     "application/json": components["schemas"]["UploadInit"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    listHostMatchHighlights: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                matchId: components["parameters"]["MatchId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Kliplar (eng yangisi birinchi) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["Highlight"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    getMedia: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mediaId: components["parameters"]["MediaId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Media */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MediaAsset"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    resumeMediaUpload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mediaId: components["parameters"]["MediaId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Yuklash holati */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadInit"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            410: components["responses"]["Gone"];
+        };
+    };
+    abortMediaUpload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mediaId: components["parameters"]["MediaId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bekor qilindi */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     completeMediaUpload: {
@@ -4911,17 +5567,20 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                mediaId: string;
+                mediaId: components["parameters"]["MediaId"];
             };
             cookie?: never;
         };
         requestBody: {
             content: {
                 "application/json": {
+                    /** @description 1..`part_count` qismlarning barchasi */
                     parts: {
                         part_number: number;
+                        /** @description PUT javobidagi `ETag` (qo'shtirnoq bilan yoki qo'shtirnoqsiz) */
                         etag: string;
                     }[];
+                    /** @description Butun faylning SHA-256 (hex yoki base64). Worker tekshiradi, mos kelmasa — `CHECKSUM_MISMATCH`. */
                     checksum_sha256?: string;
                 };
             };
@@ -4933,17 +5592,363 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    "application/json": components["schemas"]["CompleteUploadResult"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            /** @description `UPLOAD_INCOMPLETE` (qismlar yetishmaydi / ETag mos emas) yoki `INVALID_STATE` */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            410: components["responses"]["Gone"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listMatchHighlights: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                matchId: components["parameters"]["MatchId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Kliplar (eng yangisi birinchi) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HighlightPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listMyHighlights: {
+        parameters: {
+            query?: {
+                scope?: "all" | "tagged";
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Kliplar */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HighlightPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    getHighlight: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                highlightId: components["parameters"]["HighlightId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Highlight */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Highlight"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    likeHighlight: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                highlightId: components["parameters"]["HighlightId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Joriy holat */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HighlightLike"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    unlikeHighlight: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                highlightId: components["parameters"]["HighlightId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Joriy holat */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HighlightLike"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    shareHighlight: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                highlightId: components["parameters"]["HighlightId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /**
+                     * @default link
+                     * @enum {string}
+                     */
+                    channel?: "telegram" | "instagram" | "link" | "other";
+                };
+            };
+        };
+        responses: {
+            /** @description Havola */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HighlightShare"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getSharedHighlight: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: components["parameters"]["ShareToken"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Highlight */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedHighlight"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    sharedHighlightPage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: components["parameters"]["ShareToken"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description HTML sahifa (`noindex`) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
+                };
+            };
+            /** @description Havola muddati tugagan yoki highlight o'chirilgan (HTML) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
+                };
+            };
+        };
+    };
+    getPlaybackPlaylist: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+                file: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description M3U8 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.apple.mpegurl": string;
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    startMediaJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: components["parameters"]["JobId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @example media-worker/0.1.0 */
+                    worker_version: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Job tafsilotlari */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MediaJob"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    reportMediaJobProgress: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: components["parameters"]["JobId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * @example download
+                     * @example probe
+                     * @example validate
+                     * @example hls
+                     * @example thumbnail
+                     * @example vertical
+                     * @example upload
+                     */
+                    stage: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
                     "application/json": {
-                        /** Format: uuid */
-                        media_id?: string;
-                        /** @enum {string} */
-                        status?: "processing";
-                        /** Format: uuid */
-                        highlight_id?: string;
+                        ok?: boolean;
                     };
                 };
             };
+            401: components["responses"]["Unauthorized"];
             409: components["responses"]["Conflict"];
+        };
+    };
+    reportMediaJobResult: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: components["parameters"]["JobId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MediaJobResult"];
+            };
+        };
+        responses: {
+            /** @description Qabul qilindi */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        job_id?: string;
+                        /** @enum {string} */
+                        status?: "succeeded" | "failed";
+                        /** Format: uuid */
+                        highlight_id?: string | null;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
         };
     };
     adminReference: {

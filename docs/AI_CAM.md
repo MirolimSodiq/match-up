@@ -7,8 +7,9 @@
 |---|---|
 | `highlights`, `media_assets` (0001) | klip va fayl yozuvlari |
 | `match_events` (0002) | `source = 'ai'`, `confidence`, `match_offset_ms` |
-| `media_processing_jobs` (0002) | `ai_detect_events`, `ai_auto_clip`, `face_blur` job turlari |
-| `services/media-worker` (§1.4) | Python worker — AI-Cam shu yerda `services/ai-cam` bo'lib kengayadi |
+| `media_processing_jobs` (0002, 0008) | `ai_detect_events`, `ai_auto_clip`, `face_blur` job turlari; 0008 dan `stage`, `transport` (`redis_stream` / `sqs`), `message_id`, `heartbeat_at` |
+| `services/media-worker` | Python worker (highlight transcode, `ARCHITECTURE.md` §4.10): `JobSource` (navbat), `Api` (ichki endpointlar), `Storage` (S3), idempotent bosqichli `Pipeline` — AI-Cam `services/ai-cam` shu qatlamlar ustiga quriladi |
+| API Media moduli | presigned multipart (resume bilan), `MediaJobQueue` + `JOB_ROUTES` (`ai_*` → `sqs`), `/internal/media/jobs/{id}/start\|progress\|result`, HLS playlist imzolash |
 
 ---
 
@@ -131,7 +132,7 @@ rating = clamp(6.0 + Σ(weight[e] × confidence[e]) + team_result, 3.0, 10.0), 0
 | `match_participants` + `bib_number smallint` | partial UNIQUE (match_id, bib_number) — host check-in'da biriktiradi |
 | `recording_sessions` (yangi) | match_id UNIQUE, host_user_id, status (`recording → uploading → uploaded → processing → review → ready / failed / rejected`), rig_type, started_at, kickoff_offset_ms, panorama_media_id |
 | `recording_cameras` (yangi) | session_id, position (`left`, `right`, `wide`), device_model, media_asset_id, fps, resolution, sync_offset_ms, calibration jsonb (homography, intrinsics, sifat), status |
-| `media_processing_jobs` + `recording_session_id`, `stage` | yangi enum qiymatlari: `ai_cam_sync`, `ai_cam_calibrate`, `ai_cam_track`, `ai_cam_events`, `ai_cam_rating`, `ai_cam_render` |
+| `media_processing_jobs` + `recording_session_id` (`stage` 0008 da qo'shilgan — `ADD COLUMN IF NOT EXISTS` bilan) | yangi enum qiymatlari: `ai_cam_sync`, `ai_cam_calibrate`, `ai_cam_track`, `ai_cam_events`, `ai_cam_rating`, `ai_cam_render` |
 | `match_events` + ustunlar | yangi `match_event_type` qiymatlari (§4); `pitch_x/y`, `end_x/y`, `track_id`, `model_version` |
 | `player_match_stats` (yangi) — so'ralgan `Player_Stats` | PK (match_id, participant_id), user_id, minutes_played, passes, passes_completed, progressive_passes, key_passes, dribbles_attempted/success, turnovers, shots, shots_on_target, goals, assists, distance_m, top_speed_kmh, sprints, **rating numeric(3,1)**, rating_breakdown jsonb, formula_version, model_version, status (`draft / published / disputed / withdrawn`), reviewed_by, published_at |
 | `rating_formulas` (yangi) | version, weights jsonb, active_from — o'zgarishlar audit qilinadi |

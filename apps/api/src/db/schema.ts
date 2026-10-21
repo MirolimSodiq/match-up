@@ -1131,16 +1131,27 @@ export const mediaAssets = pgTable("media_assets", {
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	deletedAt: timestamp("deleted_at", { withTimezone: true, mode: 'string' }),
+	context: jsonb(),
+	uploadPartSize: integer("upload_part_size"),
+	uploadExpiresAt: timestamp("upload_expires_at", { withTimezone: true, mode: 'string' }),
+	uploadedAt: timestamp("uploaded_at", { withTimezone: true, mode: 'string' }),
+	outputBucket: text("output_bucket"),
+	renditions: jsonb(),
+	verticalKey: text("vertical_key"),
+	processedAt: timestamp("processed_at", { withTimezone: true, mode: 'string' }),
+	failureCode: text("failure_code"),
 }, (table) => [
 	index("media_assets_owner_idx").using("btree", table.ownerUserId.asc().nullsLast().op("uuid_ops")),
+	index("media_assets_upload_expiry_idx").using("btree", table.uploadExpiresAt.asc().nullsLast().op("timestamptz_ops")).where(sql`(status = 'uploading'::media_status)`),
 	foreignKey({
 			columns: [table.ownerUserId],
 			foreignColumns: [users.id],
 			name: "media_assets_owner_user_id_fkey"
 		}),
 	unique("media_assets_bucket_object_key_key").on(table.bucket, table.objectKey),
-	check("media_assets_size_bytes_check", sql`size_bytes >= 0`),
 	check("media_assets_duration_ms_check", sql`duration_ms >= 0`),
+	check("media_assets_size_bytes_check", sql`size_bytes >= 0`),
+	check("media_assets_upload_part_size_check", sql`upload_part_size > 0`),
 ]);
 
 export const highlights = pgTable("highlights", {
@@ -1165,7 +1176,13 @@ export const highlights = pgTable("highlights", {
 	deletedAt: timestamp("deleted_at", { withTimezone: true, mode: 'string' }),
 }, (table) => [
 	index("highlights_feed_idx").using("btree", table.publishedAt.desc().nullsFirst().op("timestamptz_ops")).where(sql`((visibility = 'public'::highlight_visibility) AND (moderation_status = 'approved'::moderation_status) AND (deleted_at IS NULL))`),
+	index("highlights_match_feed_idx").using("btree", table.matchId.asc().nullsLast().op("uuid_ops"), table.publishedAt.desc().nullsFirst().op("uuid_ops"), table.id.desc().nullsFirst().op("uuid_ops")).where(sql`((published_at IS NOT NULL) AND (deleted_at IS NULL))`),
 	index("highlights_match_idx").using("btree", table.matchId.asc().nullsLast().op("uuid_ops")),
+	foreignKey({
+			columns: [table.createdBy],
+			foreignColumns: [users.id],
+			name: "highlights_created_by_fkey"
+		}),
 	foreignKey({
 			columns: [table.matchId],
 			foreignColumns: [matches.id],
@@ -1176,14 +1193,9 @@ export const highlights = pgTable("highlights", {
 			foreignColumns: [mediaAssets.id],
 			name: "highlights_media_asset_id_fkey"
 		}),
-	foreignKey({
-			columns: [table.createdBy],
-			foreignColumns: [users.id],
-			name: "highlights_created_by_fkey"
-		}),
 	unique("highlights_media_asset_id_key").on(table.mediaAssetId),
-	check("highlights_match_offset_ms_check", sql`match_offset_ms >= 0`),
 	check("highlights_duration_ms_check", sql`duration_ms > 0`),
+	check("highlights_match_offset_ms_check", sql`match_offset_ms >= 0`),
 ]);
 
 export const notifications = pgTable("notifications", {
@@ -1223,6 +1235,7 @@ export const highlightShares = pgTable("highlight_shares", {
 	userId: uuid("user_id"),
 	channel: text().notNull(),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	expiresAt: timestamp("expires_at", { withTimezone: true, mode: 'string' }),
 }, (table) => [
 	index("highlight_shares_highlight_idx").using("btree", table.highlightId.asc().nullsLast().op("uuid_ops")),
 	foreignKey({
@@ -1434,14 +1447,22 @@ export const mediaProcessingJobs = pgTable("media_processing_jobs", {
 	queuedAt: timestamp("queued_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	startedAt: timestamp("started_at", { withTimezone: true, mode: 'string' }),
 	finishedAt: timestamp("finished_at", { withTimezone: true, mode: 'string' }),
+	stage: text(),
+	transport: text().default('redis_stream').notNull(),
+	messageId: text("message_id"),
+	dispatchedAt: timestamp("dispatched_at", { withTimezone: true, mode: 'string' }),
+	heartbeatAt: timestamp("heartbeat_at", { withTimezone: true, mode: 'string' }),
 }, (table) => [
 	index("media_processing_jobs_asset_idx").using("btree", table.mediaAssetId.asc().nullsLast().op("uuid_ops")),
-	index("media_processing_jobs_queue_idx").using("btree", table.status.asc().nullsLast().op("timestamptz_ops"), table.queuedAt.asc().nullsLast().op("timestamptz_ops")).where(sql`(status = ANY (ARRAY['queued'::processing_job_status, 'running'::processing_job_status]))`),
+	uniqueIndex("media_processing_jobs_one_active").using("btree", table.mediaAssetId.asc().nullsLast().op("enum_ops"), table.type.asc().nullsLast().op("enum_ops")).where(sql`(status = ANY (ARRAY['queued'::processing_job_status, 'running'::processing_job_status]))`),
+	index("media_processing_jobs_queue_idx").using("btree", table.status.asc().nullsLast().op("enum_ops"), table.queuedAt.asc().nullsLast().op("enum_ops")).where(sql`(status = ANY (ARRAY['queued'::processing_job_status, 'running'::processing_job_status]))`),
+	index("media_processing_jobs_undispatched_idx").using("btree", table.queuedAt.asc().nullsLast().op("timestamptz_ops")).where(sql`((status = 'queued'::processing_job_status) AND (dispatched_at IS NULL))`),
 	foreignKey({
 			columns: [table.mediaAssetId],
 			foreignColumns: [mediaAssets.id],
 			name: "media_processing_jobs_media_asset_id_fkey"
 		}),
+	check("media_processing_jobs_transport_check", sql`transport = ANY (ARRAY['redis_stream'::text, 'sqs'::text])`),
 ]);
 
 export const pushDeliveries = pgTable("push_deliveries", {
