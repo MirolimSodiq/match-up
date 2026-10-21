@@ -1109,6 +1109,81 @@ export const matchFeedback = pgTable("match_feedback", {
 	check("match_feedback_target_user", sql`(target = ANY (ARRAY['host'::feedback_target, 'player'::feedback_target])) = (to_user_id IS NOT NULL)`),
 ]);
 
+export const highlights = pgTable("highlights", {
+	id: uuid().default(sql`uuidv7()`).primaryKey().notNull(),
+	matchId: uuid("match_id").notNull(),
+	mediaAssetId: uuid("media_asset_id").notNull(),
+	createdBy: uuid("created_by").notNull(),
+	source: highlightSource().notNull(),
+	title: text(),
+	clipStartedAt: timestamp("clip_started_at", { withTimezone: true, mode: 'string' }),
+	matchOffsetMs: integer("match_offset_ms"),
+	durationMs: integer("duration_ms"),
+	visibility: highlightVisibility().default('participants').notNull(),
+	moderationStatus: moderationStatus("moderation_status").default('pending').notNull(),
+	likesCount: integer("likes_count").default(0).notNull(),
+	sharesCount: integer("shares_count").default(0).notNull(),
+	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
+	viewsCount: bigint("views_count", { mode: "number" }).default(0).notNull(),
+	publishedAt: timestamp("published_at", { withTimezone: true, mode: 'string' }),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	deletedAt: timestamp("deleted_at", { withTimezone: true, mode: 'string' }),
+}, (table) => [
+	index("highlights_feed_idx").using("btree", table.publishedAt.desc().nullsFirst().op("timestamptz_ops")).where(sql`((visibility = 'public'::highlight_visibility) AND (moderation_status = 'approved'::moderation_status) AND (deleted_at IS NULL))`),
+	index("highlights_match_feed_idx").using("btree", table.matchId.asc().nullsLast().op("uuid_ops"), table.publishedAt.desc().nullsFirst().op("uuid_ops"), table.id.desc().nullsFirst().op("uuid_ops")).where(sql`((published_at IS NOT NULL) AND (deleted_at IS NULL))`),
+	index("highlights_match_idx").using("btree", table.matchId.asc().nullsLast().op("uuid_ops")),
+	foreignKey({
+			columns: [table.matchId],
+			foreignColumns: [matches.id],
+			name: "highlights_match_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.mediaAssetId],
+			foreignColumns: [mediaAssets.id],
+			name: "highlights_media_asset_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.createdBy],
+			foreignColumns: [users.id],
+			name: "highlights_created_by_fkey"
+		}),
+	unique("highlights_media_asset_id_key").on(table.mediaAssetId),
+	check("highlights_match_offset_ms_check", sql`match_offset_ms >= 0`),
+	check("highlights_duration_ms_check", sql`duration_ms > 0`),
+]);
+
+export const notifications = pgTable("notifications", {
+	id: uuid().default(sql`uuidv7()`).primaryKey().notNull(),
+	userId: uuid("user_id").notNull(),
+	type: text().notNull(),
+	channel: notificationChannel().notNull(),
+	status: notificationStatus().default('queued').notNull(),
+	locale: text().notNull(),
+	payload: jsonb().notNull(),
+	providerMessageId: text("provider_message_id"),
+	error: text(),
+	scheduledFor: timestamp("scheduled_for", { withTimezone: true, mode: 'string' }),
+	sentAt: timestamp("sent_at", { withTimezone: true, mode: 'string' }),
+	readAt: timestamp("read_at", { withTimezone: true, mode: 'string' }),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	dedupeKey: text("dedupe_key"),
+	category: text().default('transactional').notNull(),
+	attempts: smallint().default(0).notNull(),
+	nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true, mode: 'string' }),
+}, (table) => [
+	uniqueIndex("notifications_dedupe_key_idx").using("btree", table.dedupeKey.asc().nullsLast().op("text_ops")),
+	index("notifications_retry_idx").using("btree", table.nextAttemptAt.asc().nullsLast().op("timestamptz_ops")).where(sql`(status = 'queued'::notification_status)`),
+	index("notifications_unread_idx").using("btree", table.userId.asc().nullsLast().op("uuid_ops")).where(sql`(read_at IS NULL)`),
+	index("notifications_user_idx").using("btree", table.userId.asc().nullsLast().op("uuid_ops"), table.createdAt.desc().nullsFirst().op("uuid_ops")),
+	foreignKey({
+			columns: [table.userId],
+			foreignColumns: [users.id],
+			name: "notifications_user_id_fkey"
+		}),
+	check("notifications_category_check", sql`category = ANY (ARRAY['transactional'::text, 'marketing'::text])`),
+]);
+
 export const mediaAssets = pgTable("media_assets", {
 	id: uuid().default(sql`uuidv7()`).primaryKey().notNull(),
 	ownerUserId: uuid("owner_user_id"),
@@ -1149,84 +1224,9 @@ export const mediaAssets = pgTable("media_assets", {
 			name: "media_assets_owner_user_id_fkey"
 		}),
 	unique("media_assets_bucket_object_key_key").on(table.bucket, table.objectKey),
-	check("media_assets_duration_ms_check", sql`duration_ms >= 0`),
 	check("media_assets_size_bytes_check", sql`size_bytes >= 0`),
+	check("media_assets_duration_ms_check", sql`duration_ms >= 0`),
 	check("media_assets_upload_part_size_check", sql`upload_part_size > 0`),
-]);
-
-export const highlights = pgTable("highlights", {
-	id: uuid().default(sql`uuidv7()`).primaryKey().notNull(),
-	matchId: uuid("match_id").notNull(),
-	mediaAssetId: uuid("media_asset_id").notNull(),
-	createdBy: uuid("created_by").notNull(),
-	source: highlightSource().notNull(),
-	title: text(),
-	clipStartedAt: timestamp("clip_started_at", { withTimezone: true, mode: 'string' }),
-	matchOffsetMs: integer("match_offset_ms"),
-	durationMs: integer("duration_ms"),
-	visibility: highlightVisibility().default('participants').notNull(),
-	moderationStatus: moderationStatus("moderation_status").default('pending').notNull(),
-	likesCount: integer("likes_count").default(0).notNull(),
-	sharesCount: integer("shares_count").default(0).notNull(),
-	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
-	viewsCount: bigint("views_count", { mode: "number" }).default(0).notNull(),
-	publishedAt: timestamp("published_at", { withTimezone: true, mode: 'string' }),
-	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	deletedAt: timestamp("deleted_at", { withTimezone: true, mode: 'string' }),
-}, (table) => [
-	index("highlights_feed_idx").using("btree", table.publishedAt.desc().nullsFirst().op("timestamptz_ops")).where(sql`((visibility = 'public'::highlight_visibility) AND (moderation_status = 'approved'::moderation_status) AND (deleted_at IS NULL))`),
-	index("highlights_match_feed_idx").using("btree", table.matchId.asc().nullsLast().op("uuid_ops"), table.publishedAt.desc().nullsFirst().op("uuid_ops"), table.id.desc().nullsFirst().op("uuid_ops")).where(sql`((published_at IS NOT NULL) AND (deleted_at IS NULL))`),
-	index("highlights_match_idx").using("btree", table.matchId.asc().nullsLast().op("uuid_ops")),
-	foreignKey({
-			columns: [table.createdBy],
-			foreignColumns: [users.id],
-			name: "highlights_created_by_fkey"
-		}),
-	foreignKey({
-			columns: [table.matchId],
-			foreignColumns: [matches.id],
-			name: "highlights_match_id_fkey"
-		}),
-	foreignKey({
-			columns: [table.mediaAssetId],
-			foreignColumns: [mediaAssets.id],
-			name: "highlights_media_asset_id_fkey"
-		}),
-	unique("highlights_media_asset_id_key").on(table.mediaAssetId),
-	check("highlights_duration_ms_check", sql`duration_ms > 0`),
-	check("highlights_match_offset_ms_check", sql`match_offset_ms >= 0`),
-]);
-
-export const notifications = pgTable("notifications", {
-	id: uuid().default(sql`uuidv7()`).primaryKey().notNull(),
-	userId: uuid("user_id").notNull(),
-	type: text().notNull(),
-	channel: notificationChannel().notNull(),
-	status: notificationStatus().default('queued').notNull(),
-	locale: text().notNull(),
-	payload: jsonb().notNull(),
-	providerMessageId: text("provider_message_id"),
-	error: text(),
-	scheduledFor: timestamp("scheduled_for", { withTimezone: true, mode: 'string' }),
-	sentAt: timestamp("sent_at", { withTimezone: true, mode: 'string' }),
-	readAt: timestamp("read_at", { withTimezone: true, mode: 'string' }),
-	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	dedupeKey: text("dedupe_key"),
-	category: text().default('transactional').notNull(),
-	attempts: smallint().default(0).notNull(),
-	nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true, mode: 'string' }),
-}, (table) => [
-	uniqueIndex("notifications_dedupe_key_idx").using("btree", table.dedupeKey.asc().nullsLast().op("text_ops")),
-	index("notifications_retry_idx").using("btree", table.nextAttemptAt.asc().nullsLast().op("timestamptz_ops")).where(sql`(status = 'queued'::notification_status)`),
-	index("notifications_unread_idx").using("btree", table.userId.asc().nullsLast().op("uuid_ops")).where(sql`(read_at IS NULL)`),
-	index("notifications_user_idx").using("btree", table.userId.asc().nullsLast().op("uuid_ops"), table.createdAt.desc().nullsFirst().op("uuid_ops")),
-	foreignKey({
-			columns: [table.userId],
-			foreignColumns: [users.id],
-			name: "notifications_user_id_fkey"
-		}),
-	check("notifications_category_check", sql`category = ANY (ARRAY['transactional'::text, 'marketing'::text])`),
 ]);
 
 export const highlightShares = pgTable("highlight_shares", {
@@ -1434,37 +1434,6 @@ export const matchEvents = pgTable("match_events", {
 	check("match_events_confidence_check", sql`(confidence >= (0)::numeric) AND (confidence <= (1)::numeric)`),
 ]);
 
-export const mediaProcessingJobs = pgTable("media_processing_jobs", {
-	id: uuid().default(sql`uuidv7()`).primaryKey().notNull(),
-	mediaAssetId: uuid("media_asset_id").notNull(),
-	type: processingJobType().notNull(),
-	status: processingJobStatus().default('queued').notNull(),
-	workerVersion: text("worker_version"),
-	attempts: smallint().default(0).notNull(),
-	input: jsonb().default({}).notNull(),
-	output: jsonb(),
-	error: text(),
-	queuedAt: timestamp("queued_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	startedAt: timestamp("started_at", { withTimezone: true, mode: 'string' }),
-	finishedAt: timestamp("finished_at", { withTimezone: true, mode: 'string' }),
-	stage: text(),
-	transport: text().default('redis_stream').notNull(),
-	messageId: text("message_id"),
-	dispatchedAt: timestamp("dispatched_at", { withTimezone: true, mode: 'string' }),
-	heartbeatAt: timestamp("heartbeat_at", { withTimezone: true, mode: 'string' }),
-}, (table) => [
-	index("media_processing_jobs_asset_idx").using("btree", table.mediaAssetId.asc().nullsLast().op("uuid_ops")),
-	uniqueIndex("media_processing_jobs_one_active").using("btree", table.mediaAssetId.asc().nullsLast().op("enum_ops"), table.type.asc().nullsLast().op("enum_ops")).where(sql`(status = ANY (ARRAY['queued'::processing_job_status, 'running'::processing_job_status]))`),
-	index("media_processing_jobs_queue_idx").using("btree", table.status.asc().nullsLast().op("enum_ops"), table.queuedAt.asc().nullsLast().op("enum_ops")).where(sql`(status = ANY (ARRAY['queued'::processing_job_status, 'running'::processing_job_status]))`),
-	index("media_processing_jobs_undispatched_idx").using("btree", table.queuedAt.asc().nullsLast().op("timestamptz_ops")).where(sql`((status = 'queued'::processing_job_status) AND (dispatched_at IS NULL))`),
-	foreignKey({
-			columns: [table.mediaAssetId],
-			foreignColumns: [mediaAssets.id],
-			name: "media_processing_jobs_media_asset_id_fkey"
-		}),
-	check("media_processing_jobs_transport_check", sql`transport = ANY (ARRAY['redis_stream'::text, 'sqs'::text])`),
-]);
-
 export const pushDeliveries = pgTable("push_deliveries", {
 	id: uuid().default(sql`uuidv7()`).primaryKey().notNull(),
 	notificationId: uuid("notification_id").notNull(),
@@ -1516,13 +1485,13 @@ export const reconciliationRuns = pgTable("reconciliation_runs", {
 			foreignColumns: [users.id],
 			name: "reconciliation_runs_triggered_by_fkey"
 		}),
-	check("reconciliation_runs_diff_count_check", sql`diff_count >= 0`),
-	check("reconciliation_runs_local_count_check", sql`local_count >= 0`),
-	check("reconciliation_runs_manual_actor", sql`(trigger = 'schedule'::text) OR (triggered_by IS NOT NULL)`),
-	check("reconciliation_runs_matched_count_check", sql`matched_count >= 0`),
-	check("reconciliation_runs_period", sql`period_from < period_to`),
-	check("reconciliation_runs_provider_count_check", sql`provider_count >= 0`),
 	check("reconciliation_runs_trigger_check", sql`trigger = ANY (ARRAY['schedule'::text, 'manual'::text])`),
+	check("reconciliation_runs_local_count_check", sql`local_count >= 0`),
+	check("reconciliation_runs_provider_count_check", sql`provider_count >= 0`),
+	check("reconciliation_runs_matched_count_check", sql`matched_count >= 0`),
+	check("reconciliation_runs_diff_count_check", sql`diff_count >= 0`),
+	check("reconciliation_runs_period", sql`period_from < period_to`),
+	check("reconciliation_runs_manual_actor", sql`(trigger = 'schedule'::text) OR (triggered_by IS NOT NULL)`),
 ]);
 
 export const reconciliationItems = pgTable("reconciliation_items", {
@@ -1545,9 +1514,9 @@ export const reconciliationItems = pgTable("reconciliation_items", {
 	index("reconciliation_items_payment_idx").using("btree", table.paymentId.asc().nullsLast().op("uuid_ops")).where(sql`(payment_id IS NOT NULL)`),
 	index("reconciliation_items_run_idx").using("btree", table.runId.asc().nullsLast().op("timestamptz_ops"), table.createdAt.asc().nullsLast().op("timestamptz_ops")),
 	foreignKey({
-			columns: [table.currency],
-			foreignColumns: [currencies.code],
-			name: "reconciliation_items_currency_fkey"
+			columns: [table.runId],
+			foreignColumns: [reconciliationRuns.id],
+			name: "reconciliation_items_run_id_fkey"
 		}),
 	foreignKey({
 			columns: [table.paymentId],
@@ -1555,11 +1524,42 @@ export const reconciliationItems = pgTable("reconciliation_items", {
 			name: "reconciliation_items_payment_id_fkey"
 		}),
 	foreignKey({
-			columns: [table.runId],
-			foreignColumns: [reconciliationRuns.id],
-			name: "reconciliation_items_run_id_fkey"
+			columns: [table.currency],
+			foreignColumns: [currencies.code],
+			name: "reconciliation_items_currency_fkey"
 		}),
 	check("reconciliation_items_ref", sql`(payment_id IS NOT NULL) OR (provider_transaction_id IS NOT NULL)`),
+]);
+
+export const mediaProcessingJobs = pgTable("media_processing_jobs", {
+	id: uuid().default(sql`uuidv7()`).primaryKey().notNull(),
+	mediaAssetId: uuid("media_asset_id").notNull(),
+	type: processingJobType().notNull(),
+	status: processingJobStatus().default('queued').notNull(),
+	workerVersion: text("worker_version"),
+	attempts: smallint().default(0).notNull(),
+	input: jsonb().default({}).notNull(),
+	output: jsonb(),
+	error: text(),
+	queuedAt: timestamp("queued_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	startedAt: timestamp("started_at", { withTimezone: true, mode: 'string' }),
+	finishedAt: timestamp("finished_at", { withTimezone: true, mode: 'string' }),
+	stage: text(),
+	transport: text().default('redis_stream').notNull(),
+	messageId: text("message_id"),
+	dispatchedAt: timestamp("dispatched_at", { withTimezone: true, mode: 'string' }),
+	heartbeatAt: timestamp("heartbeat_at", { withTimezone: true, mode: 'string' }),
+}, (table) => [
+	index("media_processing_jobs_asset_idx").using("btree", table.mediaAssetId.asc().nullsLast().op("uuid_ops")),
+	uniqueIndex("media_processing_jobs_one_active").using("btree", table.mediaAssetId.asc().nullsLast().op("enum_ops"), table.type.asc().nullsLast().op("enum_ops")).where(sql`(status = ANY (ARRAY['queued'::processing_job_status, 'running'::processing_job_status]))`),
+	index("media_processing_jobs_queue_idx").using("btree", table.status.asc().nullsLast().op("enum_ops"), table.queuedAt.asc().nullsLast().op("enum_ops")).where(sql`(status = ANY (ARRAY['queued'::processing_job_status, 'running'::processing_job_status]))`),
+	index("media_processing_jobs_undispatched_idx").using("btree", table.queuedAt.asc().nullsLast().op("timestamptz_ops")).where(sql`((status = 'queued'::processing_job_status) AND (dispatched_at IS NULL))`),
+	foreignKey({
+			columns: [table.mediaAssetId],
+			foreignColumns: [mediaAssets.id],
+			name: "media_processing_jobs_media_asset_id_fkey"
+		}),
+	check("media_processing_jobs_transport_check", sql`transport = ANY (ARRAY['redis_stream'::text, 'sqs'::text])`),
 ]);
 
 export const venueAmenities = pgTable("venue_amenities", {

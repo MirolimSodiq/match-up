@@ -3026,6 +3026,7 @@ components:
         - highlight.tagged
         - highlight.ready
         - highlight.shared
+        - privacy.export_ready
     Notification:
       type: object
       required: [id, type, category, title, body, data, created_at, read_at]

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AppState, Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { type Href, router } from 'expo-router';
-import { useQueryClient } from '@tanstack/react-query';
+import { type QueryClient, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api, call } from '@/api/client';
 import { qk } from '@/api/queries';
@@ -24,6 +24,20 @@ configureNotifications();
 interface Pending {
   url: string | null;
   notificationId: string | null;
+}
+
+/** Xabar bo'yicha tegishli ekran ma'lumotlarini yangilash (ilova ochiq paytda kelganda yoki bosilganda). */
+function refreshFor(queryClient: QueryClient, data: unknown) {
+  const d = (data ?? {}) as { booking_id?: string; match_id?: string; type?: string };
+  if (d.booking_id) {
+    void queryClient.invalidateQueries({ queryKey: qk.booking(d.booking_id) });
+    void queryClient.invalidateQueries({ queryKey: ['my-bookings'] });
+  }
+  if (d.match_id) void queryClient.invalidateQueries({ queryKey: ['match'] });
+  if (d.type === 'refund.issued') void queryClient.invalidateQueries({ queryKey: qk.wallet });
+  // Eksport tayyor: "Maxfiylik" ekrani polling'ni kutmasdan "Tayyor" holatiga o'tadi
+  if (d.type === 'privacy.export_ready') void queryClient.invalidateQueries({ queryKey: qk.dataRequests });
+  if (d.type?.startsWith('highlight.')) void queryClient.invalidateQueries({ queryKey: ['highlights'] });
 }
 
 /**
@@ -88,6 +102,8 @@ export function PushNotifications() {
     const handle = (r: Notifications.NotificationResponse) => {
       if (r.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER) return;
       const data = r.notification.request.content.data;
+      // Fonda kelgan xabarda "received" listener ishlamaydi — keshni bosilganda yangilaymiz
+      refreshFor(queryClient, data);
       setPending({ url: deepLinkOf(data), notificationId: notificationIdOf(data) });
     };
     const last = Notifications.getLastNotificationResponse();
@@ -100,7 +116,7 @@ export function PushNotifications() {
       Notifications.clearLastNotificationResponse();
     });
     return () => sub.remove();
-  }, []);
+  }, [queryClient]);
 
   // Navigatsiya faqat sessiya tiklangach (aks holda guard login'ga qaytaradi)
   useEffect(() => {
@@ -114,16 +130,7 @@ export function PushNotifications() {
   // Ilova ochiq paytda kelgan xabar — tegishli ekran ma'lumotlarini yangilash
   useEffect(() => {
     if (Platform.OS === 'web') return;
-    const sub = Notifications.addNotificationReceivedListener((n) => {
-      const d = (n.request.content.data ?? {}) as { booking_id?: string; match_id?: string; type?: string };
-      if (d.booking_id) {
-        void queryClient.invalidateQueries({ queryKey: qk.booking(d.booking_id) });
-        void queryClient.invalidateQueries({ queryKey: ['my-bookings'] });
-      }
-      if (d.match_id) void queryClient.invalidateQueries({ queryKey: ['match'] });
-      if (d.type === 'refund.issued') void queryClient.invalidateQueries({ queryKey: qk.wallet });
-      if (d.type?.startsWith('highlight.')) void queryClient.invalidateQueries({ queryKey: ['highlights'] });
-    });
+    const sub = Notifications.addNotificationReceivedListener((n) => refreshFor(queryClient, n.request.content.data));
     return () => sub.remove();
   }, [queryClient]);
 

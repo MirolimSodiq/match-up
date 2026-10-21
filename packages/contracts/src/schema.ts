@@ -2078,7 +2078,7 @@ export interface components {
             updated_at: string;
         };
         /** @enum {string} */
-        NotificationType: "booking.confirmed" | "booking.cancelled" | "refund.issued" | "match.cancelled" | "match.rate" | "match.reminder_24h" | "match.reminder_2h" | "waitlist.offer" | "host.offer" | "match.new" | "highlight.tagged" | "highlight.ready" | "highlight.shared";
+        NotificationType: "booking.confirmed" | "booking.cancelled" | "refund.issued" | "match.cancelled" | "match.rate" | "match.reminder_24h" | "match.reminder_2h" | "waitlist.offer" | "host.offer" | "match.new" | "highlight.tagged" | "highlight.ready" | "highlight.shared" | "privacy.export_ready";
         Notification: {
             /** Format: uuid */
             id: string;

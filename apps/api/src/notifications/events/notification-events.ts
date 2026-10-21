@@ -114,6 +114,8 @@ export class NotificationEvents {
         return this.highlightReady(e);
       case 'HighlightShared':
         return this.highlightShared(e);
+      case 'DataExportReady':
+        return this.dataExportReady(e);
       default:
         return;
     }
@@ -274,6 +276,38 @@ export class NotificationEvents {
     await this.notifications.deliver(ids);
     if (ids.length) this.log.log(`waitlist: ${ids.length} ta taklif (match ${matchId})`);
     return ids.length;
+  }
+
+  /** GDPR eksport fayli tayyor -> egasiga push (ilovadagi "Maxfiylik" ekraniga). */
+  private async dataExportReady(e: OutboxEvent) {
+    const requestId = typeof e.payload.request_id === 'string' ? e.payload.request_id : '';
+    if (!requestId) return;
+    // Sana foydalanuvchi shahri (yo'q bo'lsa — mamlakatining birinchi shahri) vaqt zonasida
+    const r = await one<{ user_id: string; expires_at: string; ttl: number; timezone: string }>(
+      this.db,
+      sql`SELECT d.user_id, d.export_expires_at AS expires_at,
+                 extract(epoch FROM d.export_expires_at - now())::int AS ttl,
+                 coalesce(hc.timezone,
+                          (SELECT c.timezone FROM cities c WHERE c.country_code = u.country_code ORDER BY c.id LIMIT 1),
+                          'UTC') AS timezone
+          FROM data_subject_requests d
+          JOIN users u ON u.id = d.user_id
+          LEFT JOIN cities hc ON hc.id = u.home_city_id
+          WHERE d.id = ${requestId} AND d.type = 'export' AND d.status = 'completed' AND d.export_path IS NOT NULL`,
+    );
+    // Fayl allaqachon o'chirilgan / muddati o'tgan — push kechikib bormasin
+    if (!r || r.ttl <= 0) return;
+    const expiresAt = new Date(iso(r.expires_at)!);
+    await this.notifications.notify([
+      {
+        userId: r.user_id,
+        type: 'privacy.export_ready',
+        dedupeKey: this.key(e, r.user_id),
+        params: (l) => ({ expires: formatWhen(expiresAt, r.timezone, l) }),
+        data: { url: '/account/privacy', request_id: requestId },
+        ttlSec: r.ttl,
+      },
+    ]);
   }
 
   /** Marketing: shahar + sport bo'yicha qiziqqan o'yinchilarga yangi o'yin (faqat consent bilan). */

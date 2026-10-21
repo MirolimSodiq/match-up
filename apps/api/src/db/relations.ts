@@ -1,6 +1,6 @@
 // AUTO-GENERATED: `pnpm db:pull`
 import { relations } from "drizzle-orm/relations";
-import { currencies, countries, cities, users, mediaAssets, userSessions, deviceTokens, authIdentities, venues, pitches, fieldLeases, sports, matches, cancellationPolicies, competitions, waiverTemplates, waiverSignatures, matchParticipants, bookings, matchSides, matchWaitlist, competitionEntries, paymentProviderConfigs, payments, paymentEvents, refunds, walletAccounts, walletTransactions, consents, dataSubjectRequests, auditLogs, hostProfiles, hostPayouts, hostAssignments, checkinEvents, matchFeedback, highlights, notifications, highlightShares, teams, matchEvents, mediaProcessingJobs, pushDeliveries, venueAmenities, amenities, pitchSports, hostSports, userRoles, highlightTags, highlightReactions, fxRates, teamMembers, playerSportProfiles, reconciliationRuns, reconciliationItems } from "./schema";
+import { currencies, countries, cities, users, mediaAssets, userSessions, deviceTokens, authIdentities, venues, pitches, fieldLeases, sports, matches, cancellationPolicies, competitions, waiverTemplates, waiverSignatures, matchParticipants, bookings, matchSides, matchWaitlist, competitionEntries, paymentProviderConfigs, payments, paymentEvents, refunds, walletAccounts, walletTransactions, consents, dataSubjectRequests, auditLogs, hostProfiles, hostPayouts, hostAssignments, checkinEvents, matchFeedback, highlights, notifications, highlightShares, teams, matchEvents, pushDeliveries, reconciliationRuns, reconciliationItems, mediaProcessingJobs, venueAmenities, amenities, pitchSports, hostSports, userRoles, highlightTags, highlightReactions, fxRates, teamMembers, playerSportProfiles } from "./schema";
 
 export const countriesRelations = relations(countries, ({one, many}) => ({
 	currency: one(currencies, {
@@ -113,11 +113,11 @@ export const usersRelations = relations(users, ({one, many}) => ({
 	matchFeedbacks_toUserId: many(matchFeedback, {
 		relationName: "matchFeedback_toUserId_users_id"
 	}),
+	highlights: many(highlights),
+	notifications: many(notifications),
 	mediaAssets: many(mediaAssets, {
 		relationName: "mediaAssets_ownerUserId_users_id"
 	}),
-	highlights: many(highlights),
-	notifications: many(notifications),
 	highlightShares: many(highlightShares),
 	teams: many(teams),
 	competitions: many(competitions),
@@ -147,12 +147,12 @@ export const mediaAssetsRelations = relations(mediaAssets, ({one, many}) => ({
 	}),
 	venues: many(venues),
 	dataSubjectRequests: many(dataSubjectRequests),
+	highlights: many(highlights),
 	user: one(users, {
 		fields: [mediaAssets.ownerUserId],
 		references: [users.id],
 		relationName: "mediaAssets_ownerUserId_users_id"
 	}),
-	highlights: many(highlights),
 	teams: many(teams),
 	mediaProcessingJobs: many(mediaProcessingJobs),
 }));
@@ -718,13 +718,6 @@ export const matchEventsRelations = relations(matchEvents, ({one}) => ({
 	}),
 }));
 
-export const mediaProcessingJobsRelations = relations(mediaProcessingJobs, ({one}) => ({
-	mediaAsset: one(mediaAssets, {
-		fields: [mediaProcessingJobs.mediaAssetId],
-		references: [mediaAssets.id]
-	}),
-}));
-
 export const pushDeliveriesRelations = relations(pushDeliveries, ({one}) => ({
 	notification: one(notifications, {
 		fields: [pushDeliveries.notificationId],
@@ -745,17 +738,24 @@ export const reconciliationRunsRelations = relations(reconciliationRuns, ({one, 
 }));
 
 export const reconciliationItemsRelations = relations(reconciliationItems, ({one}) => ({
-	currency: one(currencies, {
-		fields: [reconciliationItems.currency],
-		references: [currencies.code]
+	reconciliationRun: one(reconciliationRuns, {
+		fields: [reconciliationItems.runId],
+		references: [reconciliationRuns.id]
 	}),
 	payment: one(payments, {
 		fields: [reconciliationItems.paymentId],
 		references: [payments.id]
 	}),
-	reconciliationRun: one(reconciliationRuns, {
-		fields: [reconciliationItems.runId],
-		references: [reconciliationRuns.id]
+	currency: one(currencies, {
+		fields: [reconciliationItems.currency],
+		references: [currencies.code]
+	}),
+}));
+
+export const mediaProcessingJobsRelations = relations(mediaProcessingJobs, ({one}) => ({
+	mediaAsset: one(mediaAssets, {
+		fields: [mediaProcessingJobs.mediaAssetId],
+		references: [mediaAssets.id]
 	}),
 }));
 

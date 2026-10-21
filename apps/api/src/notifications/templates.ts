@@ -17,7 +17,8 @@ export type NotificationType =
   | 'match.new'
   | 'highlight.tagged'
   | 'highlight.ready'
-  | 'highlight.shared';
+  | 'highlight.shared'
+  | 'privacy.export_ready';
 
 export type NotificationCategory = 'transactional' | 'marketing';
 export type TextLocale = 'uz-Latn' | 'ru' | 'en';
@@ -36,6 +37,8 @@ export interface TemplateParams {
   clip?: string;
   /** highlight.shared: ulashgan o'yinchi */
   actor?: string;
+  /** privacy.export_ready: yuklab olish muddati (foydalanuvchi shahri vaqt zonasida). */
+  expires?: string;
 }
 
 type Render = (p: TemplateParams) => { title: string; body: string };
@@ -178,6 +181,15 @@ export const TEMPLATES: Record<NotificationType, Template> = {
       'uz-Latn': (p) => ({ title: "Highlight'ingiz ulashildi", body: `${p.actor} siz belgilangan klipni ulashdi — ${p.match}, ${p.when}.` }),
       ru: (p) => ({ title: 'Вашим хайлайтом поделились', body: `${p.actor} поделился(-ась) клипом, где вы отмечены, — «${p.match}», ${p.when}.` }),
       en: (p) => ({ title: 'Your highlight was shared', body: `${p.actor} shared a clip you're tagged in — ${p.match}, ${p.when}.` }),
+    },
+  },
+  'privacy.export_ready': {
+    category: 'transactional',
+    priority: 'normal',
+    text: {
+      'uz-Latn': (p) => ({ title: "Ma'lumotlaringiz tayyor", body: `Shaxsiy ma'lumotlaringiz nusxasini ${p.expires} gacha yuklab olishingiz mumkin.` }),
+      ru: (p) => ({ title: 'Ваши данные готовы', body: `Копию ваших персональных данных можно скачать до ${p.expires}.` }),
+      en: (p) => ({ title: 'Your data is ready', body: `Download a copy of your personal data by ${p.expires}.` }),
     },
   },
 };
