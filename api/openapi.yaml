@@ -84,7 +84,8 @@ tags:
       `io(API_URL, { path: '/ws', transports: ['websocket'], auth: { token: '<access JWT>' } })`.
       Token ixtiyoriy (ochiq xonalar uchun); yaroqsiz token bilan ulanish `connect_error: UNAUTHORIZED`
       bilan rad etiladi — ilova token'ni yangilab qayta ulanadi. Bir nechta API instance Redis adapter
-      orqali bog'langan.
+      orqali bog'langan. Akkaunt o'chirilganda (GDPR erasure) server foydalanuvchining barcha ulanishlarini
+      uzadi (`disconnect: io server disconnect`); o'chirilgan akkaunt token'i bilan qayta ulanish — `UNAUTHORIZED`.
 
       Xonaga obuna: `socket.emit('subscribe', { room }, ack)` -> `{ ok: true, room, state? }` yoki
       `{ ok: false, code: BAD_REQUEST | UNAUTHORIZED | FORBIDDEN | NOT_FOUND | RATE_LIMITED }`.
