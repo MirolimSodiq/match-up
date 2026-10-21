@@ -7,20 +7,18 @@
 | Qism | Natija | Tekshiruv |
 |---|---|---|
 | Arxitektura | `docs/ARCHITECTURE.md`: stack, DB, API, data residency (2026-yil mart qonuni), to'lovlar, compliance, roadmap; `docs/AI_CAM.md` — AI-Cam dizayni; `docs/DEPLOYMENT.md` | — |
-| DB | migratsiyalar 0001–0005, 0007, 0008 (`0006` AI-Cam uchun band), dev seed, `db/tests/verify.sh` (oversell race) | 30/30 |
-| Backend (`apps/api`) | auth (OTP, Google/Apple/Telegram), profil, discovery, waiver, booking, to'lovlar (Payme, Click, **Uzum**, hamyon), **kechki reconciliation**, host panel, admin API, push va WebSocket, GDPR eksport/erasure (+ eksport tayyor push'i), **highlight video pipeline** (MinIO/S3 presigned multipart, ichki endpointlar, feed, like, share, highlight push'lari), BullMQ job'lar, outbox, DB/Redis uzilishiga chidamlilik | e2e 102/102 |
-| Media worker (`services/media-worker`) | Python 3.12 + FFmpeg: Redis Stream `matchup:media-jobs` → HLS 720p/480p, thumbnail, 9:16 vertikal MP4 | pytest 32/32 |
+| DB | migratsiyalar 0001–0008 (`0006` — AI-Cam A), dev seed, `db/tests/verify.sh` (oversell race) | 30/30 |
+| Backend (`apps/api`) | auth (OTP, Google/Apple/Telegram), profil, discovery, waiver, booking, to'lovlar (Payme, Click, **Uzum**, hamyon), **kechki reconciliation**, host panel, admin API, push va WebSocket, GDPR eksport/erasure (+ eksport tayyor push'i), **highlight video pipeline** (MinIO/S3 presigned multipart, ichki endpointlar, feed, like, share, highlight push'lari), BullMQ job'lar, outbox, DB/Redis uzilishiga chidamlilik; **AI-Cam A**: to'liq o'yin yozuvi (kameralar, bib, host belgilaridan avtomatik klip'lar, ishtirokchilar uchun video, `recording.ready` push) | e2e 114/114 |
+| Media worker (`services/media-worker`) | Python 3.12 + FFmpeg: Redis Stream `matchup:media-jobs` → HLS 720p/480p, thumbnail, 9:16 vertikal MP4; `recording_v1` (alohida `…:recording` lane, 1080p/720p/480p bitta o'tishda), `clip_v1` (yozuv HLS'idan kadr aniqligida kesish) | pytest 38/38 |
 | Player ilovasi (`apps/player`) | Expo, yorug' sport dizayni, to'lov WebView (Uzum ham), QR chipta, social login, profil (kirish usullari, maxfiylik), push va deep link'lar, jonli slot'lar, highlight feed | tsc |
 | Host ilovasi (`apps/host`) | takliflar, offline roster, QR skaner (Ed25519 offline), jamoalar, yakunlash, push, highlight yozish va resumable yuklash | vitest 45/45 |
 | Admin panel (`apps/admin`) | Next.js BFF, match/venue/host/refund/dashboard | build |
 | Dizayn tizimi | `packages/ui` (tokenlar + RN komponentlar), `packages/contracts` (OpenAPI tiplari) | tsc |
-| CI va infra | GitHub Actions (typecheck, e2e, worker pytest, lint, build), Dockerfile'lar, lokal staging, Terraform (eu-central-1, media bucket'lar, worker ECS), Sentry, EAS | terraform validate, actionlint |
+| CI va infra | GitHub Actions (typecheck, e2e, worker pytest, lint, build), Dockerfile'lar, lokal staging, Terraform (eu-central-1, media bucket'lar, worker ECS — klip va yozuv lane'lari), Sentry, EAS | terraform validate, actionlint |
 
 ## Jarayonda / merge qilinmagan
 
-| Ish | Kim | Branch |
-|---|---|---|
-| AI-Cam Engine — Bosqich A | @MirolimSodiq | `feat/ai-cam-a` |
+Yo'q (yangi ish boshlanganda shu yerga: ish, kim, branch).
 
 Eski `claude/*` branch'lar `main` ga qo'shilgan; ular faqat lokal tarix sifatida qolgan, GitHub'ga push qilinmagan.
 
@@ -32,10 +30,10 @@ Loyiha ikki kishi o'rtasida bo'lingan. Har yo'nalish o'z papkalariga ega — bir
 
 | # | Ish | Fayllar | Holat |
 |---|---|---|---|
-| A1 | `0006_ai_cam.sql`: `recording_sessions`, `recording_cameras`, `match_participants.bib_number`, `media_processing_jobs.recording_session_id` | `db/migrations/0006_*` | jarayonda |
-| A2 | API: `POST /host/matches/{id}/recordings`, kamera qismlari, `complete`, holat ([`AI_CAM.md`](AI_CAM.md) §6); to'liq o'yin uchun transcode job'i | `apps/api/src/media/`, `services/media-worker` | jarayonda |
-| A3 | Host ilovasi: to'liq o'yinni 2 telefonda yozish rejimi, Wi-Fi'da fonda davom etadigan upload, check-in'da bib biriktirish, yozish paytida highlight belgilash | `apps/host/` | — |
-| A4 | Player ilovasi: to'liq o'yin videosi ishtirokchilarga | `apps/player/` | — |
+| A1 | `0006_ai_cam.sql`: `recording_sessions`, `recording_cameras`, `recording_markers`, `match_participants.bib_number`, `recording_session_id` ustunlari | `db/migrations/0006_*` | ✅ |
+| A2 | API (match bo'yicha: kamera, yuklash, belgilar, bib, player ko'rinishi — [`AI_CAM.md`](AI_CAM.md) §6, §12), worker `recording_v1` / `clip_v1`, Terraform yozuv lane'i | `apps/api/src/media/`, `services/media-worker`, `infra/terraform` | ✅ |
+| A3 | Host ilovasi: kamera rejimi (pozitsiya, 4K, uzoq yozish, `PUT .../cameras`), Wi-Fi'da fonda davom etadigan yozuv yuklash (16 MiB qismlar, URL'lar partiyalab, `complete` `parts` siz), "pult" rejimi (Highlight chap/o'ng, Kick-off, bekor qilish — oflayn navbat), roster'da bib | `apps/host/` | keyingi |
+| A4 | Player ilovasi: to'liq o'yin videosi (`GET /v1/matches/{id}/recording`, kamera almashtirish, lahzalarga sakrash), `recording.ready` push deep link'i `/match/{id}/recording` | `apps/player/` | keyingi |
 | A5 | Relizdan oldin: `metro.config.js` da Sentry (`getSentryExpoConfig`) | `apps/host`, `apps/player` | — |
 
 ### @MirolimProjects — admin panel, backend qoldiqlari va deploy
@@ -47,8 +45,8 @@ Loyiha ikki kishi o'rtasida bo'lingan. Har yo'nalish o'z papkalariga ega — bir
 | B3 | Yetishmayotgan job'lar (`ARCHITECTURE.md` §4.9 da bor, `jobs.module.ts` da yo'q): post-match (Glicko reyting, feedback so'rovi, no-show statistikasi), haftalik host payout (`host_payouts`), host no-show alert (kick-off − 15 daq, `arrived` yo'q) | `apps/api/src/jobs`, `host` | — |
 | B4 | Admin'da highlight moderatsiyasi | `apps/api/src/admin`, `apps/admin` | — |
 | B5 | Deploy workflow: GitHub OIDC role (ECR push + ECS/Terraform) va `deploy` job ([`DEPLOYMENT.md`](DEPLOYMENT.md) §6) | `.github/workflows`, `infra/terraform` | — |
-| B6 | Media worker autoscaling — navbat uzunligi (`XLEN`/`XPENDING matchup:media-jobs`) bo'yicha CloudWatch metrikasi | `infra/terraform` | — |
-| B7 | GDPR eksportiga media fayllar — `media/` ga tegadi, A2 merge bo'lgandan keyin | `apps/api/src/privacy` | — |
+| B6 | Media worker autoscaling — navbat uzunligi (`XLEN`/`XPENDING matchup:media-jobs[:recording]`) bo'yicha CloudWatch metrikasi; yozuv lane'ini bo'sh paytda 0 ga tushirish va uzun job paytida ECS task scale-in protection (`DEPLOYMENT.md` cheklovlari) | `infra/terraform` | — |
+| B7 | GDPR eksportiga media fayllar (highlight'lar va to'liq o'yin yozuvlari) — `media/` ga tegadi; A2 merge bo'lgan, boshlash mumkin | `apps/api/src/privacy` | — |
 | B8 | Provider refund'larni avtomatlashtirish — avval Payme/Click/Uzum refund API imkoniyatlarini aniqlash; hozir admin navbatida qo'lda | `apps/api/src/payments` | — |
 
 ### Kod bo'lmagan ishlar (biznes tomonni kim olib borsa)
