@@ -20,13 +20,14 @@
 | Branch | Ish | Holat |
 |---|---|---|
 | `claude/media-pipeline-a6ca55` | Highlight video pipeline: MinIO/S3 presigned multipart (resume), Redis Stream `matchup:media-jobs` → `services/media-worker` (Python 3.12, FFmpeg: HLS 720p/480p, thumbnail, 9:16), ichki endpointlar, player feed / like / share, host'da yozish va yuklash, Terraform (media-raw bucket, worker ECS/IAM), CI | commit qilinmagan; migratsiya `0008`; e2e 80/80, worker pytest 31/31, host vitest 45/45 |
+| `claude/quirky-murdock-8a7fe0` | Highlight push: `HighlightReady` → teglangan o'yinchilarga `highlight.tagged` (joriy `media_appearance` consent bilan), qolgan ishtirokchilarga `highlight.ready` (har match uchun bitta); `HighlightShared` → teglanganlarga `highlight.shared` (har klip uchun bitta). Deep link `/highlight/{id}` | commit qilinmagan; media-pipeline'ning commit qilinmagan nusxasi ustida (shu branch'dan keyin merge qilinadi); e2e 85/85 |
 
 ## Qoldi
 
 | # | Ish | Izoh |
 |---|---|---|
 | 1 | Uzum Bank va kechki reconciliation (Payme `GetStatement`, Click hisobotlari) | 2-to'lqin |
-| 2 | ~~Highlight video yuklash~~ — `claude/media-pipeline-a6ca55` da tayyor (merge kutilmoqda). Qolgani: `HighlightReady` push shabloni (Notifications), navbat uzunligi bo'yicha worker autoscaling, admin moderatsiyasi, GDPR eksportiga media | AI-Cam Bosqich A uchun asos |
+| 2 | ~~Highlight video yuklash~~ — `claude/media-pipeline-a6ca55` da tayyor (merge kutilmoqda). Push xabarlari — `claude/quirky-murdock-8a7fe0`. Qolgani: navbat uzunligi bo'yicha worker autoscaling, admin moderatsiyasi, GDPR eksportiga media | AI-Cam Bosqich A uchun asos |
 | 3 | **AI-Cam Engine** — rig, sinxronlash, tracking, bib orqali o'yinchini tanish, event'lar, reyting, `/v1/matches/{id}/analytics` | Phase 2, dizayn: [`docs/AI_CAM.md`](AI_CAM.md), bosqichlar A–D |
 | 4 | Provider refund'larni avtomatlashtirish (hozir admin navbatida qo'lda) | Payme/Click API imkoniyatlariga bog'liq |
 | 5 | Stripe / Apple Pay / PayPal | chet el yuridik shaxsi kerak (Phase 3) |

@@ -775,6 +775,7 @@ flowchart LR
 * **Idempotentlik:** `notifications.dedupe_key` (`evt:<event_id>:<user_id>`, `reminder_24h:<booking_id>`, `waitlist:<entry_id>`) — at-least-once yetkazishda ham bitta xabar. WS payload'lari holat snapshot'i — takroriy event zararsiz.
 * **Consumer group'lar alohida:** sekin push provayderi WS yangilanishlarini ushlab turmaydi. Xato bergan event ACK qilinmaydi va `XPENDING`/`XCLAIM` bilan qayta olinadi; 5 urinishdan keyin `matchup:events:dead`.
 * **Matn:** `users.locale` (uz-Latn, ru, en; uz-Cyrl -> uz-Latn), sana venue vaqt zonasida. Marketing (`match.new`) — faqat `marketing_push` consent bilan; tranzaksion — har doim.
+* **Highlight:** `HighlightReady` -> teglangan o'yinchilarga `highlight.tagged` (har klip uchun; teglar bazadan joriy `media_appearance` consent bilan qayta olinadi), qolgan `confirmed`/`checked_in` ishtirokchilarga `highlight.ready` — match uchun bitta (host bir nechta klip yuklasa ham). `HighlightShared` -> teglanganlarga `highlight.shared` (ulashgandan tashqari, klip uchun bitta). O'chirilgan / rad etilgan klip uchun xabar yo'q; muallif (host) xabar olmaydi. Deep link `/highlight/{id}`.
 * **WS xonalari:** `match:{id}` (ochiq) -> `slots.updated`; `booking:{id}` (faqat egasi) -> `booking.updated`; `host:{userId}` -> `offer.created` / `offer.closed`. Ulanish: `path: /ws`, `auth: { token }`.
 
 ### 4.10 Video highlight pipeline
@@ -805,6 +806,7 @@ sequenceDiagram
     W->>OUT: PUT natijalar + manifest.json
     W->>API: POST .../result (ready | failed)
     API->>API: TX: media ready, highlight published, outbox HighlightReady
+    API-->>P: push (Notifications: teglanganlar — highlight.tagged, ishtirokchilar — highlight.ready)
     P->>API: GET /matches/{id}/highlights · /me/highlights
     API-->>P: thumbnail/MP4 — signed URL; HLS — /v1/playback/{token}/master.m3u8
     P->>OUT: segmentlar (imzolangan URL, API orqali o'tmaydi)

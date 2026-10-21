@@ -122,6 +122,7 @@ export function PushNotifications() {
       }
       if (d.match_id) void queryClient.invalidateQueries({ queryKey: ['match'] });
       if (d.type === 'refund.issued') void queryClient.invalidateQueries({ queryKey: qk.wallet });
+      if (d.type?.startsWith('highlight.')) void queryClient.invalidateQueries({ queryKey: ['highlights'] });
     });
     return () => sub.remove();
   }, [queryClient]);
