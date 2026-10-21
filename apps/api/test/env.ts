@@ -31,5 +31,7 @@ process.env.MEDIA_RAW_BUCKET = 'matchup-e2e-media-raw';
 process.env.MEDIA_BUCKET = 'matchup-e2e-media';
 process.env.MEDIA_UPLOAD_PART_SIZE = String(5 * 1024 * 1024);
 process.env.MEDIA_JOBS_STREAM = 'matchup:media-jobs';
+process.env.MEDIA_RECORDING_JOBS_STREAM = 'matchup:media-jobs:recording';
+process.env.MEDIA_RECORDING_PART_SIZE = String(5 * 1024 * 1024);
 process.env.MEDIA_WORKER_TOKEN = 'e2e-media-worker-token-0123456789abcdef';
 delete process.env.MEDIA_CDN_DOMAIN;

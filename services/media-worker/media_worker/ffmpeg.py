@@ -1,5 +1,8 @@
 """FFmpeg/ffprobe bosqichlari: probe -> validatsiya -> HLS (720p, 480p) -> thumbnail -> 9:16 MP4.
 
+To'liq o'yin yozuvi (AI-Cam A, `recording_v1`): bitta FFmpeg o'tishida 1080p/720p/480p (4K HEVC bir marta
+dekodlanadi). Klip (`clip_v1`): yozuvning HLS segmentlari ulanib, kerakli bo'lak aniq kesiladi.
+
 Funksiyalar faqat lokal fayllar bilan ishlaydi (storage va navbatdan mustaqil) — testlarda to'g'ridan-to'g'ri
 chaqiriladi. Telefon videolaridagi aylantirish (display matrix) FFmpeg'ning autorotate'i bilan qo'llanadi,
 shuning uchun barcha o'lchamlar *ko'rinadigan* (display) o'lchamlarda hisoblanadi.
@@ -58,6 +61,13 @@ class RenditionSpec:
 LADDER = (
     ("720p", 720, 2_500, 128, "4.0", "avc1.4d4028,mp4a.40.2"),
     ("480p", 480, 1_200, 96, "3.1", "avc1.4d401f,mp4a.40.2"),
+)
+
+#: recording_v1 ladder: maydon ko'rinishi (landshaft) — 1080p klip'lar uchun manba ham (9:16 crop sifati)
+RECORDING_LADDER = (
+    ("1080p", 1080, 4_500, 128, "4.0", "avc1.4d4028,mp4a.40.2"),
+    ("720p", 720, 2_500, 128, "4.0", "avc1.4d4028,mp4a.40.2"),
+    ("480p", 480, 1_000, 96, "3.1", "avc1.4d401f,mp4a.40.2"),
 )
 
 VERTICAL_SIZE = (720, 1280)
@@ -154,11 +164,11 @@ def validate(p: Probe, max_duration_ms: int, max_bytes: int) -> None:
         raise JobError("FILE_TOO_LARGE", f"{p.size_bytes} bayt")
 
 
-def plan_renditions(p: Probe) -> list[RenditionSpec]:
+def plan_renditions(p: Probe, ladder: tuple = LADDER) -> list[RenditionSpec]:
     """Upscale yo'q: manbaning qisqa tomonidan katta rendition'lar tashlanadi; juda kichik manba — bitta asl o'lchamda."""
     short, long_ = min(p.width, p.height), max(p.width, p.height)
     out: list[RenditionSpec] = []
-    for name, target, vk, ak, level, codecs in LADDER:
+    for name, target, vk, ak, level, codecs in ladder:
         if short < target * 0.9:
             continue
         s = min(target, short)
@@ -166,7 +176,7 @@ def plan_renditions(p: Probe) -> list[RenditionSpec]:
         w, h = (s, l_) if p.width <= p.height else (l_, s)
         out.append(RenditionSpec(name, _even(w), _even(h), vk, ak, level, codecs))
     if not out:
-        name, _, vk, ak, level, codecs = LADDER[-1]
+        name, _, vk, ak, level, codecs = ladder[-1]
         out.append(RenditionSpec(name, _even(p.width), _even(p.height), vk, ak, level, codecs))
     return out
 
@@ -197,6 +207,77 @@ def encode_hls(src: Path, out_dir: Path, p: Probe, spec: RenditionSpec, preset: 
         str(playlist),
     ])
     return playlist
+
+
+def _hls_output(out_dir: Path, segment_pattern: str) -> list[str]:
+    return [
+        "-f", "hls", "-hls_time", "4", "-hls_playlist_type", "vod", "-hls_flags", "independent_segments",
+        "-hls_segment_type", "mpegts", "-hls_segment_filename", str(out_dir / segment_pattern), str(out_dir / "index.m3u8"),
+    ]
+
+
+def _rate(spec: RenditionSpec) -> list[str]:
+    return ["-b:v", f"{spec.video_kbps}k", "-maxrate", f"{int(spec.video_kbps * 1.07)}k", "-bufsize", f"{int(spec.video_kbps * 1.5)}k"]
+
+
+def encode_hls_multi(src: Path, out_root: Path, p: Probe, specs: list[RenditionSpec], preset: str = "veryfast", threads: int = 0) -> list[Path]:
+    """Barcha rendition'lar bitta o'tishda (`split`): 90 daqiqalik 4K manba bir marta dekodlanadi.
+
+    Segment nomlari 5 xonali (90 daq / 4 s ≈ 1 350 segment). Timeout davomiylikka bog'liq — CPU'da soatlab ishlashi mumkin;
+    worker keepalive'i lease va heartbeat'ni yangilab turadi.
+    """
+    n = len(specs)
+    graph = [f"[0:v]split={n}" + "".join(f"[v{i}]" for i in range(n))]
+    graph += [f"[v{i}]scale={s.width}:{s.height}:flags=bicubic,setsar=1[o{i}]" for i, s in enumerate(specs)]
+    args = ["ffmpeg", "-y", "-v", "error", "-i", str(src), "-filter_complex", ";".join(graph)]
+    playlists = []
+    for i, spec in enumerate(specs):
+        out_dir = out_root / spec.name
+        out_dir.mkdir(parents=True, exist_ok=True)
+        args += [
+            "-map", f"[o{i}]", "-map", "0:a:0?",
+            *_x264(preset, threads), "-profile:v", "main", "-level:v", spec.level, *_rate(spec),
+            "-force_key_frames", "expr:gte(t,n_forced*2)", "-sc_threshold", "0",
+            *_audio(p, spec.audio_kbps),
+            *_hls_output(out_dir, "seg_%05d.ts"),
+        ]
+        playlists.append(out_dir / "index.m3u8")
+    run(args, timeout=max(600, int(p.duration_ms / 1000 * 6)))
+    return playlists
+
+
+def select_segments(segments: list[tuple[str, float]], start_s: float, end_s: float) -> tuple[list[tuple[str, float]], float]:
+    """[start_s, end_s) ni qamragan segmentlar va birinchisining boshlanish vaqti (playlist boshidan, s)."""
+    picked: list[tuple[str, float]] = []
+    first: float | None = None
+    t = 0.0
+    for name, dur in segments:
+        seg_start, seg_end = t, t + dur
+        if seg_end > start_s and seg_start < end_s:
+            if first is None:
+                first = seg_start
+            picked.append((name, dur))
+        t = seg_end
+        if t >= end_s:
+            break
+    return picked, first or 0.0
+
+
+def cut_clip(src: Path, dst: Path, offset_s: float, duration_s: float, preset: str = "veryfast", threads: int = 0) -> Path:
+    """Ulangan TS segmentlardan aniq kesish (qayta kodlash bilan — kadr aniqligida, keyframe'ga bog'liq emas).
+
+    `-ss` — output opsiyasi: MPEG-TS'da input seek keyingi keyframe'ga tushib qoladi (klip ~1 s kech boshlanardi);
+    output seek boshidan dekodlab kerakli kadrgacha tashlaydi — manba bor-yo'g'i bir necha segment, arzon.
+    """
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    run([
+        "ffmpeg", "-y", "-v", "error", "-i", str(src), "-ss", f"{max(0.0, offset_s):.3f}", "-t", f"{duration_s:.3f}",
+        "-map", "0:v:0", "-map", "0:a:0?",
+        *_x264(preset, threads), "-profile:v", "high", "-crf", "18",
+        "-c:a", "aac", "-b:a", "160k", "-ac", "2", "-ar", "48000",
+        "-movflags", "+faststart", str(dst),
+    ])
+    return dst
 
 
 def parse_playlist(playlist: Path) -> list[tuple[str, float]]:
@@ -238,9 +319,9 @@ def write_master(path: Path, entries: list[tuple[RenditionSpec, int]], has_audio
     path.write_text("\n".join(lines) + "\n")
 
 
-def thumbnail(src: Path, dst: Path, p: Probe) -> tuple[int, int]:
-    """Kadr: min(1 s, o'rta) — boshidagi qora kadrdan qochish."""
-    at = min(1.0, p.duration_ms / 2000)
+def thumbnail(src: Path, dst: Path, p: Probe, at_s: float = 1.0) -> tuple[int, int]:
+    """Kadr: min(at_s, o'rta) — boshidagi qora kadrdan qochish (yozuvda — o'yin boshlangandan keyingi kadr)."""
+    at = min(at_s, p.duration_ms / 2000)
     short = min(p.width, p.height)
     s = min(THUMB_SHORT_SIDE, short)
     w, h = (s, _even(p.height * s / p.width)) if p.width <= p.height else (_even(p.width * s / p.height), s)

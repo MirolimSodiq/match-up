@@ -1,7 +1,7 @@
 # AI-Cam Engine — video highlight'lar va o'yinchi reytingi
 
 > Maydondagi 2–3 telefon yozuvidan butun maydon ko'rinishi, avtomatik highlight kliplar (gol, dribling, progressiv pas) va har bir o'yinchi uchun FIFA uslubidagi reyting (masalan, **8.7**) yaratadigan modul.
-> Holat: **reja (Phase 2)**. MVP'da faqat host qo'lda yozadigan qisqa kliplar bor (`docs/ARCHITECTURE.md` §4.10).
+> Holat: **Bosqich A — backend tayyor** (migratsiya `0006`, API, worker profillari `recording_v1` / `clip_v1`; §12). Host va player ilovalari — keyingi qadam. Bosqich B–D — reja.
 
 | Bog'liq joy | Nima bor |
 |---|---|
@@ -125,35 +125,55 @@ rating = clamp(6.0 + Σ(weight[e] × confidence[e]) + team_result, 3.0, 10.0), 0
 
 **Overlay matnlari** lokalizatsiya qilinadi: "MUVAFFAQIYATLI DRIBLING" / "УСПЕШНЫЙ ДРИБЛИНГ" / "SUCCESSFUL DRIBBLE".
 
-## 5. DB kengaytmasi — `0006_ai_cam.sql` (faqat additive)
+## 5. DB kengaytmasi (faqat additive)
+
+**Bosqich A — `0006_ai_cam.sql` (qo'llangan).** Raqam 0007/0008 dan oldin: toza bazada 0006 ulardan oldin ishlaydi, shuning uchun faqat 0001–0005 obyektlariga tayanadi. Holatlar `text + CHECK` — keyingi bosqichlar CHECK'ni almashtirib qiymat qo'shadi (enum `ADD VALUE` tranzaksiya muammosisiz).
 
 | Jadval / o'zgarish | Asosiy ustunlar |
 |---|---|
-| `match_participants` + `bib_number smallint` | partial UNIQUE (match_id, bib_number) — host check-in'da biriktiradi |
-| `recording_sessions` (yangi) | match_id UNIQUE, host_user_id, status (`recording → uploading → uploaded → processing → review → ready / failed / rejected`), rig_type, started_at, kickoff_offset_ms, panorama_media_id |
-| `recording_cameras` (yangi) | session_id, position (`left`, `right`, `wide`), device_model, media_asset_id, fps, resolution, sync_offset_ms, calibration jsonb (homography, intrinsics, sifat), status |
-| `media_processing_jobs` + `recording_session_id` (`stage` 0008 da qo'shilgan — `ADD COLUMN IF NOT EXISTS` bilan) | yangi enum qiymatlari: `ai_cam_sync`, `ai_cam_calibrate`, `ai_cam_track`, `ai_cam_events`, `ai_cam_rating`, `ai_cam_render` |
+| `match_participants` + `bib_number smallint` (1–99) | partial UNIQUE (match_id, bib_number) faol roster qatorlari orasida — host check-in'da biriktiradi |
+| `recording_sessions` (yangi) | match_id UNIQUE, host_user_id, status (`recording → uploading → processing → ready / failed`, kameralardan hisoblanadi), rig_type, kickoff_at (birinchi `kickoff` belgisi), ready_at (birinchi kamera tayyor — `RecordingReady` bir marta) |
+| `recording_cameras` (yangi) — har telefonning **har fayli** (qizib to'xtasa — yangi fayl, o'sha pozitsiya) | session_id, client_camera_id UNIQUE (qurilma yaratadi), position (`left`, `right`, `wide`), recorded_by, device_model, status (`recording → recorded → uploading → processing → ready / failed / cancelled`), started_at / stopped_at (qurilma soati, NTP), duration_ms (worker probe'dan keyin aniq), fps, width, height, media_asset_id UNIQUE, failure_code, sync_offset_ms, calibration jsonb (Bosqich B) |
+| `recording_markers` (yangi) | session_id, client_marker_id UNIQUE, kind (`highlight`, `kickoff`), occurred_at, side (`left`/`right` — qaysi kamera), participant_id (teg, consent bilan), pre_ms / post_ms (standart 12 s / 3 s, jami 3–60 s), camera_id + highlight_id (kesilgan klip), deleted_at |
+| `media_processing_jobs` + `recording_session_id`; `highlights` + `recording_session_id` | belgidan kesilgan klip — oddiy `highlights` qatori (`source = host_manual`) |
+
+**Keyingi bosqichlar — alohida migratsiyalar** (raqam `STATUS.md` da band qilinadi):
+
+| Jadval / o'zgarish | Asosiy ustunlar |
+|---|---|
+| `recording_sessions` | `review`, `rejected` holatlari (B–C), panorama_media_id |
+| `media_processing_jobs` | yangi enum qiymatlari: `ai_cam_sync`, `ai_cam_calibrate`, `ai_cam_track`, `ai_cam_events`, `ai_cam_rating`, `ai_cam_render` |
 | `match_events` + ustunlar | yangi `match_event_type` qiymatlari (§4); `pitch_x/y`, `end_x/y`, `track_id`, `model_version` |
 | `player_match_stats` (yangi) — so'ralgan `Player_Stats` | PK (match_id, participant_id), user_id, minutes_played, passes, passes_completed, progressive_passes, key_passes, dribbles_attempted/success, turnovers, shots, shots_on_target, goals, assists, distance_m, top_speed_kmh, sprints, **rating numeric(3,1)**, rating_breakdown jsonb, formula_version, model_version, status (`draft / published / disputed / withdrawn`), reviewed_by, published_at |
 | `rating_formulas` (yangi) | version, weights jsonb, active_from — o'zgarishlar audit qilinadi |
-| `highlights` + ustunlar — so'ralgan `Video_Clips` | clip_type (event turi), primary_participant_id, overlay jsonb (locale bo'yicha matn, badge), recording_session_id. Yangi `highlight_renditions` (highlight_id, aspect `16:9` / `9:16`, media_asset_id, branded) — Reels/Telegram uchun tayyor vertikal MP4 |
+| `highlights` + ustunlar — so'ralgan `Video_Clips` | clip_type (event turi), primary_participant_id, overlay jsonb (locale bo'yicha matn, badge). Yangi `highlight_renditions` (highlight_id, aspect `16:9` / `9:16`, media_asset_id, branded) — Reels/Telegram uchun tayyor vertikal MP4 |
 
 `Video_Clips` uchun alohida jadval ochilmaydi: mavjud `highlights` jadvali (moderatsiya, visibility, like'lar, teglar) kengaytiriladi. Shunda qo'lda va AI yaratgan kliplar bitta feed'da yuradi.
 
 **Saqlash muddatlari (S3 lifecycle):**
 - xom video — 30 kun;
+- to'liq o'yin HLS (`recordings/`, media bucket) — 90 kun (`media_recording_expiration_days`);
 - panorama replay — 90 kun;
 - kliplar va renditions — highlight o'chirilguncha;
 - `work/` oraliq fayllari — 7 kun.
 
 ## 6. API kontraktlari
 
+Bosqich A (amalga oshirilgan — `api/openapi.yaml`, teg `Recordings`). Sessiya match'ga 1:1, shuning uchun yo'llar **match bo'yicha**: internet yo'q paytda boshlangan yozuvni telefon sessiya id'sini bilmasdan keyin ro'yxatga oladi.
+
 | Method | Path | Kim | Vazifa |
 |---|---|---|---|
-| POST | `/v1/host/matches/{id}/recordings` | host | sessiya + kameralar, har kamera uchun multipart init |
-| GET | `/v1/host/recordings/{id}/cameras/{cam}/parts` | host | yuklangan qismlar (davom ettirish uchun) va yangi presigned URL'lar |
-| POST | `/v1/host/recordings/{id}/cameras/{cam}/complete` | host | ETag'lar + sha256 → kamera `uploaded`; hammasi tayyor bo'lsa pipeline navbatga |
-| GET | `/v1/host/recordings/{id}` | host | upload/ishlov holati |
+| GET | `/v1/host/matches/{id}/recording` | host | sessiya, kameralar (yuklash holati bilan), belgilar |
+| PUT | `/v1/host/matches/{id}/recording/cameras/{clientCameraId}` | host | kamera faylini ro'yxatga olish — yozish boshida va oxirida (idempotent; sessiya yo'q bo'lsa yaratiladi) |
+| POST | `/v1/host/matches/{id}/recording/cameras/{clientCameraId}/upload` | host | multipart init (≤ 40 GB, ≤ 3 soat, qism 16 MiB, sessiya 60 soat); davomi va yakuni — oddiy `GET /v1/media/{id}/upload` (URL'lar 100 tadan), `POST /v1/media/{id}/complete` (`parts` siz — ETag'lar `ListParts` dan) |
+| POST / DELETE | `/v1/host/matches/{id}/recording/markers[/{clientMarkerId}]` | host | belgilar to'plami (offline navbat, idempotent) / bekor qilish (klip feed'dan olinadi) |
+| PATCH | `/v1/host/matches/{id}/participants/{pid}` `{bib_number}` | host | bib raqami (`409 BIB_TAKEN`) |
+| GET | **`/v1/matches/{id}/recording`** | o'yinchi (participant), host, admin | tayyor kameralar HLS bilan, lahzalar har kameradagi vaqti bilan (videoda sakrash), kesilgan kliplar |
+
+Bosqich B–C (reja):
+
+| Method | Path | Kim | Vazifa |
+|---|---|---|---|
 | GET | **`/v1/matches/{id}/analytics`** | o'yinchi (participant) | match statistikasi, mening reytingim + breakdown, kliplarim (overlay, renditions, share havolasi), badge'lar, top o'yinchilar (faqat roziligi borlar) |
 | GET | `/v1/me/highlights` | o'yinchi | profil feed'i (cursor) |
 | POST | `/v1/highlights/{id}/share` | o'yinchi | imzolangan qisqa havola + `HighlightShared` event (Instagram Reels, Telegram) |
@@ -223,7 +243,7 @@ Natijalar API'ga ichki endpoint orqali yoziladi (servis token, faqat VPC ichida)
 
 | Bosqich | Ko'lam | Natija |
 |---|---|---|
-| **A — Yozish va ma'lumot yig'ish** | host app'da yozish rejimi va resumable upload, `recording_sessions`, bib biriktirish, to'liq o'yin videosi ishtirokchilarga, host qo'lda belgilagan highlight'lar | Dataset yig'iladi, rig operatsion jihatdan sinaladi |
+| **A — Yozish va ma'lumot yig'ish** | host app'da yozish rejimi va resumable upload, `recording_sessions`, bib biriktirish, to'liq o'yin videosi ishtirokchilarga, host qo'lda belgilagan highlight'lar | Dataset yig'iladi, rig operatsion jihatdan sinaladi. **Backend tayyor (§12)**; host va player UI — keyingi qadam |
 | **B — Avtomatik kliplar** | sinxronlash, kalibrovka, detection va tracking, gol va zarba event'lari, virtual kamera render, 9:16 ulashish | "AI beta" gol kliplari |
 | **C — O'yinchi statistikasi va reyting** | jamoa va bib identity, possession modeli, barcha event'lar, `player_match_stats`, formula v1, review navbati, `/analytics` | Reyting avval shadow rejimda, keyin nashr |
 | **D — Optimallashtirish** | qurilmada oldindan ishlov (upload hajmini kamaytirish), venue'larga doimiy kameralar, deyarli real-time | Narx va kechikish pasayadi |
@@ -239,3 +259,45 @@ Natijalar API'ga ichki endpoint orqali yoziladi (servis token, faqat VPC ichida)
 | Host'ga qo'shimcha ish (~10–15 daq rig) | host haqiga AI-Cam bonusi, rig bo'yicha qo'llanma |
 | "Biometrik ma'lumot" ta'rifi | yuz tanimaslik siyosati, yurist xulosasi (ARCHITECTURE §6, 1-band) |
 | Reyting adolati va nizolar | breakdown shaffofligi, nizo oqimi, shadow rejim |
+
+## 12. Bosqich A — amalga oshirilgan dizayn
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Kamera telefoni (host app)
+    participant R as Host telefoni ("pult")
+    participant API as API
+    participant RAW as S3 media-raw
+    participant WR as Worker (recording lane)
+    participant WD as Worker (default lane)
+    participant P as Player app
+    C->>API: PUT .../recording/cameras/{clientCameraId} {position, started_at}
+    R->>API: POST .../recording/markers [{kickoff}, {highlight, side: left}]
+    C->>API: PUT ... {stopped_at, duration_ms}
+    C->>API: POST .../cameras/{id}/upload → UploadInit (16 MiB qismlar, URL'lar 100 tadan)
+    C->>RAW: PUT qismlar (Wi-Fi, fonda; uzilsa GET /v1/media/{id}/upload)
+    C->>API: POST /v1/media/{id}/complete (parts siz)
+    API->>WR: recording_v1 → matchup:media-jobs:recording
+    WR->>API: result: HLS 1080p/720p/480p, thumbnail
+    API->>API: TX: kamera ready → RecordingReady (bir marta) → belgilardan klip'lar
+    API->>WD: clip_v1 (har belgi) → matchup:media-jobs
+    WD->>WD: playlist → kerakli segmentlar → ulash → aniq kesish → highlight_v1
+    WD->>API: result → highlight nashr, HighlightReady
+    API-->>P: push recording.ready / highlight.*
+    P->>API: GET /v1/matches/{id}/recording
+```
+
+| Qaror | Nima uchun |
+|---|---|
+| Kamera fayli = oddiy `media_assets` (kontekst `recording`) | resume / complete / abort / housekeeping / HLS ijro qayta ishlatiladi; host ilovasining yuklash dvigateli o'sha endpointlar bilan ishlaydi |
+| `client_camera_id`, `client_marker_id` qurilmada yaratiladi | stadionda internet yo'q — yozish va belgilar oflayn boshlanadi, keyin idempotent yuboriladi |
+| Kamera tanlash: belgi `side` → o'sha tomon kamerasi, bo'lmasa `wide`; tomonsiz — `wide`, `left`, `right` | afzal kamera hali tayyor bo'lmasa klip kutadi; u xato bersa yoki bekor qilinsa — keyingi pozitsiya (qarama-qarshi yarim maydonga o'tilmaydi — u yerda lahza ko'rinmaydi) |
+| Klip **yozuvning HLS'idan** kesiladi (manbadan emas) | kech kelgan belgi uchun 15 GB manbani qayta yuklash shart emas: faqat 2–4 segment (bir necha MB). 1080p rendition — 9:16 crop uchun yetarli sifat |
+| Kesish: TS segmentlar ulanadi, `-ss` **output** opsiyasi | MPEG-TS'da input seek keyingi keyframe'ga tushadi (klip ~1 s kech) — testda kadr aniqligi PSNR bilan tekshiriladi |
+| Alohida navbat va worker servisi (`recording` lane) | 90 daqiqalik 4K kodlash soatlab davom etadi — kliplar navbatini bandlamaydi; katta disk (120 GiB), on-demand (Spot uzilishi butun ishni qaytaradi) |
+| `RecordingReady` — birinchi kamera tayyor bo'lganda | ikkinchi telefon fayli kunlab yuklanmay qolishi mumkin; o'yinchilar kutmaydi, qolgan kameralar jim qo'shiladi |
+| To'liq video faqat ishtirokchilarga | consent'siz o'yinchilar ham kadrda — ochiq ulashish yo'q; yuz xiralashtirish (`face_blur`) — Bosqich B (§8) |
+
+**Ma'lum cheklovlar:** yozuv kodlashi ECS `stopTimeout` (120 s) dan uzun — deploy yoki scale-in paytida job boshqa task'da qaytadan boshlanadi (ECS task scale-in protection — B6 autoscaling bilan); kick-off belgisi o'zgarsa klip'larning `match_offset_ms` i qayta hisoblanadi, lekin allaqachon yuborilgan push matni o'zgarmaydi; telefon soatlari NTP bo'yicha — server soat farqini tuzatmaydi (±0.5 s klip uchun yetarli).
+

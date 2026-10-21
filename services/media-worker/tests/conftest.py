@@ -77,3 +77,9 @@ def small() -> Path:
 def too_long() -> Path:
     """62 s — 60 s chegarasidan uzun (tolerance 1 s). Juda kichik o'lcham — tez generatsiya."""
     return make_video("too_long", 160, 288, 62, fps=5)
+
+
+@pytest.fixture(scope="session")
+def field() -> Path:
+    """Maydon yozuvi kabi landshaft (1920x1080, 12 s, mov, ovoz bilan) — recording_v1 / clip_v1."""
+    return make_video("field", 1920, 1080, 12, container="mov", fps=25)

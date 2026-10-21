@@ -27,6 +27,8 @@ import { HighlightsService, SHARE_CHANNELS } from './highlights.service';
 import { MediaJobsService } from './media-jobs.service';
 import { HIGHLIGHT_LIMITS, MediaService } from './media.service';
 import { MEDIA_JOB_QUEUES, RedisStreamMediaQueue } from './queue';
+import { CAMERA_POSITIONS, MARKER_SIDES, RECORDING_LIMITS, RIG_TYPES } from './recordings';
+import { RecordingsService } from './recordings.service';
 import { sharePage } from './share-page';
 import { MediaUrlSigner, ObjectStorage } from './storage';
 import { MediaTokens } from './tokens';
@@ -46,11 +48,56 @@ export const HighlightUploadBody = z.object({
 });
 
 const CompleteBody = z.object({
+  // Berilmasa — ETag'lar storage'dan (ListParts); katta yozuvlar uchun client yubormaydi
   parts: z
     .array(z.object({ part_number: z.number().int().min(1).max(10_000), etag: z.string().min(1).max(200) }))
     .min(1)
-    .max(10_000),
+    .max(10_000)
+    .optional(),
   checksum_sha256: z.string().max(100).optional(),
+});
+
+// --- AI-Cam A: to'liq o'yin yozuvi (host endpointlari host.module.ts da) ------------------------------
+const Timestamp = z.iso.datetime({ offset: true });
+
+export const CameraBody = z.object({
+  position: z.enum(CAMERA_POSITIONS),
+  started_at: Timestamp,
+  stopped_at: Timestamp.nullable().optional(),
+  duration_ms: z.number().int().min(0).max(RECORDING_LIMITS.maxDurationMs).optional(),
+  device_model: z.string().trim().min(1).max(100).optional(),
+  fps: z.number().positive().max(240).optional(),
+  width: z.number().int().positive().max(16_384).optional(),
+  height: z.number().int().positive().max(16_384).optional(),
+  rig_type: z.enum(RIG_TYPES).optional(),
+});
+
+export const CameraUploadBody = z.object({
+  content_type: z.enum(RECORDING_LIMITS.contentTypes),
+  size_bytes: z.number().int().positive().max(RECORDING_LIMITS.maxBytes),
+  duration_ms: z.number().int().positive().max(RECORDING_LIMITS.maxDurationMs),
+});
+
+export const MarkersBody = z.object({
+  markers: z
+    .array(
+      z
+        .object({
+          client_marker_id: z.uuid(),
+          kind: z.enum(['highlight', 'kickoff']),
+          occurred_at: Timestamp,
+          side: z.enum(MARKER_SIDES).nullable().optional(),
+          participant_id: z.uuid().nullable().optional(),
+          pre_ms: z.number().int().min(0).max(55_000).optional(),
+          post_ms: z.number().int().min(0).max(30_000).optional(),
+        })
+        .refine((m) => {
+          const len = (m.pre_ms ?? 12_000) + (m.post_ms ?? 3_000);
+          return len >= 3_000 && len <= 60_000;
+        }, 'pre_ms + post_ms 3..60 s bo\'lishi kerak'),
+    )
+    .min(1)
+    .max(100),
 });
 
 const FeedQuery = z.object({
@@ -176,6 +223,17 @@ export class HighlightsController {
   }
 }
 
+/** To'liq o'yin videosi (AI-Cam A) — ishtirokchilar uchun. */
+@Controller('v1')
+export class RecordingsController {
+  constructor(private readonly recordings: RecordingsService) {}
+
+  @Get('matches/:matchId/recording')
+  get(@Param('matchId', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    return this.recordings.viewerView(user, id);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Ijro: HLS playlist'lar (token URL'da — video player'lar Authorization header yubormaydi)
 // ---------------------------------------------------------------------------
@@ -269,7 +327,7 @@ export class InternalMediaJobsController {
 }
 
 @Module({
-  controllers: [MediaController, HighlightsController, PlaybackController, SharePageController, InternalMediaJobsController],
+  controllers: [MediaController, HighlightsController, RecordingsController, PlaybackController, SharePageController, InternalMediaJobsController],
   providers: [
     ObjectStorage,
     MediaUrlSigner,
@@ -280,8 +338,9 @@ export class InternalMediaJobsController {
     MediaService,
     MediaJobsService,
     HighlightsService,
+    RecordingsService,
     WorkerTokenGuard,
   ],
-  exports: [MediaService, HighlightsService, ObjectStorage],
+  exports: [MediaService, HighlightsService, RecordingsService, ObjectStorage],
 })
 export class MediaModule {}

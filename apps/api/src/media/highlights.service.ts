@@ -335,11 +335,14 @@ export class HighlightsService {
   private async playbackMedia(token: string): Promise<{ media: PlaybackMedia; expiresAt: number }> {
     const t = this.tokens.verify('playback', token);
     if (!t) throw new AppError('NOT_FOUND');
+    // Token faqat ko'rish huquqi borlarga beriladi; bu yerda — media hozir ham ko'rinadimi (klip yoki yozuv kamerasi)
     const media = await one<PlaybackMedia>(
       this.db,
       sql`SELECT ma.id, ma.output_bucket, ma.object_key, ma.renditions
-          FROM media_assets ma JOIN highlights h ON h.media_asset_id = ma.id
-          WHERE ma.id = ${t.id} AND ${VISIBLE}`,
+          FROM media_assets ma
+          WHERE ma.id = ${t.id} AND ma.status = 'ready'
+            AND (EXISTS (SELECT 1 FROM highlights h WHERE h.media_asset_id = ma.id AND ${VISIBLE})
+                 OR EXISTS (SELECT 1 FROM recording_cameras rc WHERE rc.media_asset_id = ma.id AND rc.status = 'ready'))`,
     );
     if (!media?.renditions?.length) throw new AppError('NOT_FOUND');
     return { media, expiresAt: t.expiresAt };

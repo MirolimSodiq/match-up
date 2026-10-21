@@ -113,6 +113,12 @@ const EnvSchema = z.object({
   MEDIA_UPLOAD_URL_TTL_SEC: z.coerce.number().int().min(60).max(604_800).default(3600),
   /** Shu vaqtgacha yakunlanmagan multipart yuklash abort qilinadi. */
   MEDIA_UPLOAD_SESSION_HOURS: z.coerce.number().int().positive().default(48),
+  /** To'liq o'yin yozuvi (AI-Cam): kattaroq qism — 30 GB fayl ~2 000 qism (S3 chegarasi 10 000). */
+  MEDIA_RECORDING_PART_SIZE: z.coerce.number().int().min(5 * 1024 * 1024).max(64 * 1024 * 1024).default(16 * 1024 * 1024),
+  /** Yozuv yuklash sessiyasi: raw bucket'ning tugallanmagan multipart'ni abort qilish qoidasidan (3 kun) qisqa. */
+  MEDIA_RECORDING_SESSION_HOURS: z.coerce.number().int().positive().max(71).default(60),
+  /** Bitta javobdagi presigned qism URL'lari soni (qolganlari — keyingi `GET /v1/media/{id}/upload`). */
+  MEDIA_UPLOAD_URL_BATCH: z.coerce.number().int().min(1).max(1000).default(100),
   /** Ijro havolalari (HLS playlist token, MP4/thumbnail imzosi) muddati. */
   MEDIA_PLAYBACK_TTL_SEC: z.coerce.number().int().min(300).max(86_400).default(21_600),
   /** CloudFront: domen + key pair berilsa — signed URL; aks holda S3/MinIO presigned GET. */
@@ -121,6 +127,8 @@ const EnvSchema = z.object({
   MEDIA_CDN_PRIVATE_KEY_FILE: z.string().optional(),
   /** Python worker bilan umumiy Redis Stream (dev va prod bir xil). */
   MEDIA_JOBS_STREAM: z.string().default('matchup:media-jobs'),
+  /** To'liq o'yin yozuvlari (soatlab kodlash) — alohida stream va kattaroq worker servisi, kliplar navbatini bandlamaydi. */
+  MEDIA_RECORDING_JOBS_STREAM: z.string().default('matchup:media-jobs:recording'),
   /** Worker -> API ichki endpointlari uchun servis token (`/internal/media/...`). */
   MEDIA_WORKER_TOKEN: z.string().min(32).optional(),
   /** `POST /v1/highlights/{id}/share` havolasi muddati. */
