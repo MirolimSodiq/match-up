@@ -10,6 +10,7 @@ import { KEYS, storage } from '@/lib/storage';
 import { network } from '@/offline/network';
 import { offlineStore } from '@/offline/store';
 import { uploadEngine } from '@/media/uploads';
+import { markerEngine } from '@/recording/markers';
 import { syncEngine } from '@/offline/sync';
 import { type SessionEndReason, tokens } from './tokens';
 
@@ -74,6 +75,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
       setStatus(host ? 'signedIn' : 'notHost');
       syncEngine.setUser(host ? u.id : undefined);
       uploadEngine.setUser(host ? u.id : undefined);
+      markerEngine.setUser(host ? u.id : undefined);
       if (!fromCache) void cacheUser(u);
     },
     [queryClient],
@@ -116,6 +118,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
         setStatus('signedOut');
         syncEngine.setUser(undefined);
         uploadEngine.setUser(undefined);
+        markerEngine.setUser(undefined);
         void cacheUser(undefined);
         queryClient.clear();
       }),

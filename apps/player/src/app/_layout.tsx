@@ -127,6 +127,7 @@ function RootNavigator() {
         <Stack.Screen name="account/privacy" options={{ headerShown: false }} />
         <Stack.Screen name="highlights" options={{ headerShown: false }} />
         <Stack.Screen name="highlight/[id]" options={{ headerShown: false, presentation: 'fullScreenModal', animation: 'fade' }} />
+        <Stack.Screen name="match/[id]/recording" options={{ headerShown: false, presentation: 'fullScreenModal', animation: 'fade' }} />
       </Stack.Protected>
       {/* Telegram deep link'i: login'da ham, profilda identity bog'lashda ham. Oxirida — guard o'zgarganda
           navigator "birinchi mavjud ekran"ga o'tadi, bu ekran unga aylanmasin */}

@@ -288,6 +288,39 @@ variable "media_worker_max_count" {
   default = 4
 }
 
+variable "media_recording_worker_cpu" {
+  description = "To'liq o'yin yozuvi worker'i (4K HEVC dekodlash + 3 rendition)"
+  type        = number
+  default     = 4096
+}
+
+variable "media_recording_worker_memory" {
+  type    = number
+  default = 8192
+}
+
+variable "media_recording_worker_storage_gib" {
+  description = "Fargate ephemeral storage: manba (≤ 40 GB) + HLS natijalari"
+  type        = number
+  default     = 120
+}
+
+variable "media_recording_worker_min_count" {
+  type    = number
+  default = 1
+}
+
+variable "media_recording_worker_max_count" {
+  type    = number
+  default = 3
+}
+
+variable "media_recording_expiration_days" {
+  description = "To'liq o'yin yozuvlarining HLS natijalari (media bucket, recordings/) shuncha kundan keyin o'chiriladi (docs/AI_CAM.md §5)"
+  type        = number
+  default     = 90
+}
+
 variable "media_worker_token_version" {
   description = "MEDIA_WORKER_TOKEN (write-only). Rotatsiya: qiymatni 1 ga oshirib apply, keyin api va media-worker'ni qayta deploy"
   type        = number

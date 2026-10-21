@@ -114,8 +114,12 @@ export class NotificationEvents {
         return this.highlightReady(e);
       case 'HighlightShared':
         return this.highlightShared(e);
+      case 'RecordingReady':
+        return this.recordingReady(e);
       case 'DataExportReady':
         return this.dataExportReady(e);
+      case 'UserErased':
+        return this.userErased(e);
       default:
         return;
     }
@@ -310,6 +314,25 @@ export class NotificationEvents {
     ]);
   }
 
+  /**
+   * GDPR erasure -> in-app xabarlar tarixi o'chiriladi (matnlarda match'lar, summalar, teglar bor).
+   * Yangi xabar yozilmaydi: `enqueue` anonimlashtirilgan foydalanuvchini o'tkazib yuboradi. Faqat haqiqatan
+   * anonimlashtirilgan akkaunt uchun ishlaydi; qayta yetkazilsa — o'chiradigan narsa qolmagan.
+   */
+  private async userErased(e: OutboxEvent) {
+    const userId = e.aggregateId;
+    const erased = await one(this.db, sql`SELECT 1 FROM users WHERE id = ${userId} AND anonymized_at IS NOT NULL`);
+    if (!erased) return;
+    const removed = await this.db.transaction(async (tx) => {
+      // Push tarixi device_tokens bilan birga o'chgan (ON DELETE CASCADE); bu — qolgan-qutgani uchun
+      await tx.execute(
+        sql`DELETE FROM push_deliveries WHERE notification_id IN (SELECT id FROM notifications WHERE user_id = ${userId})`,
+      );
+      return (await tx.execute(sql`DELETE FROM notifications WHERE user_id = ${userId}`)).rowCount ?? 0;
+    });
+    if (removed) this.log.log(`erasure: ${removed} ta xabar o'chirildi (user ${userId})`);
+  }
+
   /** Marketing: shahar + sport bo'yicha qiziqqan o'yinchilarga yangi o'yin (faqat consent bilan). */
   private async matchPublished(e: OutboxEvent) {
     const matchId = e.aggregateId;
@@ -371,6 +394,34 @@ export class NotificationEvents {
       ...[...taggedIds].map((id) => draft(id, 'highlight.tagged')),
       ...participants.filter((p) => !taggedIds.has(p.user_id)).map((p) => draft(p.user_id, 'highlight.ready')),
     ]);
+  }
+
+  /**
+   * RecordingReady -> match ishtirokchilariga (host'dan tashqari) "to'liq o'yin videosi tayyor" — sessiya uchun
+   * bir marta (birinchi kamera tayyor bo'lganda; qolgan kameralar jim qo'shiladi).
+   */
+  private async recordingReady(e: OutboxEvent) {
+    const s = await one<{ match_id: string; host_user_id: string }>(
+      this.db,
+      sql`SELECT match_id, host_user_id FROM recording_sessions WHERE id = ${e.aggregateId}`,
+    );
+    const m = s && (await loadMatchCtx(this.db, s.match_id));
+    if (!s || !m) return;
+    const participants = await rows<{ user_id: string }>(
+      this.db,
+      sql`SELECT DISTINCT mp.user_id FROM match_participants mp
+          WHERE mp.match_id = ${s.match_id} AND mp.status IN ('confirmed', 'checked_in')
+            AND mp.user_id IS NOT NULL AND mp.user_id <> ${s.host_user_id}`,
+    );
+    await this.notifications.notify(
+      participants.map((p) => ({
+        userId: p.user_id,
+        type: 'recording.ready' as const,
+        dedupeKey: this.key(e, p.user_id),
+        params: (l: TextLocale) => matchParams(m, l),
+        data: { url: `/match/${s.match_id}/recording`, match_id: s.match_id },
+      })),
+    );
   }
 
   /**

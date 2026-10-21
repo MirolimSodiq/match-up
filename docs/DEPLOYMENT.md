@@ -125,10 +125,11 @@ infra/terraform/
 |---|---|---|
 | VPC | 2 AZ, public + private subnet, 1 NAT | har AZ'da NAT |
 | ECS Fargate | api (1-2 task, FARGATE_SPOT), admin, migrate task def; ARM64 | api 2-6 task, FARGATE |
+| Media worker | `media-worker` — kliplar (`matchup:media-jobs`, 1 vCPU / 2 GB, Spot, 1-2 task); `media-worker-recording` — AI-Cam to'liq o'yin yozuvlari (`matchup:media-jobs:recording`, 4 vCPU / 8 GB / 120 GiB ephemeral, on-demand, 1-3 task) | bir xil image, lane `MEDIA_JOBS_STREAM` bilan |
 | ALB + ACM | HTTPS (TLS 1.3 siyosati), HTTP -> HTTPS, host bo'yicha marshrut | — |
 | RDS PostgreSQL 18 | db.t4g.medium, **Multi-AZ**, PITR 7 kun, KMS, `rds.force_ssl` | db.m7g.large, PITR 35 kun, deletion protection |
 | ElastiCache Valkey | 1 node, TLS + AUTH, `noeviction` (BullMQ) | 2 node, failover, Multi-AZ |
-| S3 + CloudFront | private bucket, OAC, `raw/` 30 kunda o'chadi | ixtiyoriy signed URL (`media_signing_public_key_pem`) |
+| S3 + CloudFront | private bucket, OAC, `raw/` 30 kunda, to'liq o'yin HLS (`recordings/`) 90 kunda o'chadi | ixtiyoriy signed URL (`media_signing_public_key_pem`) |
 | ECR | `matchup-staging/api`, `/admin` — immutable teglar, push'da skan | — |
 | Secrets Manager | §5 | — |
 | CloudWatch Logs | 30 kun, KMS | 90 kun |
@@ -273,5 +274,6 @@ cd apps/player && npx eas-cli build --profile preview --platform android
 - API image'ning ~80 MB qismi `@sentry/nestjs` v11 olib keladigan bundler bog'liqliklari (webpack, babel) — SDK tuzilishi.
 - WAF (rate limit) va VPC flow log'lar hali yo'q; ARCHITECTURE §4.1 dagi "CDN + WAF" keyingi bosqichda.
 - DB'da ilova uchun alohida cheklangan role yo'q — api va migratsiya bitta `matchup` foydalanuvchisi bilan ishlaydi.
-- Media worker CPU bo'yicha kengayadi; navbat uzunligi (`XLEN`/`XPENDING matchup:media-jobs`) bo'yicha CloudWatch metrikasi va kengayish — keyingi qadam. Tashqi ALB `/internal/*` ni 404 bilan yopadi; worker API'ga service discovery (`api.<name>.internal`) orqali ulanadi.
+- Media worker (ikkala lane) CPU bo'yicha kengayadi; navbat uzunligi (`XLEN`/`XPENDING matchup:media-jobs[:recording]`) bo'yicha CloudWatch metrikasi va kengayish (yozuv lane'ini bo'sh paytda 0 ga tushirish) — keyingi qadam.
+- **Yozuv kodlashi `stopTimeout` (120 s) dan uzun:** deploy yoki scale-in paytida ishlayotgan `recording_v1` job to'xtaydi va boshqa task'da qaytadan boshlanadi (idempotent, lekin vaqt yo'qoladi). Yechim — ish paytida ECS task scale-in protection (`$ECS_AGENT_URI/task-protection/v1/state`) va deploy'ni yozuv navbati bo'shaganda qilish. Tashqi ALB `/internal/*` ni 404 bilan yopadi; worker API'ga service discovery (`api.<name>.internal`) orqali ulanadi.
 - Mobil source map'lar uchun `metro.config.js` da `getSentryExpoConfig` ulanmagan (parallel ishlar bilan to'qnashmaslik uchun) — production relizdan oldin qo'shilsin.

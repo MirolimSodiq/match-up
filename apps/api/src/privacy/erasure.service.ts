@@ -26,6 +26,8 @@ export type ErasureOutcome = 'erased' | 'blocked' | 'skipped';
  *
  *  - users: telefon, email, ismlar, tug'ilgan sana, avatar -> NULL; display_name = 'Deleted user'; status = deleted.
  *  - O'chiriladi: auth_identities, user_sessions, device_tokens, highlight_tags, eksport fayllari.
+ *  - Host profili `offboarded` (joylashuv, kit izohi, to'lov rekvizitlari -> NULL), kutilayotgan offer'lar bekor.
+ *  - Commit'dan keyin `UserErased` consumer'lari: in-app xabarlar tarixi o'chiriladi, WebSocket ulanishlari uziladi.
  *  - O'zgarmaydi (huquqiy dalil / soliq): consents, waiver_signatures, payments, refunds, wallet ledger.
  *  - Kelgusi booking'lar cancellation policy bo'yicha bekor qilinadi.
  *  - Bloklanadi: hamyonda balans (pul qaytarilishi kerak) yoki faol host tayinlovi.
@@ -210,6 +212,18 @@ export class ErasureService {
     await tx.execute(
       sql`UPDATE match_waitlist SET status = 'cancelled' WHERE user_id = ${userId} AND status IN ('waiting', 'notified')`,
     );
+    // Host: dispatch endi taklif yubormaydi; joylashuv, kit izohi va to'lov rekvizitlari olib tashlanadi
+    // (reyting va bajarilgan o'yinlar statistikasi — anonim, host_payouts — moliyaviy yozuv sifatida qoladi)
+    const host = {
+      profile_offboarded: await count(
+        sql`UPDATE host_profiles
+               SET status = 'offboarded', base_location = NULL, kit_notes = NULL, payout_method = NULL, payout_details_ref = NULL
+             WHERE user_id = ${userId}`,
+      ),
+      offers_cancelled: await count(
+        sql`UPDATE host_assignments SET status = 'cancelled' WHERE host_user_id = ${userId} AND status = 'offered'`,
+      ),
+    };
     const exports = await rows<{ export_path: string }>(
       tx,
       sql`SELECT export_path FROM data_subject_requests WHERE user_id = ${userId} AND export_path IS NOT NULL`,
@@ -222,6 +236,7 @@ export class ErasureService {
     await audit(tx, null, 'user.erase', 'user', userId, {
       request_id: requestId,
       deleted,
+      host,
       cancelled_bookings: cancelled,
       export_files_removed: exports.length,
       retained: ['consents', 'waiver_signatures', 'payments', 'refunds', 'wallet_transactions'],

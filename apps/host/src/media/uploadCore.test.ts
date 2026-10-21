@@ -5,13 +5,17 @@ import {
   contentTypeFor,
   mergeParts,
   missingParts,
+  pickNext,
   planParts,
+  processingGiveUpMs,
   progress,
   retryDelay,
+  shouldYield,
   type UploadJob,
   uploadedBytes,
   validateClip,
   visibleJobs,
+  waitsForWifi,
 } from './uploadCore';
 
 const MiB = 1024 * 1024;
@@ -120,5 +124,48 @@ describe('klip tekshiruvi', () => {
   it("ko'rinadigan yuklashlar: shu match, tayyor bo'lmaganlar, yangisi birinchi", () => {
     const list = [job({ id: 'a', createdAt: 1 }), job({ id: 'b', createdAt: 3 }), job({ id: 'c', state: 'ready' }), job({ id: 'd', matchId: 'm2' })];
     expect(visibleJobs(list, 'm1').map((j) => j.id)).toEqual(['b', 'a']);
+  });
+});
+
+describe('yozuvlar (AI-Cam)', () => {
+  const rec = (over: Partial<UploadJob> = {}) => job({ id: 'r1', kind: 'recording', state: 'queued', sizeBytes: 15 * 1024 * MiB, partSize: 16 * MiB, createdAt: 1, ...over });
+  const clip = (over: Partial<UploadJob> = {}) => job({ id: 'c1', state: 'queued', createdAt: 5, ...over });
+  const wifi = { online: true, wifi: true };
+  const cellular = { online: true, wifi: false };
+
+  it("yakunlash: yozuvda ETag'lar yuborilmaydi (server ListParts'dan oladi)", () => {
+    expect(completeBody(rec({ etags: {} }))).toEqual({});
+  });
+
+  it("navbat: avval kliplar (keyin qo'shilgan bo'lsa ham), keyin yozuv", () => {
+    expect(pickNext([rec(), clip()], 10, wifi, false)?.id).toBe('c1');
+    expect(pickNext([rec()], 10, wifi, false)?.id).toBe('r1');
+    expect(pickNext([rec(), clip({ nextRetryAt: 100 })], 10, wifi, false)?.id).toBe('r1');
+    expect(pickNext([rec(), clip()], 10, { online: false, wifi: false }, true)).toBeUndefined();
+  });
+
+  it("yozuv mobil internetda kutadi (ruxsat berilmagan bo'lsa); klip — yo'q", () => {
+    expect(waitsForWifi(rec(), cellular, false)).toBe(true);
+    expect(waitsForWifi(rec(), cellular, true)).toBe(false);
+    expect(waitsForWifi(clip(), cellular, false)).toBe(false);
+    expect(pickNext([rec()], 10, cellular, false)).toBeUndefined();
+    expect(pickNext([rec(), clip()], 10, cellular, false)?.id).toBe('c1');
+    expect(pickNext([rec()], 10, cellular, true)?.id).toBe('r1');
+  });
+
+  it("yozuv navbatdagi klipga yo'l beradi", () => {
+    expect(shouldYield(rec({ state: 'uploading' }), [rec({ state: 'uploading' }), clip()], 10)).toBe(true);
+    expect(shouldYield(rec({ state: 'uploading' }), [clip({ state: 'processing' })], 10)).toBe(false);
+    expect(shouldYield(clip({ state: 'uploading' }), [clip({ id: 'c2' })], 10)).toBe(false);
+  });
+
+  it("ro'yxatlar turi bo'yicha alohida; eski navbat (kind yo'q) — highlight", () => {
+    const jobs = [rec(), clip(), job({ id: 'old', state: 'paused' })];
+    expect(visibleJobs(jobs, 'm1').map((j) => j.id)).toEqual(['c1', 'old']);
+    expect(visibleJobs(jobs, 'm1', 'recording').map((j) => j.id)).toEqual(['r1']);
+  });
+
+  it('server qayta ishlashini kutish: yozuv — soatlab', () => {
+    expect(processingGiveUpMs(rec())).toBeGreaterThan(processingGiveUpMs(clip()) * 10);
   });
 });

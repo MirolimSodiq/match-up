@@ -1,13 +1,13 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { type PropsWithChildren, useState } from 'react';
-import { AccessibilityInfo, Alert, Platform, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, Alert, Image, Platform, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { createEventInCalendarAsync } from 'expo-calendar/legacy';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 import type { MatchDetail } from '@matchup/contracts';
-import { Avatar, Button, colors, EmptyState, ErrorView, fontFamily, IconButton, LiveDot, Loading, radius, space, type SportColors, sportColors, SportIcon, SportTexture, type } from '@matchup/ui';
+import { Avatar, Button, colors, EmptyState, ErrorView, fontFamily, IconButton, LiveDot, Loading, radius, space, type SportColors, sportColors, SportIcon, SportTexture, states, type } from '@matchup/ui';
 import { isApiError } from '@/api/errors';
 import { useMatch, useSports } from '@/api/queries';
 import { currentLocale } from '@/i18n';
@@ -16,6 +16,7 @@ import { money } from '@/lib/money';
 import { errorMessage } from '@/i18n/errors';
 import { useMatchHighlights } from '@/features/highlights/api';
 import { HighlightStrip } from '@/features/highlights/HighlightTile';
+import { playableCameras, useMatchRecording } from '@/features/recording/api';
 import { useMatchLive } from '@/realtime/live';
 
 /** Gridda ko'rsatiladigan o'rinlar chegarasi (katta match'larda ro'yxat cho'zilib ketmasin). */
@@ -131,6 +132,8 @@ function MatchView({ match: m, sc, sportName, live }: { match: MatchDetail; sc: 
 
         <Players match={m} sc={sc} live={live} />
 
+        <MatchRecordingCard match={m} sc={sc} />
+
         <MatchHighlights match={m} sc={sc} />
 
         {m.cancellation_policy?.summary || m.booking_closes_at ? (
@@ -241,6 +244,44 @@ function Players({ match: m, sc, live }: { match: MatchDetail; sc: SportColors; 
         ))}
       </View>
       {players.length === 0 ? <Text style={[styles.blockNote, { color: sc.muted }]}>{t('match.noPlayersYet')}</Text> : null}
+    </View>
+  );
+}
+
+/** To'liq o'yin videosi (AI-Cam) — ishtirokchilarga; yozuv bo'lmasa bo'lim ko'rinmaydi. */
+function MatchRecordingCard({ match: m, sc }: { match: MatchDetail; sc: SportColors }) {
+  const { t } = useTranslation();
+  const participant = m.my_booking?.status === 'confirmed' || m.my_booking?.status === 'completed';
+  const q = useMatchRecording(m.id, participant);
+  if (!participant || !q.data) return null;
+  const ready = playableCameras(q.data);
+  const thumb = ready.find((c) => c.thumbnail_url)?.thumbnail_url;
+  const open = () => router.push({ pathname: '/match/[id]/recording', params: { id: m.id } });
+  return (
+    <View style={styles.players} testID="match-recording">
+      <Text style={styles.sectionTitle}>{t('recording.title')}</Text>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={t('recording.watch')}
+        disabled={!ready.length}
+        onPress={open}
+        style={({ pressed }) => [styles.recording, pressed && { opacity: states.pressedOpacity }]}
+      >
+        <View style={styles.recordingThumb}>
+          {thumb ? <Image source={{ uri: thumb }} style={StyleSheet.absoluteFill} /> : null}
+          <View style={styles.recordingPlay}>
+            <Ionicons name={ready.length ? 'play' : 'hourglass-outline'} size={22} color={colors.onPrimary} />
+          </View>
+        </View>
+        <View style={styles.recordingText}>
+          <Text style={styles.recordingTitle}>{ready.length ? t('recording.watch') : q.data.status === 'recording' ? t('recording.recordingNow') : t('recording.processing')}</Text>
+          <Text style={[styles.blockNote, { color: sc.muted }]}>
+            {[ready.length > 1 ? t('recording.cameras', { count: ready.length }) : null, q.data.moments.length ? t('recording.momentsCount', { count: q.data.moments.length }) : null]
+              .filter(Boolean)
+              .join(' · ') || t('recording.privacy')}
+          </Text>
+        </View>
+      </Pressable>
     </View>
   );
 }
@@ -359,6 +400,20 @@ const styles = StyleSheet.create({
   playersTitle: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   sectionTitle: { fontFamily: fontFamily.display, fontSize: 22, lineHeight: 28, textTransform: 'uppercase', color: colors.onSport },
   playersCount: { fontFamily: fontFamily.display, fontSize: 22, color: colors.onSport },
+  recording: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    backgroundColor: colors.sportGlass,
+    borderColor: colors.sportGlassBorder,
+    borderWidth: 1,
+    borderRadius: radius.lg,
+    padding: space.sm,
+  },
+  recordingThumb: { width: 112, aspectRatio: 16 / 9, borderRadius: radius.md, overflow: 'hidden', backgroundColor: colors.sportShade, alignItems: 'center', justifyContent: 'center' },
+  recordingPlay: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center' },
+  recordingText: { flex: 1, gap: 2 },
+  recordingTitle: { fontFamily: fontFamily.semibold, fontSize: 16, color: colors.onSport },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: space.md, marginTop: space.xs },
   player: { alignItems: 'center', width: 56, gap: 4 },
   playerName: { fontFamily: fontFamily.medium, fontSize: 11, color: colors.onSport },

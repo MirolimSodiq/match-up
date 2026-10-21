@@ -1,7 +1,10 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { io, type Socket } from 'socket.io-client';
 import { WalletService } from '../src/commerce/wallet.service';
 import { DB, type Db } from '../src/db/db';
+import { OutboxRelay } from '../src/jobs/jobs.module';
+import { EventConsumers } from '../src/notifications/notification-jobs';
 import { DataExportService } from '../src/privacy/data-export.service';
 import { ErasureService } from '../src/privacy/erasure.service';
 import { bookAndPayWithPayme, createTestApp, device, login, q, uuid, type Session, type TestCtx } from './helpers';
@@ -64,14 +67,36 @@ describe('GDPR: eksport va erasure job\'lari', () => {
 
   const count = async (sql: string, params: unknown[]) => Number((await q<{ n: string }>(ctx, sql, params))[0]!.n);
 
+  /** Outbox -> Redis Stream -> consumer group'lar (realtime + notifications). */
+  async function pump() {
+    const relay = ctx.app.get(OutboxRelay);
+    while ((await relay.run()) > 0);
+    await ctx.app.get(EventConsumers).drain();
+  }
+
+  const sockets: Socket[] = [];
+  function connect(token: string): Promise<Socket> {
+    const s = io(ctx.url, { path: '/ws', transports: ['websocket'], auth: { token }, reconnection: false, forceNew: true });
+    sockets.push(s);
+    return new Promise((resolve, reject) => {
+      s.once('connect', () => resolve(s));
+      s.once('connect_error', reject);
+    });
+  }
+
   beforeAll(async () => {
     ctx = await createTestApp();
     admin = await login(ctx, '+998901110001');
     matchId = await createMatch(24 * 30);
     exportsJob = ctx.app.get(DataExportService);
     erasureJob = ctx.app.get(ErasureService);
+    // Consumer group'lar event'lardan oldin bo'lsin ('$' dan yaratiladi)
+    await ctx.app.get(EventConsumers).ensureGroups();
   });
-  afterAll(() => ctx.close());
+  afterAll(async () => {
+    for (const s of sockets) s.disconnect();
+    await ctx.close();
+  });
 
   // -------------------------------------------------------------------------
   // Eksport
@@ -350,5 +375,61 @@ describe('GDPR: eksport va erasure job\'lari', () => {
     const fresh = await login(ctx, phone);
     expect(fresh.userId).not.toBe(s.userId);
     expect(await erasureJob.run()).toMatchObject({ erased: 0 });
+  });
+  it("erasure: host profili offboarded, kutilayotgan offer bekor; UserErased -> xabarlar tarixi o'chadi, WS uziladi", async () => {
+    const tashkent = (await q(ctx, "SELECT id FROM cities WHERE slug = 'tashkent'"))[0]!.id;
+    const c = await ctx
+      .http()
+      .post('/v1/admin/hosts')
+      .set(admin.auth)
+      .send({ phone: '+998935558030', city_id: tashkent, base_location: { lat: 41.3, lng: 69.25 }, has_kit: true, kit_notes: 'Uyda: 10 bib', sports: ['football'] })
+      .expect(201);
+    await ctx.http().post(`/v1/admin/hosts/${c.body.user_id}/approve`).set(admin.auth).expect(200);
+    const host = await login(ctx, '+998935558030');
+    await q(ctx, "UPDATE host_profiles SET payout_method = 'card_uzcard', payout_details_ref = 'vault:tok_123' WHERE user_id = $1", [host.userId]);
+    const [offer] = await q(
+      ctx,
+      `INSERT INTO host_assignments (match_id, host_user_id, fee_amount, currency, offer_expires_at)
+       VALUES ($1, $2, 10000000, 'UZS', now() + interval '1 hour') RETURNING id`,
+      [matchId, host.userId],
+    );
+    await q(
+      ctx,
+      `INSERT INTO notifications (user_id, type, channel, status, locale, payload, dedupe_key)
+       VALUES ($1, 'host.offer', 'push', 'sent', 'uz-Latn', '{"title": "Yangi taklif", "body": "GDPR test, 100 000 so''m"}', $2)`,
+      [host.userId, `gdpr:${uuid()}`],
+    );
+
+    // Ochiq ulanish: host xonasiga obuna
+    const socket = await connect(host.token);
+    const ack = await socket.emitWithAck('subscribe', { room: `host:${host.userId}` });
+    expect(ack).toMatchObject({ ok: true });
+    const disconnected = new Promise<string>((resolve) => socket.once('disconnect', resolve));
+
+    await requestErasureDue(host);
+    expect(await erasureJob.run()).toMatchObject({ erased: 1 });
+
+    expect((await q(ctx, 'SELECT status, base_location, kit_notes, payout_method, payout_details_ref FROM host_profiles WHERE user_id = $1', [host.userId]))[0]).toEqual({
+      status: 'offboarded',
+      base_location: null,
+      kit_notes: null,
+      payout_method: null,
+      payout_details_ref: null,
+    });
+    expect((await q(ctx, 'SELECT status FROM host_assignments WHERE id = $1', [offer!.id]))[0]!.status).toBe('cancelled');
+    const [audit] = await q(ctx, "SELECT changes FROM audit_logs WHERE action = 'user.erase' AND entity_id = $1", [host.userId]);
+    expect(audit!.changes.host).toEqual({ profile_offboarded: 1, offers_cancelled: 1 });
+
+    // Event'gacha xabarlar hali bor; consumer'lardan keyin — yo'q, socket server tomonidan uzilgan
+    expect(await count('SELECT count(*) AS n FROM notifications WHERE user_id = $1', [host.userId])).toBe(1);
+    await pump();
+    expect(await count('SELECT count(*) AS n FROM notifications WHERE user_id = $1', [host.userId])).toBe(0);
+    expect(await disconnected).toBe('io server disconnect');
+
+    // Access token TTL tugamagan bo'lsa ham qayta ulanib bo'lmaydi
+    await expect(connect(host.token)).rejects.toThrow('UNAUTHORIZED');
+    // Qayta yetkazish (at-least-once) — xato yo'q, o'chiradigan narsa qolmagan
+    await q(ctx, "UPDATE outbox_events SET published_at = NULL WHERE event_type = 'UserErased' AND aggregate_id = $1", [host.userId]);
+    await pump();
   });
 });

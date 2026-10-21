@@ -505,52 +505,6 @@ export const waiverSignatures = pgTable("waiver_signatures", {
 	check("waiver_signatures_otp", sql`(method <> 'otp_confirmed'::waiver_sign_method) OR (otp_challenge_ref IS NOT NULL)`),
 ]);
 
-export const matchParticipants = pgTable("match_participants", {
-	id: uuid().default(sql`uuidv7()`).primaryKey().notNull(),
-	matchId: uuid("match_id").notNull(),
-	bookingId: uuid("booking_id"),
-	userId: uuid("user_id"),
-	guestName: text("guest_name"),
-	sideNo: smallint("side_no"),
-	status: participantStatus().default('held').notNull(),
-	source: participantSource().default('booking').notNull(),
-	checkedInAt: timestamp("checked_in_at", { withTimezone: true, mode: 'string' }),
-	checkedInBy: uuid("checked_in_by"),
-	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-}, (table) => [
-	index("match_participants_booking_idx").using("btree", table.bookingId.asc().nullsLast().op("uuid_ops")),
-	uniqueIndex("match_participants_one_active_per_user").using("btree", table.matchId.asc().nullsLast().op("uuid_ops"), table.userId.asc().nullsLast().op("uuid_ops")).where(sql`((user_id IS NOT NULL) AND (status = ANY (ARRAY['held'::participant_status, 'confirmed'::participant_status, 'checked_in'::participant_status, 'no_show'::participant_status])))`),
-	index("match_participants_user_idx").using("btree", table.userId.asc().nullsLast().op("timestamptz_ops"), table.createdAt.desc().nullsFirst().op("timestamptz_ops")),
-	foreignKey({
-			columns: [table.matchId],
-			foreignColumns: [matches.id],
-			name: "match_participants_match_id_fkey"
-		}),
-	foreignKey({
-			columns: [table.bookingId],
-			foreignColumns: [bookings.id],
-			name: "match_participants_booking_id_fkey"
-		}),
-	foreignKey({
-			columns: [table.userId],
-			foreignColumns: [users.id],
-			name: "match_participants_user_id_fkey"
-		}),
-	foreignKey({
-			columns: [table.checkedInBy],
-			foreignColumns: [users.id],
-			name: "match_participants_checked_in_by_fkey"
-		}),
-	foreignKey({
-			columns: [table.matchId, table.sideNo],
-			foreignColumns: [matchSides.matchId, matchSides.sideNo],
-			name: "match_participants_match_id_side_no_fkey"
-		}),
-	check("match_participants_identity", sql`(user_id IS NOT NULL) OR (guest_name IS NOT NULL)`),
-	check("match_participants_source", sql`(source <> 'booking'::participant_source) OR (booking_id IS NOT NULL)`),
-]);
-
 export const matchWaitlist = pgTable("match_waitlist", {
 	id: uuid().default(sql`uuidv7()`).primaryKey().notNull(),
 	matchId: uuid("match_id").notNull(),
@@ -665,6 +619,55 @@ export const paymentProviderConfigs = pgTable("payment_provider_configs", {
 			name: "payment_provider_configs_country_code_fkey"
 		}),
 	unique("payment_provider_configs_country_code_provider_key").on(table.countryCode, table.provider),
+]);
+
+export const matchParticipants = pgTable("match_participants", {
+	id: uuid().default(sql`uuidv7()`).primaryKey().notNull(),
+	matchId: uuid("match_id").notNull(),
+	bookingId: uuid("booking_id"),
+	userId: uuid("user_id"),
+	guestName: text("guest_name"),
+	sideNo: smallint("side_no"),
+	status: participantStatus().default('held').notNull(),
+	source: participantSource().default('booking').notNull(),
+	checkedInAt: timestamp("checked_in_at", { withTimezone: true, mode: 'string' }),
+	checkedInBy: uuid("checked_in_by"),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	bibNumber: smallint("bib_number"),
+}, (table) => [
+	uniqueIndex("match_participants_bib_unique").using("btree", table.matchId.asc().nullsLast().op("uuid_ops"), table.bibNumber.asc().nullsLast().op("uuid_ops")).where(sql`((bib_number IS NOT NULL) AND (status = ANY (ARRAY['held'::participant_status, 'confirmed'::participant_status, 'checked_in'::participant_status, 'no_show'::participant_status])))`),
+	index("match_participants_booking_idx").using("btree", table.bookingId.asc().nullsLast().op("uuid_ops")),
+	uniqueIndex("match_participants_one_active_per_user").using("btree", table.matchId.asc().nullsLast().op("uuid_ops"), table.userId.asc().nullsLast().op("uuid_ops")).where(sql`((user_id IS NOT NULL) AND (status = ANY (ARRAY['held'::participant_status, 'confirmed'::participant_status, 'checked_in'::participant_status, 'no_show'::participant_status])))`),
+	index("match_participants_user_idx").using("btree", table.userId.asc().nullsLast().op("uuid_ops"), table.createdAt.desc().nullsFirst().op("uuid_ops")),
+	foreignKey({
+			columns: [table.matchId],
+			foreignColumns: [matches.id],
+			name: "match_participants_match_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.bookingId],
+			foreignColumns: [bookings.id],
+			name: "match_participants_booking_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.userId],
+			foreignColumns: [users.id],
+			name: "match_participants_user_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.checkedInBy],
+			foreignColumns: [users.id],
+			name: "match_participants_checked_in_by_fkey"
+		}),
+	foreignKey({
+			columns: [table.matchId, table.sideNo],
+			foreignColumns: [matchSides.matchId, matchSides.sideNo],
+			name: "match_participants_match_id_side_no_fkey"
+		}),
+	check("match_participants_identity", sql`(user_id IS NOT NULL) OR (guest_name IS NOT NULL)`),
+	check("match_participants_source", sql`(source <> 'booking'::participant_source) OR (booking_id IS NOT NULL)`),
+	check("match_participants_bib_number_check", sql`(bib_number >= 1) AND (bib_number <= 99)`),
 ]);
 
 export const payments = pgTable("payments", {
@@ -1112,50 +1115,6 @@ export const matchFeedback = pgTable("match_feedback", {
 	check("match_feedback_target_user", sql`(target = ANY (ARRAY['host'::feedback_target, 'player'::feedback_target])) = (to_user_id IS NOT NULL)`),
 ]);
 
-export const highlights = pgTable("highlights", {
-	id: uuid().default(sql`uuidv7()`).primaryKey().notNull(),
-	matchId: uuid("match_id").notNull(),
-	mediaAssetId: uuid("media_asset_id").notNull(),
-	createdBy: uuid("created_by").notNull(),
-	source: highlightSource().notNull(),
-	title: text(),
-	clipStartedAt: timestamp("clip_started_at", { withTimezone: true, mode: 'string' }),
-	matchOffsetMs: integer("match_offset_ms"),
-	durationMs: integer("duration_ms"),
-	visibility: highlightVisibility().default('participants').notNull(),
-	moderationStatus: moderationStatus("moderation_status").default('pending').notNull(),
-	likesCount: integer("likes_count").default(0).notNull(),
-	sharesCount: integer("shares_count").default(0).notNull(),
-	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
-	viewsCount: bigint("views_count", { mode: "number" }).default(0).notNull(),
-	publishedAt: timestamp("published_at", { withTimezone: true, mode: 'string' }),
-	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	deletedAt: timestamp("deleted_at", { withTimezone: true, mode: 'string' }),
-}, (table) => [
-	index("highlights_feed_idx").using("btree", table.publishedAt.desc().nullsFirst().op("timestamptz_ops")).where(sql`((visibility = 'public'::highlight_visibility) AND (moderation_status = 'approved'::moderation_status) AND (deleted_at IS NULL))`),
-	index("highlights_match_feed_idx").using("btree", table.matchId.asc().nullsLast().op("uuid_ops"), table.publishedAt.desc().nullsFirst().op("uuid_ops"), table.id.desc().nullsFirst().op("uuid_ops")).where(sql`((published_at IS NOT NULL) AND (deleted_at IS NULL))`),
-	index("highlights_match_idx").using("btree", table.matchId.asc().nullsLast().op("uuid_ops")),
-	foreignKey({
-			columns: [table.matchId],
-			foreignColumns: [matches.id],
-			name: "highlights_match_id_fkey"
-		}),
-	foreignKey({
-			columns: [table.mediaAssetId],
-			foreignColumns: [mediaAssets.id],
-			name: "highlights_media_asset_id_fkey"
-		}),
-	foreignKey({
-			columns: [table.createdBy],
-			foreignColumns: [users.id],
-			name: "highlights_created_by_fkey"
-		}),
-	unique("highlights_media_asset_id_key").on(table.mediaAssetId),
-	check("highlights_match_offset_ms_check", sql`match_offset_ms >= 0`),
-	check("highlights_duration_ms_check", sql`duration_ms > 0`),
-]);
-
 export const notifications = pgTable("notifications", {
 	id: uuid().default(sql`uuidv7()`).primaryKey().notNull(),
 	userId: uuid("user_id").notNull(),
@@ -1185,6 +1144,56 @@ export const notifications = pgTable("notifications", {
 			name: "notifications_user_id_fkey"
 		}),
 	check("notifications_category_check", sql`category = ANY (ARRAY['transactional'::text, 'marketing'::text])`),
+]);
+
+export const highlights = pgTable("highlights", {
+	id: uuid().default(sql`uuidv7()`).primaryKey().notNull(),
+	matchId: uuid("match_id").notNull(),
+	mediaAssetId: uuid("media_asset_id").notNull(),
+	createdBy: uuid("created_by").notNull(),
+	source: highlightSource().notNull(),
+	title: text(),
+	clipStartedAt: timestamp("clip_started_at", { withTimezone: true, mode: 'string' }),
+	matchOffsetMs: integer("match_offset_ms"),
+	durationMs: integer("duration_ms"),
+	visibility: highlightVisibility().default('participants').notNull(),
+	moderationStatus: moderationStatus("moderation_status").default('pending').notNull(),
+	likesCount: integer("likes_count").default(0).notNull(),
+	sharesCount: integer("shares_count").default(0).notNull(),
+	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
+	viewsCount: bigint("views_count", { mode: "number" }).default(0).notNull(),
+	publishedAt: timestamp("published_at", { withTimezone: true, mode: 'string' }),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	deletedAt: timestamp("deleted_at", { withTimezone: true, mode: 'string' }),
+	recordingSessionId: uuid("recording_session_id"),
+}, (table) => [
+	index("highlights_feed_idx").using("btree", table.publishedAt.desc().nullsFirst().op("timestamptz_ops")).where(sql`((visibility = 'public'::highlight_visibility) AND (moderation_status = 'approved'::moderation_status) AND (deleted_at IS NULL))`),
+	index("highlights_match_feed_idx").using("btree", table.matchId.asc().nullsLast().op("uuid_ops"), table.publishedAt.desc().nullsFirst().op("uuid_ops"), table.id.desc().nullsFirst().op("uuid_ops")).where(sql`((published_at IS NOT NULL) AND (deleted_at IS NULL))`),
+	index("highlights_match_idx").using("btree", table.matchId.asc().nullsLast().op("uuid_ops")),
+	foreignKey({
+			columns: [table.matchId],
+			foreignColumns: [matches.id],
+			name: "highlights_match_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.mediaAssetId],
+			foreignColumns: [mediaAssets.id],
+			name: "highlights_media_asset_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.createdBy],
+			foreignColumns: [users.id],
+			name: "highlights_created_by_fkey"
+		}),
+	foreignKey({
+			columns: [table.recordingSessionId],
+			foreignColumns: [recordingSessions.id],
+			name: "highlights_recording_session_id_fkey"
+		}),
+	unique("highlights_media_asset_id_key").on(table.mediaAssetId),
+	check("highlights_match_offset_ms_check", sql`match_offset_ms >= 0`),
+	check("highlights_duration_ms_check", sql`duration_ms > 0`),
 ]);
 
 export const mediaAssets = pgTable("media_assets", {
@@ -1464,6 +1473,132 @@ export const pushDeliveries = pgTable("push_deliveries", {
 	check("push_deliveries_status_check", sql`status = ANY (ARRAY['sent'::text, 'delivered'::text, 'failed'::text])`),
 ]);
 
+export const recordingSessions = pgTable("recording_sessions", {
+	id: uuid().default(sql`uuidv7()`).primaryKey().notNull(),
+	matchId: uuid("match_id").notNull(),
+	hostUserId: uuid("host_user_id").notNull(),
+	status: text().default('recording').notNull(),
+	rigType: text("rig_type").default('two_phone').notNull(),
+	kickoffAt: timestamp("kickoff_at", { withTimezone: true, mode: 'string' }),
+	readyAt: timestamp("ready_at", { withTimezone: true, mode: 'string' }),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	foreignKey({
+			columns: [table.matchId],
+			foreignColumns: [matches.id],
+			name: "recording_sessions_match_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.hostUserId],
+			foreignColumns: [users.id],
+			name: "recording_sessions_host_user_id_fkey"
+		}),
+	unique("recording_sessions_match_id_key").on(table.matchId),
+	check("recording_sessions_status_check", sql`status = ANY (ARRAY['recording'::text, 'uploading'::text, 'processing'::text, 'ready'::text, 'failed'::text])`),
+	check("recording_sessions_rig_type_check", sql`rig_type = ANY (ARRAY['single_phone'::text, 'two_phone'::text, 'three_phone'::text])`),
+]);
+
+export const recordingCameras = pgTable("recording_cameras", {
+	id: uuid().default(sql`uuidv7()`).primaryKey().notNull(),
+	sessionId: uuid("session_id").notNull(),
+	clientCameraId: uuid("client_camera_id").notNull(),
+	position: text().notNull(),
+	recordedBy: uuid("recorded_by").notNull(),
+	deviceModel: text("device_model"),
+	status: text().default('recording').notNull(),
+	startedAt: timestamp("started_at", { withTimezone: true, mode: 'string' }).notNull(),
+	stoppedAt: timestamp("stopped_at", { withTimezone: true, mode: 'string' }),
+	durationMs: integer("duration_ms"),
+	fps: numeric({ precision: 6, scale:  3 }),
+	width: integer(),
+	height: integer(),
+	mediaAssetId: uuid("media_asset_id"),
+	failureCode: text("failure_code"),
+	syncOffsetMs: integer("sync_offset_ms"),
+	calibration: jsonb(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	index("recording_cameras_session_idx").using("btree", table.sessionId.asc().nullsLast().op("timestamptz_ops"), table.startedAt.asc().nullsLast().op("timestamptz_ops")),
+	foreignKey({
+			columns: [table.sessionId],
+			foreignColumns: [recordingSessions.id],
+			name: "recording_cameras_session_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.recordedBy],
+			foreignColumns: [users.id],
+			name: "recording_cameras_recorded_by_fkey"
+		}),
+	foreignKey({
+			columns: [table.mediaAssetId],
+			foreignColumns: [mediaAssets.id],
+			name: "recording_cameras_media_asset_id_fkey"
+		}),
+	unique("recording_cameras_client_camera_id_key").on(table.clientCameraId),
+	unique("recording_cameras_media_asset_id_key").on(table.mediaAssetId),
+	check("recording_cameras_height_check", sql`height > 0`),
+	check("recording_cameras_position_check", sql`"position" = ANY (ARRAY['left'::text, 'right'::text, 'wide'::text])`),
+	check("recording_cameras_status_check", sql`status = ANY (ARRAY['recording'::text, 'recorded'::text, 'uploading'::text, 'processing'::text, 'ready'::text, 'failed'::text, 'cancelled'::text])`),
+	check("recording_cameras_duration_ms_check", sql`duration_ms >= 0`),
+	check("recording_cameras_fps_check", sql`fps > (0)::numeric`),
+	check("recording_cameras_width_check", sql`width > 0`),
+	check("recording_cameras_stop_after_start", sql`(stopped_at IS NULL) OR (stopped_at >= started_at)`),
+]);
+
+export const recordingMarkers = pgTable("recording_markers", {
+	id: uuid().default(sql`uuidv7()`).primaryKey().notNull(),
+	sessionId: uuid("session_id").notNull(),
+	clientMarkerId: uuid("client_marker_id").notNull(),
+	kind: text().notNull(),
+	occurredAt: timestamp("occurred_at", { withTimezone: true, mode: 'string' }).notNull(),
+	side: text(),
+	participantId: uuid("participant_id"),
+	preMs: integer("pre_ms").default(12000).notNull(),
+	postMs: integer("post_ms").default(3000).notNull(),
+	createdBy: uuid("created_by").notNull(),
+	cameraId: uuid("camera_id"),
+	highlightId: uuid("highlight_id"),
+	deletedAt: timestamp("deleted_at", { withTimezone: true, mode: 'string' }),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	index("recording_markers_pending_idx").using("btree", table.sessionId.asc().nullsLast().op("uuid_ops")).where(sql`((kind = 'highlight'::text) AND (highlight_id IS NULL) AND (deleted_at IS NULL))`),
+	index("recording_markers_session_idx").using("btree", table.sessionId.asc().nullsLast().op("uuid_ops"), table.occurredAt.asc().nullsLast().op("timestamptz_ops")),
+	foreignKey({
+			columns: [table.sessionId],
+			foreignColumns: [recordingSessions.id],
+			name: "recording_markers_session_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.participantId],
+			foreignColumns: [matchParticipants.id],
+			name: "recording_markers_participant_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.createdBy],
+			foreignColumns: [users.id],
+			name: "recording_markers_created_by_fkey"
+		}),
+	foreignKey({
+			columns: [table.cameraId],
+			foreignColumns: [recordingCameras.id],
+			name: "recording_markers_camera_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.highlightId],
+			foreignColumns: [highlights.id],
+			name: "recording_markers_highlight_id_fkey"
+		}),
+	unique("recording_markers_client_marker_id_key").on(table.clientMarkerId),
+	unique("recording_markers_highlight_id_key").on(table.highlightId),
+	check("recording_markers_kind_check", sql`kind = ANY (ARRAY['highlight'::text, 'kickoff'::text])`),
+	check("recording_markers_side_check", sql`side = ANY (ARRAY['left'::text, 'right'::text])`),
+	check("recording_markers_pre_ms_check", sql`(pre_ms >= 0) AND (pre_ms <= 55000)`),
+	check("recording_markers_post_ms_check", sql`(post_ms >= 0) AND (post_ms <= 30000)`),
+	check("recording_markers_clip_length", sql`((pre_ms + post_ms) >= 3000) AND ((pre_ms + post_ms) <= 60000)`),
+]);
+
 export const reconciliationRuns = pgTable("reconciliation_runs", {
 	id: uuid().default(sql`uuidv7()`).primaryKey().notNull(),
 	provider: paymentProvider().notNull(),
@@ -1547,6 +1682,7 @@ export const mediaProcessingJobs = pgTable("media_processing_jobs", {
 	queuedAt: timestamp("queued_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	startedAt: timestamp("started_at", { withTimezone: true, mode: 'string' }),
 	finishedAt: timestamp("finished_at", { withTimezone: true, mode: 'string' }),
+	recordingSessionId: uuid("recording_session_id"),
 	stage: text(),
 	transport: text().default('redis_stream').notNull(),
 	messageId: text("message_id"),
@@ -1554,13 +1690,19 @@ export const mediaProcessingJobs = pgTable("media_processing_jobs", {
 	heartbeatAt: timestamp("heartbeat_at", { withTimezone: true, mode: 'string' }),
 }, (table) => [
 	index("media_processing_jobs_asset_idx").using("btree", table.mediaAssetId.asc().nullsLast().op("uuid_ops")),
-	uniqueIndex("media_processing_jobs_one_active").using("btree", table.mediaAssetId.asc().nullsLast().op("enum_ops"), table.type.asc().nullsLast().op("enum_ops")).where(sql`(status = ANY (ARRAY['queued'::processing_job_status, 'running'::processing_job_status]))`),
-	index("media_processing_jobs_queue_idx").using("btree", table.status.asc().nullsLast().op("enum_ops"), table.queuedAt.asc().nullsLast().op("enum_ops")).where(sql`(status = ANY (ARRAY['queued'::processing_job_status, 'running'::processing_job_status]))`),
+	uniqueIndex("media_processing_jobs_one_active").using("btree", table.mediaAssetId.asc().nullsLast().op("enum_ops"), table.type.asc().nullsLast().op("uuid_ops")).where(sql`(status = ANY (ARRAY['queued'::processing_job_status, 'running'::processing_job_status]))`),
+	index("media_processing_jobs_queue_idx").using("btree", table.status.asc().nullsLast().op("enum_ops"), table.queuedAt.asc().nullsLast().op("timestamptz_ops")).where(sql`(status = ANY (ARRAY['queued'::processing_job_status, 'running'::processing_job_status]))`),
+	index("media_processing_jobs_recording_idx").using("btree", table.recordingSessionId.asc().nullsLast().op("uuid_ops")).where(sql`(recording_session_id IS NOT NULL)`),
 	index("media_processing_jobs_undispatched_idx").using("btree", table.queuedAt.asc().nullsLast().op("timestamptz_ops")).where(sql`((status = 'queued'::processing_job_status) AND (dispatched_at IS NULL))`),
 	foreignKey({
 			columns: [table.mediaAssetId],
 			foreignColumns: [mediaAssets.id],
 			name: "media_processing_jobs_media_asset_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.recordingSessionId],
+			foreignColumns: [recordingSessions.id],
+			name: "media_processing_jobs_recording_session_id_fkey"
 		}),
 	check("media_processing_jobs_transport_check", sql`transport = ANY (ARRAY['redis_stream'::text, 'sqs'::text])`),
 ]);

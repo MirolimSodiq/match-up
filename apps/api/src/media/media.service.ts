@@ -3,7 +3,16 @@ import { sql } from 'drizzle-orm';
 import { ENV, type Env } from '../config/env';
 import { AppError } from '../common/errors';
 import { DB, type Db, type Executor, iso, one, rows } from '../db/db';
-import { JOB_ROUTES, MEDIA_JOB_QUEUES, type MediaJobQueue, type MediaJobType } from './queue';
+import { createJob, tagHighlight } from './media-sql';
+import { laneFor, MEDIA_JOB_QUEUES, type MediaJobQueue, type MediaJobType } from './queue';
+import {
+  type ClipConfig,
+  RECORDING_LIMITS,
+  recordingCancelled,
+  recordingFailed,
+  recordingUploaded,
+  recordingUploadExpired,
+} from './recordings';
 import { ObjectStorage, s3ErrorName, type UploadedPart } from './storage';
 
 /** Host highlight'i: ≤ 60 s, ≤ 150 MB, mp4/mov (ARCHITECTURE §4.10). */
@@ -30,13 +39,45 @@ export interface HighlightUploadInput {
   tagged_participant_ids?: string[];
 }
 
-interface UploadContext {
+interface HighlightContext {
   kind: 'highlight';
   match_id: string;
   title?: string | null;
   match_offset_ms?: number | null;
   tagged_user_ids?: string[];
   tagged_participant_ids?: string[];
+}
+
+/** To'liq o'yin yozuvining bitta kamera fayli (AI-Cam A). */
+interface RecordingContext {
+  kind: 'recording';
+  match_id: string;
+  session_id: string;
+  camera_id: string;
+}
+
+/** Host belgisidan kesilgan klip — yuklanmaydi, worker yozuvning HLS'idan yasaydi. */
+interface ClipContext {
+  kind: 'clip';
+  match_id: string;
+  session_id: string;
+  marker_id: string;
+  camera_id: string;
+}
+
+type UploadContext = HighlightContext | RecordingContext | ClipContext;
+
+export interface MultipartInput {
+  ownerId: string;
+  /** Kalit media id'siga bog'liq (`highlights/{match}/{id}/source.mp4`). */
+  key: (mediaId: string) => string;
+  contentType: string;
+  sizeBytes: number;
+  durationMs: number;
+  partSize: number;
+  sessionHours: number;
+  recordedAt?: string | null;
+  context: HighlightContext | RecordingContext;
 }
 
 export interface MediaRow {
@@ -163,6 +204,10 @@ export class MediaService {
     );
   }
 
+  async loadRow(mediaId: string): Promise<MediaRow | undefined> {
+    return this.load(this.db, mediaId);
+  }
+
   /** Faqat egasi (yuklagan host) ko'radi; boshqalarga — 404 (mavjudligi oshkor qilinmaydi). */
   private async owned(userId: string, mediaId: string): Promise<MediaRow> {
     const m = await this.load(this.db, mediaId);
@@ -181,12 +226,13 @@ export class MediaService {
     if (!ok) throw new AppError('FORBIDDEN');
   }
 
+  /** Presigned URL'lar faqat keyingi `MEDIA_UPLOAD_URL_BATCH` qism uchun (30 GB yozuv ~2 000 qism). */
   private presignParts(m: Pick<MediaRow, 'bucket' | 'object_key' | 'upload_id' | 'size_bytes' | 'upload_part_size'>, numbers: number[]) {
     const ttl = this.env.MEDIA_UPLOAD_URL_TTL_SEC;
     const size = m.size_bytes!;
     const partSize = m.upload_part_size!;
     return Promise.all(
-      numbers.map(async (n) => ({
+      numbers.slice(0, this.env.MEDIA_UPLOAD_URL_BATCH).map(async (n) => ({
         part_number: n,
         size_bytes: partLength(size, partSize, n),
         url: await this.storage.presignPart(m.bucket, m.object_key, m.upload_id!, n, partLength(size, partSize, n), ttl),
@@ -211,34 +257,53 @@ export class MediaService {
   async initHighlightUpload(hostId: string, matchId: string, input: HighlightUploadInput) {
     await this.requireUploader(hostId, matchId);
     const ext = input.content_type === 'video/quicktime' ? 'mov' : 'mp4';
+    return this.startMultipart({
+      ownerId: hostId,
+      key: (id) => `highlights/${matchId}/${id}/source.${ext}`,
+      contentType: input.content_type,
+      sizeBytes: input.size_bytes,
+      durationMs: input.duration_ms,
+      partSize: this.env.MEDIA_UPLOAD_PART_SIZE,
+      sessionHours: this.env.MEDIA_UPLOAD_SESSION_HOURS,
+      recordedAt: input.recorded_at,
+      context: {
+        kind: 'highlight',
+        match_id: matchId,
+        title: input.title ?? null,
+        match_offset_ms: input.match_offset_ms ?? null,
+        tagged_user_ids: [...new Set(input.tagged_user_ids ?? [])],
+        tagged_participant_ids: [...new Set(input.tagged_participant_ids ?? [])],
+      },
+    });
+  }
+
+  /** Xom bucket'da multipart sessiya + `media_assets (uploading)` + birinchi qismlar uchun presigned URL'lar. */
+  async startMultipart(input: MultipartInput) {
     const { id } = (await one<{ id: string }>(this.db, sql`SELECT uuidv7() AS id`))!;
-    const key = `highlights/${matchId}/${id}/source.${ext}`;
+    const key = input.key(id);
     const bucket = this.storage.rawBucket;
-    const uploadId = await this.storage.createMultipart(bucket, key, input.content_type);
-    const context: UploadContext = {
-      kind: 'highlight',
-      match_id: matchId,
-      title: input.title ?? null,
-      match_offset_ms: input.match_offset_ms ?? null,
-      tagged_user_ids: [...new Set(input.tagged_user_ids ?? [])],
-      tagged_participant_ids: [...new Set(input.tagged_participant_ids ?? [])],
-    };
+    const uploadId = await this.storage.createMultipart(bucket, key, input.contentType);
     try {
       await this.db.execute(
         sql`INSERT INTO media_assets (id, owner_user_id, kind, status, storage_region, bucket, object_key, content_type,
                                       size_bytes, duration_ms, upload_id, upload_part_size, upload_expires_at, recorded_at, context)
-            VALUES (${id}, ${hostId}, 'video', 'uploading', ${this.env.MEDIA_STORAGE_REGION}, ${bucket}, ${key},
-                    ${input.content_type}, ${input.size_bytes}, ${input.duration_ms}, ${uploadId}, ${this.env.MEDIA_UPLOAD_PART_SIZE},
-                    now() + make_interval(hours => ${this.env.MEDIA_UPLOAD_SESSION_HOURS}), ${input.recorded_at ?? null},
-                    ${JSON.stringify(context)}::jsonb)`,
+            VALUES (${id}, ${input.ownerId}, 'video', 'uploading', ${this.env.MEDIA_STORAGE_REGION}, ${bucket}, ${key},
+                    ${input.contentType}, ${input.sizeBytes}, ${input.durationMs}, ${uploadId}, ${input.partSize},
+                    now() + make_interval(hours => ${input.sessionHours}), ${input.recordedAt ?? null},
+                    ${JSON.stringify(input.context)}::jsonb)`,
       );
     } catch (err) {
       await this.storage.abortMultipart(bucket, key, uploadId).catch(() => undefined);
       throw err;
     }
     const m = (await this.load(this.db, id))!;
-    const parts = await this.presignParts(m, Array.from({ length: partCount(input.size_bytes, m.upload_part_size!) }, (_, i) => i + 1));
+    const parts = await this.presignParts(m, Array.from({ length: partCount(input.sizeBytes, input.partSize) }, (_, i) => i + 1));
     return { media_id: id, media: toMediaAsset(m), upload: this.uploadDescriptor(m, parts) };
+  }
+
+  /** Klip konfiguratsiyasi (`recordings.ts` funksiyalari uchun). */
+  get clipConfig(): ClipConfig {
+    return { mediaBucket: this.storage.mediaBucket, storageRegion: this.env.MEDIA_STORAGE_REGION };
   }
 
   /** `GET /v1/media/{id}/upload` — uzilgan yuklashni davom ettirish: yuklangan qismlar + qolganlariga yangi URL'lar. */
@@ -261,10 +326,24 @@ export class MediaService {
     return { media_id: m.id, media: toMediaAsset(m), upload: this.uploadDescriptor(m, await this.presignParts(m, missing), done) };
   }
 
-  /** `DELETE /v1/media/{id}/upload` — host yuklashni bekor qildi. */
+  /** `DELETE /v1/media/{id}/upload` — host yuklashni bekor qildi (yozuv fayli bo'lsa — kamera `cancelled`). */
   async abortUpload(userId: string, mediaId: string): Promise<void> {
     const m = await this.owned(userId, mediaId);
     if (m.status !== 'uploading') throw new AppError('INVALID_STATE');
+    await this.storage.abortMultipart(m.bucket, m.object_key, m.upload_id!);
+    const jobs = await this.db.transaction(async (tx) => {
+      const r = await tx.execute(
+        sql`UPDATE media_assets SET status = 'deleted', deleted_at = now(), updated_at = now() WHERE id = ${m.id} AND status = 'uploading'`,
+      );
+      return r.rowCount && m.context?.kind === 'recording' ? recordingCancelled(tx, m.id, this.clipConfig) : [];
+    });
+    for (const j of jobs) await this.dispatch(j);
+  }
+
+  /** Eski (muddati o'tgan / almashtirilayotgan) multipart'ni tashlash — kamera holatiga tegmaydi. */
+  async discardUpload(mediaId: string): Promise<void> {
+    const m = await this.load(this.db, mediaId);
+    if (!m || m.status !== 'uploading') return;
     await this.storage.abortMultipart(m.bucket, m.object_key, m.upload_id!);
     await this.db.execute(
       sql`UPDATE media_assets SET status = 'deleted', deleted_at = now(), updated_at = now() WHERE id = ${m.id} AND status = 'uploading'`,
@@ -276,25 +355,35 @@ export class MediaService {
   }
 
   /**
-   * `POST /v1/media/{id}/complete` — CompleteMultipartUpload -> `processing` -> highlight (+ teglar) -> job navbatga.
-   * Idempotent: takroriy chaqiruv (javob yo'qolgan) o'sha natijani qaytaradi.
+   * `POST /v1/media/{id}/complete` — CompleteMultipartUpload -> `processing` -> highlight (+ teglar) yoki yozuv
+   * kamerasi -> job navbatga. `parts` berilmasa ETag'lar storage'dan olinadi (`ListParts`) — 2 000 qismli yozuv
+   * uchun client ularni yubormaydi. Idempotent: takroriy chaqiruv (javob yo'qolgan) o'sha natijani qaytaradi.
    */
-  async complete(userId: string, mediaId: string, body: { parts: { part_number: number; etag: string }[]; checksum_sha256?: string }) {
+  async complete(userId: string, mediaId: string, body: { parts?: { part_number: number; etag: string }[]; checksum_sha256?: string }) {
     const m = await this.owned(userId, mediaId);
     if (m.status === 'processing' || m.status === 'ready') return this.completed(mediaId);
-    if (m.status !== 'uploading' || !m.context || m.context.kind !== 'highlight') throw new AppError('INVALID_STATE');
+    const ctx = m.context;
+    if (m.status !== 'uploading' || !ctx || (ctx.kind !== 'highlight' && ctx.kind !== 'recording')) throw new AppError('INVALID_STATE');
     if (m.upload_expired) throw new AppError('UPLOAD_EXPIRED');
     const checksum = parseChecksum(body.checksum_sha256);
+    const maxBytes = ctx.kind === 'recording' ? RECORDING_LIMITS.maxBytes : HIGHLIGHT_LIMITS.maxBytes;
 
     const total = partCount(m.size_bytes!, m.upload_part_size!);
-    const parts = [...body.parts].sort((a, b) => a.part_number - b.part_number);
-    if (parts.length !== total || parts.some((p, i) => p.part_number !== i + 1)) {
-      throw new AppError('UPLOAD_INCOMPLETE', {}, [
-        { field: 'parts', code: 'incomplete', message: `1..${total} qismlarning barchasi ETag bilan kerak` },
-      ]);
-    }
+    const incomplete = () =>
+      new AppError('UPLOAD_INCOMPLETE', {}, [{ field: 'parts', code: 'incomplete', message: `1..${total} qismlarning barchasi ETag bilan kerak` }]);
+    let parts = body.parts ? [...body.parts].sort((a, b) => a.part_number - b.part_number) : undefined;
+    if (parts && (parts.length !== total || parts.some((p, i) => p.part_number !== i + 1))) throw incomplete();
 
     try {
+      if (!parts) {
+        // Server haqiqati: barcha qismlar to'liq hajmda bo'lishi shart
+        const listed = await this.storage.listParts(m.bucket, m.object_key, m.upload_id!);
+        const ok = listed
+          .filter((p) => p.part_number <= total && p.size_bytes === partLength(m.size_bytes!, m.upload_part_size!, p.part_number))
+          .sort((a, b) => a.part_number - b.part_number);
+        if (ok.length !== total) throw incomplete();
+        parts = ok.map((p) => ({ part_number: p.part_number, etag: p.etag }));
+      }
       await this.storage.completeMultipart(m.bucket, m.object_key, m.upload_id!, parts);
     } catch (err) {
       const name = s3ErrorName(err);
@@ -310,13 +399,12 @@ export class MediaService {
 
     const head = await this.storage.head(m.bucket, m.object_key);
     if (!head) throw new AppError('UPLOAD_INCOMPLETE');
-    if (head.size > HIGHLIGHT_LIMITS.maxBytes) {
+    if (head.size > maxBytes) {
       await this.storage.delete(m.bucket, m.object_key).catch(() => undefined);
       await this.db.execute(sql`UPDATE media_assets SET status = 'rejected', failure_code = 'FILE_TOO_LARGE', updated_at = now() WHERE id = ${m.id}`);
-      throw new AppError('VALIDATION_FAILED', {}, [{ field: 'size_bytes', code: 'too_big', message: 'Fayl 150 MB dan katta' }]);
+      throw new AppError('VALIDATION_FAILED', {}, [{ field: 'size_bytes', code: 'too_big', message: `Fayl ${maxBytes} baytdan katta` }]);
     }
 
-    const ctx = m.context;
     const jobId = await this.db.transaction(async (tx) => {
       const updated = await one<{ id: string }>(
         tx,
@@ -325,6 +413,7 @@ export class MediaService {
             WHERE id = ${m.id} AND status = 'uploading' RETURNING id`,
       );
       if (!updated) return undefined; // parallel complete yutdi
+      if (ctx.kind === 'recording') return recordingUploaded(tx, m.id, ctx.match_id);
       const h = (await one<{ id: string }>(
         tx,
         sql`INSERT INTO highlights (match_id, media_asset_id, created_by, source, title, clip_started_at, match_offset_ms,
@@ -333,8 +422,8 @@ export class MediaService {
                     ${ctx.match_offset_ms ?? null}, ${m.duration_ms && m.duration_ms > 0 ? m.duration_ms : null}, 'participants')
             RETURNING id`,
       ))!;
-      await this.tag(tx, h.id, ctx, userId);
-      return this.createJob(tx, m.id, 'transcode', { profile: 'highlight_v1', highlight_id: h.id, match_id: ctx.match_id });
+      await tagHighlight(tx, h.id, ctx.match_id, { userIds: ctx.tagged_user_ids, participantIds: ctx.tagged_participant_ids }, userId);
+      return createJob(tx, m.id, 'transcode', { profile: 'highlight_v1', highlight_id: h.id, match_id: ctx.match_id });
     });
     if (jobId) await this.dispatch(jobId);
     return this.completed(mediaId);
@@ -346,48 +435,14 @@ export class MediaService {
   }
 
   /**
-   * Teglash: faqat shu match'ning roster'idagi va `media_appearance` consent'i (joriy holati) bor o'yinchilar.
-   * Qolganlari jim tashlab yuboriladi (consent holati host'ga oshkor qilinmaydi).
-   */
-  private async tag(tx: Executor, highlightId: string, ctx: UploadContext, taggedBy: string): Promise<void> {
-    const userIds = ctx.tagged_user_ids ?? [];
-    const participantIds = ctx.tagged_participant_ids ?? [];
-    if (!userIds.length && !participantIds.length) return;
-    await tx.execute(
-      sql`INSERT INTO highlight_tags (highlight_id, user_id, tagged_by)
-          SELECT DISTINCT ${highlightId}::uuid, mp.user_id, ${taggedBy}::uuid
-          FROM match_participants mp
-          JOIN users u ON u.id = mp.user_id AND u.status <> 'deleted'
-          JOIN user_current_consents c ON c.user_id = mp.user_id AND c.purpose = 'media_appearance' AND c.granted
-          WHERE mp.match_id = ${ctx.match_id} AND mp.status IN ('confirmed', 'checked_in', 'no_show')
-            AND (mp.user_id = ANY(${`{${userIds.join(',')}}`}::uuid[]) OR mp.id = ANY(${`{${participantIds.join(',')}}`}::uuid[]))
-          ON CONFLICT DO NOTHING`,
-    );
-  }
-
-  private async createJob(tx: Executor, mediaId: string, type: MediaJobType, input: Record<string, unknown>): Promise<string> {
-    const job = await one<{ id: string }>(
-      tx,
-      sql`INSERT INTO media_processing_jobs (media_asset_id, type, status, transport, input)
-          VALUES (${mediaId}, ${type}, 'queued', ${JOB_ROUTES[type]}, ${JSON.stringify(input)}::jsonb)
-          ON CONFLICT (media_asset_id, type) WHERE status IN ('queued', 'running') DO NOTHING
-          RETURNING id`,
-    );
-    if (job) return job.id;
-    return (await one<{ id: string }>(
-      tx,
-      sql`SELECT id FROM media_processing_jobs WHERE media_asset_id = ${mediaId} AND type = ${type} AND status IN ('queued', 'running')`,
-    ))!.id;
-  }
-
-  /**
    * Job'ni navbatga yozadi. Xato bo'lsa (Redis yo'q) job `queued` + `dispatched_at IS NULL` holida qoladi va
    * housekeeping uni qayta yuboradi — yuklash yakunlanishi navbat sababli yiqilmaydi.
    */
   async dispatch(jobId: string): Promise<boolean> {
-    const job = await one<{ id: string; type: MediaJobType; media_asset_id: string; transport: string }>(
+    const job = await one<{ id: string; type: MediaJobType; media_asset_id: string; transport: string; profile: string | null }>(
       this.db,
-      sql`SELECT id, type, media_asset_id, transport FROM media_processing_jobs WHERE id = ${jobId} AND status = 'queued'`,
+      sql`SELECT id, type, media_asset_id, transport, input->>'profile' AS profile
+          FROM media_processing_jobs WHERE id = ${jobId} AND status = 'queued'`,
     );
     if (!job) return false;
     const queue = this.queues.get(job.transport);
@@ -396,13 +451,10 @@ export class MediaService {
       return false;
     }
     try {
-      const messageId = await queue.publish({
-        v: 1,
-        job_id: job.id,
-        type: job.type,
-        media_id: job.media_asset_id,
-        enqueued_at: new Date().toISOString(),
-      });
+      const messageId = await queue.publish(
+        { v: 1, job_id: job.id, type: job.type, media_id: job.media_asset_id, enqueued_at: new Date().toISOString() },
+        laneFor(job.profile),
+      );
       await this.db.execute(
         sql`UPDATE media_processing_jobs SET dispatched_at = now(), message_id = ${messageId} WHERE id = ${job.id}`,
       );
@@ -424,12 +476,19 @@ export class MediaService {
           WHERE status = 'running' AND heartbeat_at < now() - interval '10 minutes' AND attempts >= 5
           RETURNING id, media_asset_id`,
     );
+    const clipJobs: string[] = [];
     for (const j of timedOut) {
-      await this.db.execute(
-        sql`UPDATE media_assets SET status = 'failed', failure_code = 'WORKER_TIMEOUT', updated_at = now()
-            WHERE id = ${j.media_asset_id} AND status = 'processing'`,
+      clipJobs.push(
+        ...(await this.db.transaction(async (tx) => {
+          await tx.execute(
+            sql`UPDATE media_assets SET status = 'failed', failure_code = 'WORKER_TIMEOUT', updated_at = now()
+                WHERE id = ${j.media_asset_id} AND status = 'processing'`,
+          );
+          return recordingFailed(tx, j.media_asset_id, 'WORKER_TIMEOUT', this.clipConfig);
+        })),
       );
     }
+    for (const id of clipJobs) await this.dispatch(id);
     const requeued = await this.db.execute(
       sql`UPDATE media_processing_jobs SET status = 'queued', dispatched_at = NULL
           WHERE (status = 'running' AND heartbeat_at < now() - interval '10 minutes')
@@ -452,10 +511,13 @@ export class MediaService {
     for (const u of expired) {
       try {
         await this.storage.abortMultipart(u.bucket, u.object_key, u.upload_id);
-        await this.db.execute(
-          sql`UPDATE media_assets SET status = 'deleted', failure_code = 'UPLOAD_EXPIRED', deleted_at = now(), updated_at = now()
-              WHERE id = ${u.id} AND status = 'uploading'`,
-        );
+        await this.db.transaction(async (tx) => {
+          const r = await tx.execute(
+            sql`UPDATE media_assets SET status = 'deleted', failure_code = 'UPLOAD_EXPIRED', deleted_at = now(), updated_at = now()
+                WHERE id = ${u.id} AND status = 'uploading'`,
+          );
+          if (r.rowCount) await recordingUploadExpired(tx, u.id);
+        });
       } catch (err) {
         this.log.warn(`upload ${u.id} abort qilinmadi: ${(err as Error).message}`);
       }

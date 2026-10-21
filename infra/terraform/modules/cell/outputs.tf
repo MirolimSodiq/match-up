@@ -50,7 +50,11 @@ output "media_raw_bucket" {
 }
 
 output "media_worker_service" {
-  value = aws_ecs_service.media_worker.name
+  value = aws_ecs_service.media_worker["default"].name
+}
+
+output "media_recording_worker_service" {
+  value = aws_ecs_service.media_worker["recording"].name
 }
 
 output "media_cdn_domain" {
