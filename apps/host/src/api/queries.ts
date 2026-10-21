@@ -115,3 +115,25 @@ export function useHostHighlights(matchId: string, enabled = true) {
     refetchInterval: (q) => (q.state.data?.items.some((h) => h.status === 'processing') ? 5_000 : false),
   });
 }
+
+/**
+ * AI-Cam yozuv sessiyasi (kameralar, belgilar). Hali yozuv yo'q — `null` (404 xato emas).
+ * Ishlov ketayotgan kamera bo'lsa — tez-tez yangilaymiz.
+ */
+export function useHostRecording(matchId: string, enabled = true) {
+  return useQuery({
+    queryKey: ['host-recording', matchId] as const,
+    queryFn: async () => {
+      try {
+        return await call(api.GET('/v1/host/matches/{matchId}/recording', { params: { path: { matchId } } }));
+      } catch (err) {
+        if (err instanceof ApiError && err.code === 'NOT_FOUND') return null;
+        throw err;
+      }
+    },
+    enabled,
+    retry: (count, err) => !(err instanceof ApiError && err.code === 'FORBIDDEN') && count < 2,
+    staleTime: 10_000,
+    refetchInterval: (q) => (q.state.data?.cameras.some((c) => c.status === 'recording' || c.status === 'processing' || c.status === 'uploading') ? 15_000 : false),
+  });
+}

@@ -1,7 +1,7 @@
 # AI-Cam Engine — video highlight'lar va o'yinchi reytingi
 
 > Maydondagi 2–3 telefon yozuvidan butun maydon ko'rinishi, avtomatik highlight kliplar (gol, dribling, progressiv pas) va har bir o'yinchi uchun FIFA uslubidagi reyting (masalan, **8.7**) yaratadigan modul.
-> Holat: **Bosqich A — backend tayyor** (migratsiya `0006`, API, worker profillari `recording_v1` / `clip_v1`; §12). Host va player ilovalari — keyingi qadam. Bosqich B–D — reja.
+> Holat: **Bosqich A — backend va host ilovasi tayyor** (migratsiya `0006`, API, worker profillari `recording_v1` / `clip_v1`, host'da kamera rejimi va pult; §12). Player ilovasi — keyingi qadam. Bosqich B–D — reja.
 
 | Bog'liq joy | Nima bor |
 |---|---|
@@ -299,5 +299,17 @@ sequenceDiagram
 | `RecordingReady` — birinchi kamera tayyor bo'lganda | ikkinchi telefon fayli kunlab yuklanmay qolishi mumkin; o'yinchilar kutmaydi, qolgan kameralar jim qo'shiladi |
 | To'liq video faqat ishtirokchilarga | consent'siz o'yinchilar ham kadrda — ochiq ulashish yo'q; yuz xiralashtirish (`face_blur`) — Bosqich B (§8) |
 
-**Ma'lum cheklovlar:** yozuv kodlashi ECS `stopTimeout` (120 s) dan uzun — deploy yoki scale-in paytida job boshqa task'da qaytadan boshlanadi (ECS task scale-in protection — B6 autoscaling bilan); kick-off belgisi o'zgarsa klip'larning `match_offset_ms` i qayta hisoblanadi, lekin allaqachon yuborilgan push matni o'zgarmaydi; telefon soatlari NTP bo'yicha — server soat farqini tuzatmaydi (±0.5 s klip uchun yetarli).
+**Host ilovasi** (`apps/host`):
+
+| Ekran | Nima qiladi |
+|---|---|
+| Match → "To'liq o'yin videosi" | Kamera rejimi va Pult tugmalari; shu telefondagi yozuvlar (yuklash holati, Wi-Fi kutilmoqda), boshqa telefonlarning kameralari (server), belgilar soni; "Mobil internetda ham yuklash" sozlamasi |
+| Kamera rejimi (sozlash) | pozitsiya (`left` / `right` / `wide`; boshqa telefon yozayotgani — "band"), bo'sh joy va taxminiy daqiqalar (HEVC ~180 MB/daq), tekshiruv ro'yxati |
+| Kamera (landshaft) | `expo-screen-orientation` bilan qulf (ilova qolgan qismi portret); 4K, stabilizatsiya o'chiq, fokus bir marta qulflanadi, iOS'da HEVC; `maxFileSize` = bo'sh joy − 2 GB. Boshlanish vaqti — birinchi progress hodisasidan (`now − duration`); to'xtaganda fayl kesh papkasidan ilova papkasiga **ko'chiriladi** |
+| Pult | Kick-off, "Chap darvoza" / "O'ng darvoza", tomonsiz "Highlight"; o'yin soati; bekor qilish; belgilar diskda (`markers.json`) va oflayn navbatdan yuboriladi |
+| Roster | bib raqami (ishtirokchi varag'ida; online `PATCH`, `BIB_TAKEN`) |
+
+Yuklash dvigateli kliplar bilan umumiy: yozuvlar kliplardan keyin va standart bo'yicha faqat Wi-Fi'da; klip navbatga tushsa yozuv qismlar orasida bo'shatadi; iOS'da har qism `background` sessiyada (ilova fonga o'tsa ham joriy qism tugaydi). 15 GB faylning SHA-256'i telefonda hisoblanmaydi — worker probe bilan tekshiradi.
+
+**Ma'lum cheklovlar:** yozuv kodlashi ECS `stopTimeout` (120 s) dan uzun — deploy yoki scale-in paytida job boshqa task'da qaytadan boshlanadi (ECS task scale-in protection — B6 autoscaling bilan); kick-off belgisi o'zgarsa klip'larning `match_offset_ms` i qayta hisoblanadi, lekin allaqachon yuborilgan push matni o'zgarmaydi; telefon soatlari NTP bo'yicha — server soat farqini tuzatmaydi (±0.5 s klip uchun yetarli); iOS JS ilova fonda to'xtaganda keyingi qism yuklanmaydi — 30 GB yuklash uchun ilova ochiq va quvvatga ulangan bo'lishi kerak; haqiqiy telefonda 90 daqiqalik 4K yozuv, qizish va fonda yuklash hali sinalmagan.
 

@@ -1,10 +1,28 @@
 /**
- * Highlight yuklash yadrosi (sof TS — RN/Expo'siz, vitest bilan tekshiriladi).
+ * Yuklash yadrosi (sof TS — RN/Expo'siz, vitest bilan tekshiriladi): highlight kliplari va to'liq o'yin
+ * yozuvlari (AI-Cam A) bir xil navbatda.
  *
- * Oqim: init (`POST .../highlights/uploads`) -> har qism `PUT <presigned>` (ETag) -> complete.
- * Internet uzilsa yoki ilova yopilsa: holat diskda; davom ettirishda server haqiqati
- * (`GET /v1/media/{id}/upload` -> `uploaded_parts`) lokal ETag'lar bilan birlashtiriladi.
+ * Oqim: init (`POST .../highlights/uploads` yoki `.../recording/cameras/{id}/upload`) -> har qism
+ * `PUT <presigned>` (ETag) -> complete. Internet uzilsa yoki ilova yopilsa: holat diskda; davom ettirishda server
+ * haqiqati (`GET /v1/media/{id}/upload` -> `uploaded_parts`) lokal ETag'lar bilan birlashtiriladi.
+ * Yozuvlar: server URL'larni 100 tadan beradi (tugasa — yana `GET .../upload`), yakunlashda ETag'lar
+ * yuborilmaydi (server `ListParts` dan oladi), standart bo'yicha faqat Wi-Fi'da va kliplardan keyin.
  */
+import type { CameraPosition } from '@/recording/core';
+
+export type UploadKind = 'highlight' | 'recording';
+
+/** Yozuv fayli metadata'si — `PUT .../recording/cameras/{clientCameraId}` (init'dan oldin, idempotent). */
+export interface RecordingCamera {
+  clientCameraId: string;
+  position: CameraPosition;
+  startedAt: string;
+  stoppedAt: string;
+  deviceModel?: string;
+  fps?: number;
+  width?: number;
+  height?: number;
+}
 
 export type UploadState =
   /** Navbatda (internet kutilmoqda yoki boshqa yuklash tugashini kutadi). */
@@ -21,6 +39,9 @@ export type UploadState =
 export interface UploadJob {
   /** Lokal id (fayl nomi). */
   id: string;
+  /** Yo'q — highlight (oldingi versiyalar yozgan navbat). */
+  kind?: UploadKind;
+  camera?: RecordingCamera;
   matchId: string;
   /** Ilova hujjatlar papkasidagi nusxa (kesh tozalansa ham yo'qolmaydi). */
   fileUri: string;
@@ -104,7 +125,11 @@ export function progress(job: UploadJob): number {
   return job.sizeBytes > 0 ? uploadedBytes(job) / job.sizeBytes : 0;
 }
 
-export function completeBody(job: Pick<UploadJob, 'sizeBytes' | 'partSize' | 'etags' | 'sha256'>) {
+export const isRecording = (job: Pick<UploadJob, 'kind'>) => job.kind === 'recording';
+
+export function completeBody(job: Pick<UploadJob, 'kind' | 'sizeBytes' | 'partSize' | 'etags' | 'sha256'>) {
+  // Yozuv: ~2 000 qism — ETag'lar body'ga sig'maydi; server ularni storage'dan oladi
+  if (isRecording(job)) return {};
   const parts = planParts(job.sizeBytes, job.partSize!).map((p) => {
     const etag = job.etags[p.partNumber];
     if (!etag) throw new Error(`part ${p.partNumber} yuklanmagan`);
@@ -138,8 +163,42 @@ export function classify(code: string | undefined, status?: number): ErrorAction
 }
 
 /** Ekranda ko'rinadigan (faol yoki yaqinda tugagan) yuklashlar — eng yangisi birinchi. */
-export function visibleJobs(jobs: readonly UploadJob[], matchId: string): UploadJob[] {
-  return jobs.filter((j) => j.matchId === matchId && j.state !== 'ready').sort((a, b) => b.createdAt - a.createdAt);
+export function visibleJobs(jobs: readonly UploadJob[], matchId: string, kind: UploadKind = 'highlight'): UploadJob[] {
+  return jobs
+    .filter((j) => j.matchId === matchId && j.state !== 'ready' && (j.kind ?? 'highlight') === kind)
+    .sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export interface NetState {
+  online: boolean;
+  wifi: boolean;
+}
+
+/** Yozuv (gigabaytlar) faqat Wi-Fi'da — host mobil internetga ham ruxsat bermagan bo'lsa. */
+export function waitsForWifi(job: Pick<UploadJob, 'kind'>, net: NetState, allowCellular: boolean): boolean {
+  return isRecording(job) && net.online && !net.wifi && !allowCellular;
+}
+
+/**
+ * Navbatdagi yuklash: avval kliplar (bir necha MB — o'yindan keyin darhol kerak), keyin yozuvlar; har turda
+ * eskisi birinchi. Backoff muddati tugamaganlar va Wi-Fi kutayotgan yozuvlar o'tkazib yuboriladi.
+ */
+export function pickNext(jobs: readonly UploadJob[], now: number, net: NetState, allowCellular: boolean): UploadJob | undefined {
+  if (!net.online) return undefined;
+  const ready = jobs
+    .filter((j) => (j.state === 'queued' || j.state === 'paused') && (j.nextRetryAt ?? 0) <= now && !waitsForWifi(j, net, allowCellular))
+    .sort((a, b) => Number(isRecording(a)) - Number(isRecording(b)) || a.createdAt - b.createdAt);
+  return ready[0];
+}
+
+/** Yozuv yuklanayotganda klip navbatga tushsa — yozuv qismlar orasida bo'shatadi. */
+export function shouldYield(running: Pick<UploadJob, 'kind'>, jobs: readonly UploadJob[], now: number): boolean {
+  return isRecording(running) && jobs.some((j) => !isRecording(j) && (j.state === 'queued' || j.state === 'paused') && (j.nextRetryAt ?? 0) <= now);
+}
+
+/** Server qayta ishlashini shuncha kutamiz (yozuv kodlashi soatlab). */
+export function processingGiveUpMs(job: Pick<UploadJob, 'kind'>): number {
+  return isRecording(job) ? 8 * 3600_000 : 30 * 60_000;
 }
 
 export function contentTypeFor(uri: string, mimeType?: string | null): UploadJob['contentType'] | undefined {

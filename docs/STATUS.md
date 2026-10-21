@@ -11,7 +11,7 @@
 | Backend (`apps/api`) | auth (OTP, Google/Apple/Telegram), profil, discovery, waiver, booking, to'lovlar (Payme, Click, **Uzum**, hamyon), **kechki reconciliation**, host panel, admin API, push va WebSocket, GDPR eksport/erasure (+ eksport tayyor push'i), **highlight video pipeline** (MinIO/S3 presigned multipart, ichki endpointlar, feed, like, share, highlight push'lari), BullMQ job'lar, outbox, DB/Redis uzilishiga chidamlilik; **AI-Cam A**: to'liq o'yin yozuvi (kameralar, bib, host belgilaridan avtomatik klip'lar, ishtirokchilar uchun video, `recording.ready` push) | e2e 114/114 |
 | Media worker (`services/media-worker`) | Python 3.12 + FFmpeg: Redis Stream `matchup:media-jobs` → HLS 720p/480p, thumbnail, 9:16 vertikal MP4; `recording_v1` (alohida `…:recording` lane, 1080p/720p/480p bitta o'tishda), `clip_v1` (yozuv HLS'idan kadr aniqligida kesish) | pytest 38/38 |
 | Player ilovasi (`apps/player`) | Expo, yorug' sport dizayni, to'lov WebView (Uzum ham), QR chipta, social login, profil (kirish usullari, maxfiylik), push va deep link'lar, jonli slot'lar, highlight feed | tsc |
-| Host ilovasi (`apps/host`) | takliflar, offline roster, QR skaner (Ed25519 offline), jamoalar, yakunlash, push, highlight yozish va resumable yuklash | vitest 45/45 |
+| Host ilovasi (`apps/host`) | takliflar, offline roster, QR skaner (Ed25519 offline), jamoalar, yakunlash, push, highlight yozish va resumable yuklash; **AI-Cam A**: kamera rejimi, pult, yozuv yuklash, bib | vitest 58/58 |
 | Admin panel (`apps/admin`) | Next.js BFF, match/venue/host/refund/dashboard, reconciliation (run'lar, qo'lda ishga tushirish, farqlar) | build |
 | Dizayn tizimi | `packages/ui` (tokenlar + RN komponentlar), `packages/contracts` (OpenAPI tiplari) | tsc |
 | CI va infra | GitHub Actions (typecheck, e2e, worker pytest, lint, build), Dockerfile'lar, lokal staging, Terraform (eu-central-1, media bucket'lar, worker ECS — klip va yozuv lane'lari), Sentry, EAS | terraform validate, actionlint |
@@ -32,7 +32,7 @@ Loyiha ikki kishi o'rtasida bo'lingan. Har yo'nalish o'z papkalariga ega — bir
 |---|---|---|---|
 | A1 | `0006_ai_cam.sql`: `recording_sessions`, `recording_cameras`, `recording_markers`, `match_participants.bib_number`, `recording_session_id` ustunlari | `db/migrations/0006_*` | ✅ |
 | A2 | API (match bo'yicha: kamera, yuklash, belgilar, bib, player ko'rinishi — [`AI_CAM.md`](AI_CAM.md) §6, §12), worker `recording_v1` / `clip_v1`, Terraform yozuv lane'i | `apps/api/src/media/`, `services/media-worker`, `infra/terraform` | ✅ |
-| A3 | Host ilovasi: kamera rejimi (pozitsiya, 4K, uzoq yozish, `PUT .../cameras`), Wi-Fi'da fonda davom etadigan yozuv yuklash (16 MiB qismlar, URL'lar partiyalab, `complete` `parts` siz), "pult" rejimi (Highlight chap/o'ng, Kick-off, bekor qilish — oflayn navbat), roster'da bib | `apps/host/` | keyingi |
+| A3 | Host ilovasi: kamera rejimi (pozitsiya, 4K HEVC, landshaft qulf, `PUT .../cameras`), yozuv yuklash (Wi-Fi, kliplardan keyin, 16 MiB qismlar, URL partiyalari, `complete` `parts` siz), pult (Chap/O'ng darvoza, Kick-off, bekor qilish — oflayn navbat), roster'da bib | `apps/host/` | ✅ (haqiqiy telefonda 90 daqiqalik yozuv sinalmagan) |
 | A4 | Player ilovasi: to'liq o'yin videosi (`GET /v1/matches/{id}/recording`, kamera almashtirish, lahzalarga sakrash), `recording.ready` push deep link'i `/match/{id}/recording` | `apps/player/` | keyingi |
 | A5 | Relizdan oldin: `metro.config.js` da Sentry (`getSentryExpoConfig`) | `apps/host`, `apps/player` | — |
 
