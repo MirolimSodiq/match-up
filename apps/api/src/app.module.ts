@@ -23,6 +23,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { PaymentsModule } from './payments/payments.module';
 import { uzumJsonBody } from './payments/uzum.service';
 import { PrivacyModule } from './privacy/privacy.module';
+import { RatingsModule } from './ratings/ratings.module';
 import { REDIS, RedisModule } from './redis/redis.module';
 import { WaiversModule } from './waivers/waivers.module';
 
@@ -84,6 +85,7 @@ class HealthController {
     AdminModule,
     NotificationsModule,
     PrivacyModule,
+    RatingsModule,
     JobsModule,
   ],
   controllers: [HealthController],

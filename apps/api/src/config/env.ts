@@ -69,6 +69,17 @@ const EnvSchema = z.object({
   /** Kechki job vaqti (cron, Asia/Tashkent): oldingi kunni solishtiradi. */
   RECONCILE_CRON: z.string().default('30 3 * * *'),
 
+  // Host operatsiyalari: no-show ogohlantirishi (Telegram ops guruhi) va haftalik payout
+  /** Ops guruhi chat id (TELEGRAM_BOT_TOKEN boti guruhga qo'shilgan bo'lsin); bo'sh — ogohlantirish faqat logga. */
+  OPS_TELEGRAM_CHAT_ID: z.string().optional(),
+  TELEGRAM_API_URL: z.url().default('https://api.telegram.org'),
+  /** Ogohlantirishlardagi admin panel havolasi (masalan `https://admin.matchup.uz`). */
+  ADMIN_PUBLIC_URL: z.url().optional(),
+  /** Kick-off'ga shuncha daqiqa qolganda host yetib kelmagan bo'lsa (`arrived` yo'q) — ogohlantirish. */
+  HOST_NO_SHOW_ALERT_MIN: z.coerce.number().int().min(1).max(120).default(15),
+  /** Haftalik host payout (cron, Asia/Tashkent): oldingi dushanba–yakshanba. */
+  HOST_PAYOUT_CRON: z.string().default('0 4 * * 1'),
+
   /** Expo Push API (push/send, push/getReceipts). Access token — Expo "enhanced security" yoqilgan bo'lsa. */
   EXPO_PUSH_URL: z.url().default('https://exp.host/--/api/v2/push'),
   EXPO_ACCESS_TOKEN: z.string().optional(),

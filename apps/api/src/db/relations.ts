@@ -1,6 +1,6 @@
 // AUTO-GENERATED: `pnpm db:pull`
 import { relations } from "drizzle-orm/relations";
-import { currencies, countries, cities, users, mediaAssets, userSessions, deviceTokens, authIdentities, venues, pitches, fieldLeases, sports, matches, cancellationPolicies, competitions, waiverTemplates, waiverSignatures, matchParticipants, bookings, matchSides, matchWaitlist, competitionEntries, paymentProviderConfigs, payments, paymentEvents, refunds, walletAccounts, walletTransactions, consents, dataSubjectRequests, auditLogs, hostProfiles, hostPayouts, hostAssignments, checkinEvents, matchFeedback, highlights, notifications, highlightShares, teams, matchEvents, pushDeliveries, reconciliationRuns, reconciliationItems, mediaProcessingJobs, venueAmenities, amenities, pitchSports, hostSports, userRoles, highlightTags, highlightReactions, fxRates, teamMembers, playerSportProfiles } from "./schema";
+import { currencies, countries, cities, users, mediaAssets, userSessions, deviceTokens, authIdentities, venues, pitches, fieldLeases, sports, matches, cancellationPolicies, competitions, waiverTemplates, waiverSignatures, matchParticipants, bookings, matchSides, matchWaitlist, competitionEntries, paymentProviderConfigs, payments, paymentEvents, refunds, walletAccounts, walletTransactions, consents, dataSubjectRequests, auditLogs, hostProfiles, hostPayouts, hostAssignments, checkinEvents, matchFeedback, highlights, notifications, highlightShares, teams, matchEvents, pushDeliveries, reconciliationRuns, reconciliationItems, mediaProcessingJobs, venueAmenities, amenities, pitchSports, hostSports, userRoles, highlightTags, highlightReactions, fxRates, teamMembers, playerSportProfiles, playerRatingChanges } from "./schema";
 
 export const countriesRelations = relations(countries, ({one, many}) => ({
 	currency: one(currencies, {
@@ -139,6 +139,7 @@ export const usersRelations = relations(users, ({one, many}) => ({
 	highlightReactions: many(highlightReactions),
 	teamMembers: many(teamMembers),
 	playerSportProfiles: many(playerSportProfiles),
+	playerRatingChanges: many(playerRatingChanges),
 }));
 
 export const mediaAssetsRelations = relations(mediaAssets, ({one, many}) => ({
@@ -261,6 +262,7 @@ export const matchesRelations = relations(matches, ({one, many}) => ({
 	highlights: many(highlights),
 	matchEvents: many(matchEvents),
 	matchSides: many(matchSides),
+	playerRatingChanges: many(playerRatingChanges),
 }));
 
 export const sportsRelations = relations(sports, ({many}) => ({
@@ -271,6 +273,7 @@ export const sportsRelations = relations(sports, ({many}) => ({
 	pitchSports: many(pitchSports),
 	hostSports: many(hostSports),
 	playerSportProfiles: many(playerSportProfiles),
+	playerRatingChanges: many(playerRatingChanges),
 }));
 
 export const cancellationPoliciesRelations = relations(cancellationPolicies, ({many}) => ({
@@ -868,6 +871,21 @@ export const playerSportProfilesRelations = relations(playerSportProfiles, ({one
 	}),
 	sport: one(sports, {
 		fields: [playerSportProfiles.sportId],
+		references: [sports.id]
+	}),
+}));
+
+export const playerRatingChangesRelations = relations(playerRatingChanges, ({one}) => ({
+	match: one(matches, {
+		fields: [playerRatingChanges.matchId],
+		references: [matches.id]
+	}),
+	user: one(users, {
+		fields: [playerRatingChanges.userId],
+		references: [users.id]
+	}),
+	sport: one(sports, {
+		fields: [playerRatingChanges.sportId],
 		references: [sports.id]
 	}),
 }));

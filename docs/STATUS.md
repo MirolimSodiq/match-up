@@ -44,12 +44,15 @@ Loyiha ikki kishi o'rtasida bo'lingan. Har yo'nalish o'z papkalariga ega — bir
 |---|---|---|---|
 | B1 | Admin'da reconciliation sahifasi (`GET/POST /v1/admin/finance/reconciliation`, `GET …/{runId}`) — backend tayyor, stack bilan tanishish uchun birinchi ish | `apps/admin/` | ✅ `feat/admin-reconciliation` |
 | B2 | `UserErased` event'i uchun handler (hozircha xabarnoma/tozalash yo'q) | `apps/api/src/notifications`, `privacy` | — |
-| B3 | Yetishmayotgan job'lar (`ARCHITECTURE.md` §4.9 da bor, `jobs.module.ts` da yo'q): post-match (Glicko reyting, feedback so'rovi, no-show statistikasi), haftalik host payout (`host_payouts`), host no-show alert (kick-off − 15 daq, `arrived` yo'q) | `apps/api/src/jobs`, `host` | — |
+| B3 | Yetishmayotgan job'lar (`ARCHITECTURE.md` §4.9 da bor, `jobs.module.ts` da yo'q): post-match (Glicko reyting, feedback so'rovi, no-show statistikasi), haftalik host payout (`host_payouts`), host no-show alert (kick-off − 15 daq, `arrived` yo'q) | `apps/api/src/jobs`, `host` | ✅ `feat/post-match-jobs` (+ feedback endpoint, migratsiya `0009`) |
 | B4 | Admin'da highlight moderatsiyasi | `apps/api/src/admin`, `apps/admin` | — |
 | B5 | Deploy workflow: GitHub OIDC role (ECR push + ECS/Terraform) va `deploy` job ([`DEPLOYMENT.md`](DEPLOYMENT.md) §6) | `.github/workflows`, `infra/terraform` | — |
 | B6 | Media worker autoscaling — navbat uzunligi (`XLEN`/`XPENDING matchup:media-jobs`) bo'yicha CloudWatch metrikasi | `infra/terraform` | — |
 | B7 | GDPR eksportiga media fayllar — `media/` ga tegadi, A2 merge bo'lgandan keyin | `apps/api/src/privacy` | — |
 | B8 | Provider refund'larni avtomatlashtirish — avval Payme/Click/Uzum refund API imkoniyatlarini aniqlash; hozir admin navbatida qo'lda | `apps/api/src/payments` | — |
+| B9 | Admin'da host payout'lari: haftalik ro'yxat (`host_payouts`), "to'landi" belgisi (`provider_ref`, `paid_at`), audit | `apps/api/src/admin`, `apps/admin` | — |
+| B10 | Player ilovasida baholash ekrani (`/match/{id}?rate=1` → `GET/POST /v1/matches/{id}/feedback`) — `apps/player` @MirolimSodiq yo'nalishi, kim qilishi kelishiladi | `apps/player` | — |
+| B11 | Terraform/ECS: `TELEGRAM_BOT_TOKEN` (secret), `OPS_TELEGRAM_CHAT_ID`, `ADMIN_PUBLIC_URL` — B5 bilan birga | `infra/terraform` | — |
 
 ### Kod bo'lmagan ishlar (biznes tomonni kim olib borsa)
 
@@ -72,7 +75,7 @@ Loyiha ikki kishi o'rtasida bo'lingan. Har yo'nalish o'z papkalariga ega — bir
 ## Ikki kishi bo'lib ishlash
 
 1. `main` ga to'g'ridan-to'g'ri push qilinmaydi: har ish o'z branch'ida → PR → CI yashil va ikkinchi odam ko'rib chiqqandan keyin merge.
-2. Migratsiya raqamlari: `0006` — AI-Cam (@MirolimSodiq), `0009` dan boshlab — @MirolimProjects; bitta PR'da bir nechta kerak bo'lsa, shu yerda band qilinadi. Runner qo'llanganlarni `schema_migrations` da fayl nomi bo'yicha saqlaydi, shuning uchun raqamlar orasidagi bo'shliq va merge tartibi muammo emas.
+2. Migratsiya raqamlari: `0006` — AI-Cam (@MirolimSodiq), `0009` dan boshlab — @MirolimProjects (`0009` — post-match job'lari, B3); bitta PR'da bir nechta kerak bo'lsa, shu yerda band qilinadi. Runner qo'llanganlarni `schema_migrations` da fayl nomi bo'yicha saqlaydi, shuning uchun raqamlar orasidagi bo'shliq va merge tartibi muammo emas.
 3. Generatsiya qilinadigan fayllar (`apps/api/src/db/schema.ts`, `relations.ts`, `packages/contracts`, `pnpm-lock.yaml`) da conflict bo'lsa qo'lda tuzatilmaydi — pastdagi "Merge'dan keyin" tartibida qayta generatsiya qilinadi.
 4. `api/openapi.yaml` ga ikkalasi ham tegadi: PR'lar kichik, `main` dan tez-tez rebase.
 5. Boshqa yo'nalish papkasiga tegish kerak bo'lsa (masalan, B7 → `apps/api/src/media/`) — oldin kelishiladi.

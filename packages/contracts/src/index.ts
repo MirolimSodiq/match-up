@@ -37,6 +37,8 @@ export type PersonalDataExport = Schemas['PersonalDataExport'];
 export type AuthIdentity = Schemas['AuthIdentity'];
 export type SocialCredential = Schemas['SocialCredential'];
 export type SocialProvider = SocialCredential['provider'];
+export type MatchFeedback = Schemas['MatchFeedback'];
+export type MatchFeedbackSubmit = NonNullable<operations['submitMatchFeedback']['requestBody']>['content']['application/json'];
 
 type Json<T> = T extends { content: { 'application/json': infer B } } ? B : never;
 
