@@ -270,7 +270,6 @@ cd apps/player && npx eas-cli build --profile preview --platform android
 ## Ma'lum cheklovlar va keyingi qadamlar
 
 - **Deploy avtomatlashtirilmagan:** GitHub remote ulangach — AWS OIDC role (faqat ECR push + ECS/Terraform uchun) va `deploy` workflow (§6 qadamlari).
-- **API'da pg Pool `error` handler yo'q** (`src/db/db.module.ts`): DB ulanishi uzilsa (masalan, RDS failover) process qulaydi. ECS uni qayta ishga tushiradi, lekin handler qo'shilishi kerak. Lokal staging'da emulyatsiyadagi postgis qayta tiklanganda shu kuzatildi.
 - API image'ning ~80 MB qismi `@sentry/nestjs` v11 olib keladigan bundler bog'liqliklari (webpack, babel) — SDK tuzilishi.
 - WAF (rate limit) va VPC flow log'lar hali yo'q; ARCHITECTURE §4.1 dagi "CDN + WAF" keyingi bosqichda.
 - DB'da ilova uchun alohida cheklangan role yo'q — api va migratsiya bitta `matchup` foydalanuvchisi bilan ishlaydi.
