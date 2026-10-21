@@ -2008,7 +2008,7 @@ export interface components {
             updated_at: string;
         };
         /** @enum {string} */
-        NotificationType: "booking.confirmed" | "booking.cancelled" | "refund.issued" | "match.cancelled" | "match.rate" | "match.reminder_24h" | "match.reminder_2h" | "waitlist.offer" | "host.offer" | "match.new";
+        NotificationType: "booking.confirmed" | "booking.cancelled" | "refund.issued" | "match.cancelled" | "match.rate" | "match.reminder_24h" | "match.reminder_2h" | "waitlist.offer" | "host.offer" | "match.new" | "highlight.tagged" | "highlight.ready" | "highlight.shared";
         Notification: {
             /** Format: uuid */
             id: string;
@@ -2019,7 +2019,7 @@ export interface components {
             title: string;
             /** @example 7v7 Chilonzor Arena — 21-oktabr, 19:00, Chilonzor Arena. Chiptangiz ilovada. */
             body: string;
-            /** @description Push bilan bir xil: `url` (deep link) va id'lar (`booking_id`, `match_id`, `assignment_id`, ...) */
+            /** @description Push bilan bir xil: `url` (deep link) va id'lar (`booking_id`, `match_id`, `assignment_id`, `highlight_id`, ...) */
             data: {
                 /** @example /booking/01a156ee-a262-729e-ac8c-2ecb9dda6865 */
                 url?: string;

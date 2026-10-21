@@ -2893,6 +2893,9 @@ components:
         - waitlist.offer
         - host.offer
         - match.new
+        - highlight.tagged
+        - highlight.ready
+        - highlight.shared
     Notification:
       type: object
       required: [id, type, category, title, body, data, created_at, read_at]
@@ -2904,7 +2907,7 @@ components:
         body: { type: string, examples: ["7v7 Chilonzor Arena — 21-oktabr, 19:00, Chilonzor Arena. Chiptangiz ilovada."] }
         data:
           type: object
-          description: 'Push bilan bir xil: `url` (deep link) va id''lar (`booking_id`, `match_id`, `assignment_id`, ...)'
+          description: 'Push bilan bir xil: `url` (deep link) va id''lar (`booking_id`, `match_id`, `assignment_id`, `highlight_id`, ...)'
           additionalProperties: true
           properties:
             url: { type: string, examples: ['/booking/01a156ee-a262-729e-ac8c-2ecb9dda6865'] }

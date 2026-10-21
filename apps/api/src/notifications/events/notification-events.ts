@@ -49,6 +49,34 @@ export function matchParams(m: MatchCtx, locale: TextLocale): TemplateParams {
 
 export const mapUrl = (m: MatchCtx) => `https://maps.google.com/?q=${m.venue_lat},${m.venue_lng}`;
 
+interface HighlightCtx {
+  id: string;
+  match_id: string;
+  created_by: string;
+  title: string | null;
+}
+
+/** Faqat hozir ham ko'rinadigan klip (event navbatda turganda o'chirilgan / rad etilgan bo'lishi mumkin). */
+async function loadHighlight(ex: Executor, highlightId: string): Promise<HighlightCtx | undefined> {
+  return one<HighlightCtx>(
+    ex,
+    sql`SELECT h.id, h.match_id, h.created_by, h.title
+        FROM highlights h JOIN media_assets ma ON ma.id = h.media_asset_id
+        WHERE h.id = ${highlightId} AND h.deleted_at IS NULL AND h.published_at IS NOT NULL
+          AND h.moderation_status <> 'rejected' AND ma.status = 'ready'`,
+  );
+}
+
+/** Teg + joriy `media_appearance` consent'i (yuklashdan keyin qaytarib olingan bo'lishi mumkin). */
+const consentedTag = sql`JOIN user_current_consents c ON c.user_id = t.user_id AND c.purpose = 'media_appearance' AND c.granted`;
+
+function highlightParams(m: MatchCtx, h: HighlightCtx, locale: TextLocale): TemplateParams {
+  const clip = h.title?.trim();
+  return { ...matchParams(m, locale), ...(clip ? { clip: clip.length > 60 ? `${clip.slice(0, 59)}…` : clip } : {}) };
+}
+
+const highlightData = (h: HighlightCtx) => ({ url: `/highlight/${h.id}`, highlight_id: h.id, match_id: h.match_id });
+
 /**
  * Outbox event -> foydalanuvchiga xabar. Idempotent: `dedupe_key` = event id (+ qabul qiluvchi),
  * shuning uchun event qayta yetkazilsa (at-least-once) yangi xabar yaratilmaydi.
@@ -82,6 +110,10 @@ export class NotificationEvents {
         return;
       case 'MatchPublished':
         return this.matchPublished(e);
+      case 'HighlightReady':
+        return this.highlightReady(e);
+      case 'HighlightShared':
+        return this.highlightShared(e);
       default:
         return;
     }
@@ -267,5 +299,76 @@ export class NotificationEvents {
       data: { url: `/match/${matchId}`, match_id: matchId },
     }));
     await this.notifications.notify(drafts);
+  }
+
+  /**
+   * HighlightReady -> teglangan o'yinchilarga "sizni belgilashdi" (har klip uchun) va match'ning qolgan
+   * ishtirokchilariga "o'yiningizdan highlight" — har match uchun bitta: host bir nechta klip yuklasa ham
+   * spam bo'lmaydi, keyingilari feed'da. Teglar event payload'idan emas, bazadan joriy consent bilan olinadi.
+   */
+  private async highlightReady(e: OutboxEvent) {
+    const h = await loadHighlight(this.db, e.aggregateId);
+    const m = h && (await loadMatchCtx(this.db, h.match_id));
+    if (!h || !m) return;
+    const tagged = await rows<{ user_id: string }>(
+      this.db,
+      sql`SELECT t.user_id FROM highlight_tags t ${consentedTag}
+          WHERE t.highlight_id = ${h.id} AND t.user_id <> ${h.created_by}`,
+    );
+    // Ko'rish huquqi bor ishtirokchilar (highlights.service VIEWER_PARTICIPANT_STATUSES bilan bir xil)
+    const participants = await rows<{ user_id: string }>(
+      this.db,
+      sql`SELECT DISTINCT mp.user_id FROM match_participants mp
+          WHERE mp.match_id = ${h.match_id} AND mp.status IN ('confirmed', 'checked_in')
+            AND mp.user_id IS NOT NULL AND mp.user_id <> ${h.created_by}
+            AND NOT EXISTS (SELECT 1 FROM notifications n
+                            WHERE n.user_id = mp.user_id AND n.type IN ('highlight.tagged', 'highlight.ready')
+                              AND n.payload->'data'->>'match_id' = ${h.match_id})`,
+    );
+    const taggedIds = new Set(tagged.map((t) => t.user_id));
+    const draft = (userId: string, type: 'highlight.tagged' | 'highlight.ready'): NotificationDraft => ({
+      userId,
+      type,
+      dedupeKey: this.key(e, userId),
+      params: (l) => highlightParams(m, h, l),
+      data: highlightData(h),
+    });
+    await this.notifications.notify([
+      ...[...taggedIds].map((id) => draft(id, 'highlight.tagged')),
+      ...participants.filter((p) => !taggedIds.has(p.user_id)).map((p) => draft(p.user_id, 'highlight.ready')),
+    ]);
+  }
+
+  /**
+   * HighlightShared -> klipda teglangan o'yinchilarga (ulashganning o'zidan tashqari). Har klip uchun bitta
+   * xabar: keyingi ulashishlar jim, aks holda har repost push bo'lardi.
+   */
+  private async highlightShared(e: OutboxEvent) {
+    const sharerId = typeof e.payload.user_id === 'string' ? e.payload.user_id : null;
+    if (!sharerId) return;
+    const h = await loadHighlight(this.db, e.aggregateId);
+    const actor = await one<{ display_name: string }>(
+      this.db,
+      sql`SELECT display_name FROM users WHERE id = ${sharerId} AND deleted_at IS NULL AND anonymized_at IS NULL`,
+    );
+    const m = h && actor && (await loadMatchCtx(this.db, h.match_id));
+    if (!h || !actor || !m) return;
+    const tagged = await rows<{ user_id: string }>(
+      this.db,
+      sql`SELECT t.user_id FROM highlight_tags t ${consentedTag}
+          WHERE t.highlight_id = ${h.id} AND t.user_id <> ${sharerId}
+            AND NOT EXISTS (SELECT 1 FROM notifications n
+                            WHERE n.user_id = t.user_id AND n.type = 'highlight.shared'
+                              AND n.payload->'data'->>'highlight_id' = ${h.id})`,
+    );
+    await this.notifications.notify(
+      tagged.map((t) => ({
+        userId: t.user_id,
+        type: 'highlight.shared' as const,
+        dedupeKey: this.key(e, t.user_id),
+        params: (l: TextLocale) => ({ ...highlightParams(m, h, l), actor: actor.display_name }),
+        data: highlightData(h),
+      })),
+    );
   }
 }

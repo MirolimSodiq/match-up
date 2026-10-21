@@ -14,7 +14,10 @@ export type NotificationType =
   | 'match.reminder_2h'
   | 'waitlist.offer'
   | 'host.offer'
-  | 'match.new';
+  | 'match.new'
+  | 'highlight.tagged'
+  | 'highlight.ready'
+  | 'highlight.shared';
 
 export type NotificationCategory = 'transactional' | 'marketing';
 export type TextLocale = 'uz-Latn' | 'ru' | 'en';
@@ -29,6 +32,10 @@ export interface TemplateParams {
   fee?: string;
   /** refund.issued: 'wallet' | 'original_method' */
   destination?: string;
+  /** highlight.*: host bergan klip nomi (bo'lmasligi mumkin) */
+  clip?: string;
+  /** highlight.shared: ulashgan o'yinchi */
+  actor?: string;
 }
 
 type Render = (p: TemplateParams) => { title: string; body: string };
@@ -146,7 +153,39 @@ export const TEMPLATES: Record<NotificationType, Template> = {
       en: (p) => ({ title: 'New game near you', body: `${p.match} — ${p.when}, ${p.venue}. Spots are limited.` }),
     },
   },
+  'highlight.tagged': {
+    category: 'transactional',
+    priority: 'normal',
+    text: {
+      'uz-Latn': (p) => ({ title: "Sizni highlight'da belgilashdi", body: `${clipOf(p, '“', '”')}${p.match}, ${p.when}. Ko'rish uchun bosing.` }),
+      ru: (p) => ({ title: 'Вас отметили в хайлайте', body: `${clipOf(p, '«', '»')}«${p.match}», ${p.when}. Нажмите, чтобы посмотреть.` }),
+      en: (p) => ({ title: 'You were tagged in a highlight', body: `${clipOf(p, '“', '”')}${p.match}, ${p.when}. Tap to watch.` }),
+    },
+  },
+  'highlight.ready': {
+    category: 'transactional',
+    priority: 'normal',
+    text: {
+      'uz-Latn': (p) => ({ title: "O'yiningizdan highlight", body: `${clipOf(p, '“', '”')}${p.match}, ${p.when}. Klipni ko'ring!` }),
+      ru: (p) => ({ title: 'Хайлайт с вашей игры', body: `${clipOf(p, '«', '»')}«${p.match}», ${p.when}. Посмотрите клип!` }),
+      en: (p) => ({ title: 'A highlight from your game', body: `${clipOf(p, '“', '”')}${p.match}, ${p.when}. Watch the clip!` }),
+    },
+  },
+  'highlight.shared': {
+    category: 'transactional',
+    priority: 'normal',
+    text: {
+      'uz-Latn': (p) => ({ title: "Highlight'ingiz ulashildi", body: `${p.actor} siz belgilangan klipni ulashdi — ${p.match}, ${p.when}.` }),
+      ru: (p) => ({ title: 'Вашим хайлайтом поделились', body: `${p.actor} поделился(-ась) клипом, где вы отмечены, — «${p.match}», ${p.when}.` }),
+      en: (p) => ({ title: 'Your highlight was shared', body: `${p.actor} shared a clip you're tagged in — ${p.match}, ${p.when}.` }),
+    },
+  },
 };
+
+/** `“Ajoyib gol” — ` (klip nomi bo'lsa) */
+function clipOf(p: TemplateParams, open: string, close: string): string {
+  return p.clip ? `${open}${p.clip}${close} — ` : '';
+}
 
 export function textLocale(locale: string | null | undefined): TextLocale {
   if (locale === 'ru' || locale === 'en') return locale;

@@ -5,7 +5,7 @@ import { api, call } from '@/api/client';
 import { APP_VERSION } from '@/lib/device';
 
 /** Push `data.url` — faqat ilovaning ma'lum ekranlariga (begona yo'l bilan navigatsiya qilinmaydi). */
-const DEEP_LINKS = [/^\/booking\/[0-9a-f-]{36}$/i, /^\/match\/[0-9a-f-]{36}(\?rate=1)?$/i];
+const DEEP_LINKS = [/^\/booking\/[0-9a-f-]{36}$/i, /^\/match\/[0-9a-f-]{36}(\?rate=1)?$/i, /^\/highlight\/[0-9a-f-]{36}$/i];
 
 export function deepLinkOf(data: unknown): string | null {
   const url = (data as { url?: unknown } | null)?.url;
