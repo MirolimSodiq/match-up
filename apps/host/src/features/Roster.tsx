@@ -1,9 +1,14 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { Avatar, bibFallback, colors, fontFamily, type IconName, radius, space, states, type, useUI } from '@matchup/ui';
+import { Avatar, bibFallback, Button, colors, fontFamily, type IconName, radius, space, states, type, useToast, useUI } from '@matchup/ui';
 import type { components } from '@matchup/contracts';
+import { api, call } from '@/api/client';
 import { ApiError } from '@/api/errors';
+import { qk, type RosterData } from '@/api/queries';
+import { offlineStore } from '@/offline/store';
 import { useNow } from '@/lib/time';
 import type { ParticipantStatus, ParticipantView } from '@/offline/core';
 import { useNetwork } from '@/offline/network';
@@ -40,9 +45,12 @@ export function ParticipantRow({ p, side, onPress }: { p: ParticipantView; side?
     >
       <Avatar name={p.display_name} size={42} highlight={p.status === 'checked_in'} />
       <View style={styles.flex}>
-        <Text style={type.bodyStrong} numberOfLines={1}>
-          {p.display_name}
-        </Text>
+        <View style={styles.nameRow}>
+          <Text style={[type.bodyStrong, styles.flexShrink]} numberOfLines={1}>
+            {p.display_name}
+          </Text>
+          {p.bib_number ? <Text style={styles.bibNumber}>#{p.bib_number}</Text> : null}
+        </View>
         <View style={styles.metaRow}>
           {p.side_no ? <BibDot color={bibColor(side, p.side_no)} /> : null}
           {side?.label ? <Text style={type.caption}>{side.label}</Text> : null}
@@ -60,6 +68,72 @@ export function ParticipantRow({ p, side, onPress }: { p: ParticipantView; side?
         <Text style={[styles.statusText, { color: s.fg }]}>{t(`match.participant.${p.status}`)}</Text>
       </View>
     </Pressable>
+  );
+}
+
+/**
+ * Bib raqami (AI-Cam: videoda o'yinchini tanish uchun). Internet kerak — server raqam takrorlanmasligini
+ * tekshiradi (`BIB_TAKEN`); muvaffaqiyatda roster keshi ham yangilanadi.
+ */
+export function BibEditor({ matchId, p }: { matchId: string; p: ParticipantView }) {
+  const { t } = useTranslation();
+  const { formatError } = useUI();
+  const toast = useToast();
+  const queryClient = useQueryClient();
+  const [value, setValue] = useState(p.bib_number ? String(p.bib_number) : '');
+  // Varaq ochilgandagi `p` eskiradi — oxirgi saqlangan qiymat bilan solishtiramiz
+  const [saved, setSaved] = useState<number | null>(p.bib_number ?? null);
+  const parsed = /^\d{1,2}$/.test(value) && Number(value) >= 1 ? Number(value) : null;
+
+  const save = useMutation({
+    mutationFn: (bib: number | null) =>
+      call(
+        api.PATCH('/v1/host/matches/{matchId}/participants/{participantId}', {
+          params: { path: { matchId, participantId: p.participant_id } },
+          body: { bib_number: bib },
+        }),
+      ),
+    onSuccess: (_r, bib) => {
+      offlineStore.patchParticipant(matchId, p.participant_id, { bib_number: bib });
+      queryClient.setQueryData<RosterData>(qk.roster(matchId), (old) =>
+        old
+          ? { ...old, roster: { ...old.roster, participants: old.roster.participants?.map((x) => (x.participant_id === p.participant_id ? { ...x, bib_number: bib } : x)) } }
+          : old,
+      );
+      setSaved(bib);
+      if (bib === null) setValue('');
+      toast({ message: t('match.bibSaved'), icon: 'shirt' });
+    },
+    onError: (err) => toast({ message: formatError(err), icon: 'alert-circle' }),
+  });
+
+  return (
+    <View style={styles.bibEditor}>
+      <Text style={type.bodyStrong}>{t('match.bib')}</Text>
+      <Text style={type.caption}>{t('match.bibHint')}</Text>
+      <View style={styles.bibRow}>
+        <TextInput
+          testID="bib-input"
+          value={value}
+          onChangeText={(v) => setValue(v.replace(/\D/g, '').slice(0, 2))}
+          keyboardType="number-pad"
+          placeholder="7"
+          placeholderTextColor={colors.textMuted}
+          style={styles.bibInput}
+          accessibilityLabel={t('match.bib')}
+          maxLength={2}
+        />
+        <Button
+          testID="bib-save"
+          title={t('match.bibSave')}
+          style={styles.flex}
+          loading={save.isPending}
+          disabled={parsed === null || parsed === saved}
+          onPress={() => parsed !== null && save.mutate(parsed)}
+        />
+        {saved ? <Button title={t('match.bibClear')} variant="secondary" disabled={save.isPending} onPress={() => save.mutate(null)} /> : null}
+      </View>
+    </View>
   );
 }
 
@@ -150,7 +224,24 @@ export function CheckinProgress({ checked, total }: { checked: number; total: nu
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  flexShrink: { flexShrink: 1 },
   row: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.sm, minHeight: 60 },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  bibNumber: { fontFamily: fontFamily.display, fontSize: 15, color: colors.text, fontVariant: ['tabular-nums'] },
+  bibEditor: { gap: space.xs },
+  bibRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm, marginTop: space.xs },
+  bibInput: {
+    width: 64,
+    textAlign: 'center',
+    fontFamily: fontFamily.display,
+    fontSize: 22,
+    color: colors.text,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    borderRadius: radius.md,
+    paddingVertical: 10,
+    backgroundColor: colors.surface,
+  },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
   bib: { borderWidth: 1, borderColor: colors.border },
   status: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.pill },

@@ -980,7 +980,7 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** O'yinchini jamoaga taqsimlash yoki no-show belgilash */
+        /** O'yinchini jamoaga taqsimlash, bib raqamini berish yoki no-show belgilash */
         patch: operations["updateParticipant"];
         trace?: never;
     };
@@ -1048,6 +1048,108 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/host/matches/{matchId}/recording": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Yozuv sessiyasi — kameralar (yuklash holati bilan) va belgilar */
+        get: operations["getHostRecording"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/host/matches/{matchId}/recording/cameras/{clientCameraId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Kamera faylini ro'yxatga olish (yozish boshlanganda va to'xtaganda)
+         * @description Idempotent: telefon yozishni boshlaganda (`started_at`) va to'xtatganda (`stopped_at`, `duration_ms`) yuboradi;
+         *     internet bo'lmasa — keyinroq. Sessiya yo'q bo'lsa yaratiladi. Yuklash boshlangach vaqtlar o'zgarmaydi
+         *     (klip offset'lari shunga tayanadi) — faqat `position` va `device_model`. Vaqtlar match oynasidan
+         *     (boshlanish − 3 soat .. tugash + 3 soat) tashqarida bo'lsa — 422 (telefon soati noto'g'ri).
+         */
+        put: operations["putRecordingCamera"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/host/matches/{matchId}/recording/cameras/{clientCameraId}/upload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Yozuv faylini yuklashni boshlash (S3 multipart, ≤ 40 GB, ≤ 3 soat)
+         * @description Javob `UploadInit` — highlight yuklash bilan bir xil, faqat qism 16 MiB va sessiya 60 soat. Takroriy chaqiruv
+         *     (javob yo'qolgan) o'sha yuklashni davom ettiradi; muddati o'tgan yoki boshqa hajmdagi fayl — yangi yuklash.
+         *     Davomi: `GET /v1/media/{mediaId}/upload`; yakuni: `POST /v1/media/{mediaId}/complete` (`parts` siz).
+         */
+        post: operations["initRecordingUpload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/host/matches/{matchId}/recording/markers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Belgilar to'plami (offline navbatdan, idempotent)
+         * @description `highlight` — klip (belgidan `pre_ms` oldin, `post_ms` keyin; standart 12 s / 3 s). `side` — qaysi darvoza
+         *     tomoni: klip o'sha tomondagi kameradan kesiladi (bo'lmasa `wide`). `kickoff` — o'yin boshlangan vaqt
+         *     (klip'larning `match_offset_ms` i shundan). Kamera tayyor bo'lsa klip darhol navbatga qo'yiladi.
+         *     Natija har belgi uchun: `accepted`, `duplicate` yoki `rejected` (`OUT_OF_WINDOW`, `UNKNOWN_PARTICIPANT`, `CONFLICT`).
+         */
+        post: operations["addRecordingMarkers"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/host/matches/{matchId}/recording/markers/{clientMarkerId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Belgini bekor qilish (kesilgan klip feed'dan olinadi) */
+        delete: operations["deleteRecordingMarker"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/media/{mediaId}": {
         parameters: {
             query?: never;
@@ -1102,8 +1204,9 @@ export interface paths {
         put?: never;
         /**
          * Multipart yuklashni yakunlash
-         * @description `CompleteMultipartUpload` -> `media_assets.status = processing` -> highlight qatori (+ teglar) ->
-         *     `media_processing_jobs` (`transcode`) -> Redis Stream `matchup:media-jobs` -> Python worker.
+         * @description `CompleteMultipartUpload` -> `media_assets.status = processing` -> highlight qatori (+ teglar) yoki yozuv
+         *     kamerasi (`processing`) -> `media_processing_jobs` (`transcode`) -> Redis Stream (`matchup:media-jobs`;
+         *     yozuvlar — `matchup:media-jobs:recording`) -> Python worker.
          *     Teglar: faqat roster'dagi va `media_appearance` consent'i bor o'yinchilar; qolganlari jim tashlab yuboriladi.
          *     Idempotent: takroriy chaqiruv (masalan, javob yo'qolgan) o'sha natijani qaytaradi.
          */
@@ -1127,6 +1230,29 @@ export interface paths {
          *     Faqat tayyor (worker qayta ishlagan) kliplar.
          */
         get: operations["listMatchHighlights"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/matches/{matchId}/recording": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * To'liq o'yin videosi (faqat ishtirokchilarga)
+         * @description Ko'ra oladi: roster'dagi o'yinchi (`confirmed`, `checked_in`), tayinlangan host, admin; boshqalarga — 403.
+         *     Yozuv bo'lmasa — 404. Tayyor kameralar HLS ijro havolasi bilan (`/v1/playback/{token}/master.m3u8`),
+         *     qolganlari — faqat holat. `moments` — host belgilari: har tayyor kamerada qaysi soniyada (videoda sakrash uchun)
+         *     va kesilgan klip (`highlight_id`, tayyor bo'lsa).
+         */
+        get: operations["getMatchRecording"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2078,7 +2204,7 @@ export interface components {
             updated_at: string;
         };
         /** @enum {string} */
-        NotificationType: "booking.confirmed" | "booking.cancelled" | "refund.issued" | "match.cancelled" | "match.rate" | "match.reminder_24h" | "match.reminder_2h" | "waitlist.offer" | "host.offer" | "match.new" | "highlight.tagged" | "highlight.ready" | "highlight.shared" | "privacy.export_ready";
+        NotificationType: "booking.confirmed" | "booking.cancelled" | "refund.issued" | "match.cancelled" | "match.rate" | "match.reminder_24h" | "match.reminder_2h" | "waitlist.offer" | "host.offer" | "match.new" | "highlight.tagged" | "highlight.ready" | "highlight.shared" | "recording.ready" | "privacy.export_ready";
         Notification: {
             /** Format: uuid */
             id: string;
@@ -2549,6 +2675,7 @@ export interface components {
             is_guest?: boolean;
             level?: components["schemas"]["SkillLevel"];
             side_no?: number | null;
+            bib_number?: number | null;
             /** @enum {string} */
             status?: "confirmed" | "checked_in" | "no_show";
             /** Format: date-time */
@@ -2675,7 +2802,10 @@ export interface components {
                 session_expires_at: string;
                 /** @description Storage'da allaqachon bor qismlar (davom ettirishda) */
                 uploaded_parts: components["schemas"]["UploadedPart"][];
-                /** @description Yuklanishi kerak bo'lgan qismlar */
+                /**
+                 * @description Yuklanishi kerak bo'lgan keyingi qismlar (ko'pi bilan 100 ta). Ro'yxat tugasa, qolganlari uchun —
+                 *     `GET /v1/media/{mediaId}/upload`.
+                 */
                 parts: components["schemas"]["UploadPartUrl"][];
             };
         };
@@ -2687,6 +2817,183 @@ export interface components {
             /** Format: uuid */
             highlight_id: string | null;
             media: components["schemas"]["MediaAsset"];
+        };
+        /**
+         * @description `left` / `right` — yarim maydonlar (markaziy chiziqdagi shtativ), `wide` — umumiy kadr
+         * @enum {string}
+         */
+        CameraPosition: "left" | "right" | "wide";
+        /**
+         * @description Kameralardan hisoblanadi: yozayotgan kamera bor -> `recording`; yuklanmagan fayl -> `uploading`;
+         *     worker -> `processing`; hammasi tugagan, kamida bittasi tayyor -> `ready`; hammasi xato -> `failed`.
+         * @enum {string}
+         */
+        RecordingStatus: "recording" | "uploading" | "processing" | "ready" | "failed";
+        /** @enum {string} */
+        RecordingCameraStatus: "recording" | "recorded" | "uploading" | "processing" | "ready" | "failed" | "cancelled";
+        RecordingCameraInput: {
+            position: components["schemas"]["CameraPosition"];
+            /**
+             * Format: date-time
+             * @description Birinchi kadr (qurilma soati, NTP)
+             */
+            started_at: string;
+            /** Format: date-time */
+            stopped_at?: string | null;
+            duration_ms?: number;
+            /** @example iPhone 13 */
+            device_model?: string;
+            /** @example 30 */
+            fps?: number;
+            /** @example 3840 */
+            width?: number;
+            /** @example 2160 */
+            height?: number;
+            /** @enum {string} */
+            rig_type?: "single_phone" | "two_phone" | "three_phone";
+        };
+        RecordingCamera: {
+            /** Format: uuid */
+            id: string;
+            position: components["schemas"]["CameraPosition"];
+            status: components["schemas"]["RecordingCameraStatus"];
+            /** Format: date-time */
+            started_at: string;
+            /** @description Worker probe'dan keyin aniq */
+            duration_ms?: number | null;
+            width?: number | null;
+            height?: number | null;
+            fps?: number | null;
+        };
+        HostRecordingCamera: components["schemas"]["RecordingCamera"] & {
+            /** Format: uuid */
+            client_camera_id: string;
+            /** Format: uuid */
+            recorded_by: string;
+            device_model?: string | null;
+            /** Format: date-time */
+            stopped_at?: string | null;
+            failure_code?: string | null;
+            /** @description Yuklash/qayta ishlash holati (yuklash boshlangach) */
+            media: components["schemas"]["MediaAsset"] | null;
+        };
+        RecordingMarkerInput: {
+            /** Format: uuid */
+            client_marker_id: string;
+            /** @enum {string} */
+            kind: "highlight" | "kickoff";
+            /**
+             * Format: date-time
+             * @description Belgi qurilmasi soati (NTP)
+             */
+            occurred_at: string;
+            /**
+             * @description Qaysi darvoza tomoni -> qaysi kamera
+             * @enum {string|null}
+             */
+            side?: "left" | "right" | null;
+            /**
+             * Format: uuid
+             * @description Kim (consent bo'lsa klipda teglanadi)
+             */
+            participant_id?: string | null;
+            /** @description Belgidan oldin, ms (standart 12000) */
+            pre_ms?: number;
+            /** @description Belgidan keyin, ms (standart 3000); `pre_ms + post_ms` — 3..60 s */
+            post_ms?: number;
+        };
+        RecordingMarker: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            client_marker_id: string;
+            /** @enum {string} */
+            kind: "highlight" | "kickoff";
+            /** Format: date-time */
+            occurred_at: string;
+            /** @enum {string|null} */
+            side?: "left" | "right" | null;
+            /** Format: uuid */
+            participant_id?: string | null;
+            pre_ms: number;
+            post_ms: number;
+            /**
+             * Format: uuid
+             * @description Klip shu kameradan kesildi
+             */
+            camera_id?: string | null;
+            /**
+             * Format: uuid
+             * @description Kesilgan klip (kamera tayyor bo'lgach)
+             */
+            highlight_id?: string | null;
+            /** Format: date-time */
+            created_at: string;
+        };
+        HostRecording: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            match_id: string;
+            status: components["schemas"]["RecordingStatus"];
+            /** @enum {string} */
+            rig_type: "single_phone" | "two_phone" | "three_phone";
+            /** Format: date-time */
+            kickoff_at?: string | null;
+            /**
+             * Format: date-time
+             * @description Birinchi kamera tayyor bo'lgan vaqt
+             */
+            ready_at?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            cameras: components["schemas"]["HostRecordingCamera"][];
+            markers: components["schemas"]["RecordingMarker"][];
+        };
+        MatchRecording: {
+            /** Format: uuid */
+            match_id: string;
+            status: components["schemas"]["RecordingStatus"];
+            /** Format: date-time */
+            kickoff_at?: string | null;
+            /** Format: date-time */
+            ready_at?: string | null;
+            /** @description Bekor qilingan va xato bergan kameralarsiz; tartib — left, right, wide */
+            cameras: (components["schemas"]["RecordingCamera"] & {
+                /** Format: uri */
+                thumbnail_url: string | null;
+                playback: {
+                    /**
+                     * Format: uri
+                     * @description HLS master (1080p/720p/480p)
+                     */
+                    hls_url: string;
+                    /** Format: date-time */
+                    expires_at: string;
+                } | null;
+            })[];
+            /** @description Host belgilagan lahzalar (vaqt bo'yicha) */
+            moments: {
+                /** Format: uuid */
+                id: string;
+                /** Format: date-time */
+                occurred_at: string;
+                /** @enum {string|null} */
+                side?: "left" | "right" | null;
+                /** @description Kick-off'dan beri */
+                match_offset_ms?: number | null;
+                /**
+                 * Format: uuid
+                 * @description Tayyor klip
+                 */
+                highlight_id: string | null;
+                /** @description Har tayyor kamerada shu lahza (video boshidan, ms) */
+                positions: {
+                    /** Format: uuid */
+                    camera_id: string;
+                    offset_ms: number;
+                }[];
+            }[];
         };
         HighlightPlayback: {
             /**
@@ -2825,8 +3132,12 @@ export interface components {
             /** @enum {string} */
             type: "transcode" | "thumbnail" | "ai_detect_events" | "ai_auto_clip" | "face_blur";
             attempt: number;
-            /** @example highlight_v1 */
-            profile: string;
+            /**
+             * @description `highlight_v1` — host klipi; `recording_v1` — to'liq o'yin (HLS 1080p/720p/480p, 9:16 yo'q);
+             *     `clip_v1` — yozuvning HLS segmentlaridan `source.start_ms`..`+duration_ms` kesib, keyin `highlight_v1`.
+             * @enum {string}
+             */
+            profile: "highlight_v1" | "recording_v1" | "clip_v1";
             media: {
                 /** Format: uuid */
                 id?: string;
@@ -2838,7 +3149,17 @@ export interface components {
             };
             source: {
                 bucket?: string;
+                /** @description `clip_v1` — yozuvning eng yuqori rendition playlist'i */
                 key?: string;
+                /**
+                 * @description Faqat `clip_v1`
+                 * @enum {string}
+                 */
+                kind?: "hls";
+                /** @description Faqat `clip_v1`: yozuv boshidan */
+                start_ms?: number;
+                /** @description Faqat `clip_v1` */
+                duration_ms?: number;
             };
             output: {
                 bucket?: string;
@@ -3720,6 +4041,8 @@ export interface components {
         AssignmentId: string;
         PitchId: string;
         UserId: string;
+        /** @description Qurilma yaratgan UUID (har yozuv fayli uchun alohida) */
+        ClientCameraId: string;
         MediaId: string;
         HighlightId: string;
         JobId: string;
@@ -5380,6 +5703,8 @@ export interface operations {
                     side_no?: number;
                     /** @enum {string} */
                     status?: "checked_in" | "no_show";
+                    /** @description Manishka raqami (AI-Cam'da o'yinchini tanish uchun); `null` — olib tashlash */
+                    bib_number?: number | null;
                 };
             };
         };
@@ -5393,7 +5718,15 @@ export interface operations {
                     "application/json": components["schemas"]["RosterEntry"];
                 };
             };
-            409: components["responses"]["Conflict"];
+            /** @description `BIB_TAKEN` — raqam shu match'da boshqa o'yinchida */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     completeMatch: {
@@ -5492,6 +5825,161 @@ export interface operations {
             403: components["responses"]["Forbidden"];
         };
     };
+    getHostRecording: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                matchId: components["parameters"]["MatchId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Sessiya */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HostRecording"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    putRecordingCamera: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                matchId: components["parameters"]["MatchId"];
+                /** @description Qurilma yaratgan UUID (har yozuv fayli uchun alohida) */
+                clientCameraId: components["parameters"]["ClientCameraId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordingCameraInput"];
+            };
+        };
+        responses: {
+            /** @description Kamera */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HostRecordingCamera"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    initRecordingUpload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                matchId: components["parameters"]["MatchId"];
+                /** @description Qurilma yaratgan UUID (har yozuv fayli uchun alohida) */
+                clientCameraId: components["parameters"]["ClientCameraId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    content_type: "video/mp4" | "video/quicktime";
+                    size_bytes: number;
+                    duration_ms: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Multipart sessiya va birinchi qismlar uchun presigned URL'lar */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadInit"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    addRecordingMarkers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                matchId: components["parameters"]["MatchId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    markers: components["schemas"]["RecordingMarkerInput"][];
+                };
+            };
+        };
+        responses: {
+            /** @description Har belgi natijasi */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        results: {
+                            /** Format: uuid */
+                            client_marker_id: string;
+                            /** @enum {string} */
+                            status: "accepted" | "duplicate" | "rejected";
+                            /** @enum {string} */
+                            reason?: "OUT_OF_WINDOW" | "UNKNOWN_PARTICIPANT" | "CONFLICT";
+                            marker?: components["schemas"]["RecordingMarker"];
+                        }[];
+                    };
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    deleteRecordingMarker: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                matchId: components["parameters"]["MatchId"];
+                clientMarkerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bekor qilindi (takroriy chaqiruv ham 204) */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
     getMedia: {
         parameters: {
             query?: never;
@@ -5574,8 +6062,11 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    /** @description 1..`part_count` qismlarning barchasi */
-                    parts: {
+                    /**
+                     * @description 1..`part_count` qismlarning barchasi. Berilmasa — ETag'lar storage'dan olinadi (`ListParts`,
+                     *     har qism to'liq hajmda bo'lishi shart); yozuv fayllari (minglab qism) uchun shunday yuboriladi.
+                     */
+                    parts?: {
                         part_number: number;
                         /** @description PUT javobidagi `ETag` (qo'shtirnoq bilan yoki qo'shtirnoqsiz) */
                         etag: string;
@@ -5630,6 +6121,31 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HighlightPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getMatchRecording: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                matchId: components["parameters"]["MatchId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Yozuv */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MatchRecording"];
                 };
             };
             401: components["responses"]["Unauthorized"];

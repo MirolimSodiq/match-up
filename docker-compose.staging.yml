@@ -144,7 +144,7 @@ services:
     read_only: true
     tmpfs:
       - /tmp:size=2g
-    environment:
+    environment: &media-worker-env
       REDIS_URL: redis://redis:6379
       API_INTERNAL_URL: http://api:3000
       MEDIA_WORKER_TOKEN: ${STAGING_MEDIA_WORKER_TOKEN:-staging-local-media-worker-token-000000000000}
@@ -153,11 +153,23 @@ services:
       S3_ACCESS_KEY_ID: matchup
       S3_SECRET_ACCESS_KEY: ${STAGING_MINIO_PASSWORD:-matchup_staging_local}
       S3_FORCE_PATH_STYLE: "true"
-    depends_on:
+    depends_on: &media-worker-deps
       api:
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
+    restart: unless-stopped
+
+  # AI-Cam A: to'liq o'yin yozuvlari — alohida stream, kattaroq ish papkasi (prod'da alohida ECS servis)
+  media-worker-recording:
+    image: matchup-media-worker:staging-local
+    read_only: true
+    tmpfs:
+      - /tmp:size=8g
+    environment:
+      <<: *media-worker-env
+      MEDIA_JOBS_STREAM: matchup:media-jobs:recording
+    depends_on: *media-worker-deps
     restart: unless-stopped
 
   admin:

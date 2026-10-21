@@ -4,13 +4,14 @@
     "slug": "matchup-host",
     "scheme": "matchuphost",
     "version": "0.1.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "uz.matchup.host",
-      "backgroundColor": "#F6F7FB"
+      "backgroundColor": "#F6F7FB",
+      "requireFullScreen": true
     },
     "android": {
       "package": "uz.matchup.host",
@@ -39,7 +40,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Match Host o'yinchilarning QR chiptalarini skanerlash va highlight video yozish uchun kameradan foydalanadi.",
+          "cameraPermission": "Match Host o'yinchilarning QR chiptalarini skanerlash, highlight va to'liq o'yin videosini yozish uchun kameradan foydalanadi.",
           "microphonePermission": "Match Host highlight videoga maydon ovozini yozish uchun mikrofondan foydalanadi.",
           "recordAudioAndroid": true
         }
@@ -57,6 +58,12 @@
           "photosPermission": "Match Host galereyadagi highlight videoni tanlash uchun foydalanadi.",
           "cameraPermission": false,
           "microphonePermission": false
+        }
+      ],
+      [
+        "expo-screen-orientation",
+        {
+          "initialOrientation": "PORTRAIT_UP"
         }
       ],
       "expo-font",

@@ -37,7 +37,8 @@ Pickup sports platformasi (Plei / Birgo uslubida): o'yinchilar tayyor havaskor o
 | Social login, GDPR job'lari | ✅ | Google / Apple / Telegram, identity bog'lash; ma'lumot eksporti, 30 kunlik grace bilan anonimlashtirish |
 | Push va real-time | ✅ | Expo Push, eslatmalar, waitlist takliflari; Socket.IO (`match:*`, `booking:*`, `host:*`) |
 | Highlight video | ✅ | S3/MinIO presigned multipart (davom ettiriladigan), Redis Stream -> Python worker (HLS, thumbnail, 9:16), match va profil feed'i, like, imzolangan ulashish havolasi |
-| Keyingi iteratsiya | ⏳ | AI-Cam ([docs/AI_CAM.md](docs/AI_CAM.md)), provider refund'lari, Stripe — to'liq ro'yxat: [docs/STATUS.md](docs/STATUS.md) |
+| AI-Cam Bosqich A | ✅ backend | to'liq o'yin yozuvi (2–3 telefon, ≤ 40 GB, alohida worker lane), bib raqamlari, host belgilaridan avtomatik klip'lar, ishtirokchilar uchun to'liq video ([docs/AI_CAM.md](docs/AI_CAM.md) §12); host/player UI — keyingi qadam |
+| Keyingi iteratsiya | ⏳ | AI-Cam ilovalardagi UI va Bosqich B–D, provider refund'lari, Stripe — to'liq ro'yxat: [docs/STATUS.md](docs/STATUS.md) |
 
 Rejalashtirilgan endpointlar hozircha `501 NOT_IMPLEMENTED` qaytaradi.
 

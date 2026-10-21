@@ -52,6 +52,17 @@ tags:
     description: |
       Player feed'i (match va profil), like, ulashish, HLS ijro. Highlight faqat match ishtirokchilariga ko'rinadi
       (`visibility = participants`); teglar — faqat `media_appearance` consent'i borlar.
+  - name: Recordings
+    description: |
+      AI-Cam Bosqich A — to'liq o'yin yozuvi (`docs/AI_CAM.md`). Maydondagi 2–3 telefon (`left`, `right`, `wide`)
+      butun o'yinni yozadi; host o'z telefonida lahzalarni belgilaydi ("Highlight!", "Kick-off"). Yozuv sessiyasi
+      match'ga 1:1, shuning uchun yo'llar match bo'yicha — internet yo'q paytda boshlangan yozuv keyin ro'yxatga olinadi
+      (`client_camera_id`, `client_marker_id` — qurilma yaratadi, takroriy yuborish xavfsiz).
+
+      Yuklash — oddiy media oqimi (S3 multipart, ≤ 40 GB, ≤ 3 soat, qism 16 MiB): davomi `GET /v1/media/{id}/upload`,
+      yakuni `POST /v1/media/{id}/complete` (`parts` siz). Worker HLS 1080p/720p/480p yasaydi; kamera tayyor bo'lgach
+      belgilardan klip'lar avtomatik kesiladi (`clip_v1`: belgidan 12 s oldin — 3 s keyin) va oddiy highlight
+      sifatida feed'ga chiqadi. Birinchi kamera tayyor bo'lganda ishtirokchilarga `recording.ready` push.
   - name: Internal
     description: |
       Python media worker -> API (`Authorization: Bearer <MEDIA_WORKER_TOKEN>`). Faqat VPC ichida —
@@ -1495,7 +1506,7 @@ paths:
     patch:
       tags: [Host]
       operationId: updateParticipant
-      summary: O'yinchini jamoaga taqsimlash yoki no-show belgilash
+      summary: O'yinchini jamoaga taqsimlash, bib raqamini berish yoki no-show belgilash
       parameters:
         - $ref: '#/components/parameters/MatchId'
         - name: participantId
@@ -1511,13 +1522,22 @@ paths:
               properties:
                 side_no: { type: integer, minimum: 1 }
                 status: { type: string, enum: [checked_in, no_show] }
+                bib_number:
+                  type: [integer, 'null']
+                  minimum: 1
+                  maximum: 99
+                  description: Manishka raqami (AI-Cam'da o'yinchini tanish uchun); `null` — olib tashlash
       responses:
         '200':
           description: Yangilandi
           content:
             application/json:
               schema: { $ref: '#/components/schemas/RosterEntry' }
-        '409': { $ref: '#/components/responses/Conflict' }
+        '409':
+          description: '`BIB_TAKEN` — raqam shu match''da boshqa o''yinchida'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
 
   /v1/host/matches/{matchId}/complete:
     post:
@@ -1613,6 +1633,147 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
+  /v1/host/matches/{matchId}/recording:
+    get:
+      tags: [Host, Recordings]
+      operationId: getHostRecording
+      summary: Yozuv sessiyasi — kameralar (yuklash holati bilan) va belgilar
+      parameters:
+        - $ref: '#/components/parameters/MatchId'
+      responses:
+        '200':
+          description: Sessiya
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HostRecording' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/host/matches/{matchId}/recording/cameras/{clientCameraId}:
+    put:
+      tags: [Host, Recordings]
+      operationId: putRecordingCamera
+      summary: Kamera faylini ro'yxatga olish (yozish boshlanganda va to'xtaganda)
+      description: |
+        Idempotent: telefon yozishni boshlaganda (`started_at`) va to'xtatganda (`stopped_at`, `duration_ms`) yuboradi;
+        internet bo'lmasa — keyinroq. Sessiya yo'q bo'lsa yaratiladi. Yuklash boshlangach vaqtlar o'zgarmaydi
+        (klip offset'lari shunga tayanadi) — faqat `position` va `device_model`. Vaqtlar match oynasidan
+        (boshlanish − 3 soat .. tugash + 3 soat) tashqarida bo'lsa — 422 (telefon soati noto'g'ri).
+      parameters:
+        - $ref: '#/components/parameters/MatchId'
+        - $ref: '#/components/parameters/ClientCameraId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RecordingCameraInput' }
+      responses:
+        '200':
+          description: Kamera
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HostRecordingCamera' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /v1/host/matches/{matchId}/recording/cameras/{clientCameraId}/upload:
+    post:
+      tags: [Host, Recordings]
+      operationId: initRecordingUpload
+      summary: Yozuv faylini yuklashni boshlash (S3 multipart, ≤ 40 GB, ≤ 3 soat)
+      description: |
+        Javob `UploadInit` — highlight yuklash bilan bir xil, faqat qism 16 MiB va sessiya 60 soat. Takroriy chaqiruv
+        (javob yo'qolgan) o'sha yuklashni davom ettiradi; muddati o'tgan yoki boshqa hajmdagi fayl — yangi yuklash.
+        Davomi: `GET /v1/media/{mediaId}/upload`; yakuni: `POST /v1/media/{mediaId}/complete` (`parts` siz).
+      parameters:
+        - $ref: '#/components/parameters/MatchId'
+        - $ref: '#/components/parameters/ClientCameraId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content_type, size_bytes, duration_ms]
+              properties:
+                content_type: { type: string, enum: [video/mp4, video/quicktime] }
+                size_bytes: { type: integer, minimum: 1, maximum: 42949672960 }
+                duration_ms: { type: integer, minimum: 1, maximum: 10800000 }
+      responses:
+        '201':
+          description: Multipart sessiya va birinchi qismlar uchun presigned URL'lar
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UploadInit' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /v1/host/matches/{matchId}/recording/markers:
+    post:
+      tags: [Host, Recordings]
+      operationId: addRecordingMarkers
+      summary: Belgilar to'plami (offline navbatdan, idempotent)
+      description: |
+        `highlight` — klip (belgidan `pre_ms` oldin, `post_ms` keyin; standart 12 s / 3 s). `side` — qaysi darvoza
+        tomoni: klip o'sha tomondagi kameradan kesiladi (bo'lmasa `wide`). `kickoff` — o'yin boshlangan vaqt
+        (klip'larning `match_offset_ms` i shundan). Kamera tayyor bo'lsa klip darhol navbatga qo'yiladi.
+        Natija har belgi uchun: `accepted`, `duplicate` yoki `rejected` (`OUT_OF_WINDOW`, `UNKNOWN_PARTICIPANT`, `CONFLICT`).
+      parameters:
+        - $ref: '#/components/parameters/MatchId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [markers]
+              properties:
+                markers:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items: { $ref: '#/components/schemas/RecordingMarkerInput' }
+      responses:
+        '200':
+          description: Har belgi natijasi
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [results]
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      required: [client_marker_id, status]
+                      properties:
+                        client_marker_id: { type: string, format: uuid }
+                        status: { type: string, enum: [accepted, duplicate, rejected] }
+                        reason: { type: string, enum: [OUT_OF_WINDOW, UNKNOWN_PARTICIPANT, CONFLICT] }
+                        marker: { $ref: '#/components/schemas/RecordingMarker' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /v1/host/matches/{matchId}/recording/markers/{clientMarkerId}:
+    delete:
+      tags: [Host, Recordings]
+      operationId: deleteRecordingMarker
+      summary: Belgini bekor qilish (kesilgan klip feed'dan olinadi)
+      parameters:
+        - $ref: '#/components/parameters/MatchId'
+        - name: clientMarkerId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: Bekor qilindi (takroriy chaqiruv ham 204) }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /v1/media/{mediaId}:
     get:
       tags: [Media]
@@ -1666,8 +1827,9 @@ paths:
       operationId: completeMediaUpload
       summary: Multipart yuklashni yakunlash
       description: |
-        `CompleteMultipartUpload` -> `media_assets.status = processing` -> highlight qatori (+ teglar) ->
-        `media_processing_jobs` (`transcode`) -> Redis Stream `matchup:media-jobs` -> Python worker.
+        `CompleteMultipartUpload` -> `media_assets.status = processing` -> highlight qatori (+ teglar) yoki yozuv
+        kamerasi (`processing`) -> `media_processing_jobs` (`transcode`) -> Redis Stream (`matchup:media-jobs`;
+        yozuvlar — `matchup:media-jobs:recording`) -> Python worker.
         Teglar: faqat roster'dagi va `media_appearance` consent'i bor o'yinchilar; qolganlari jim tashlab yuboriladi.
         Idempotent: takroriy chaqiruv (masalan, javob yo'qolgan) o'sha natijani qaytaradi.
       parameters:
@@ -1678,11 +1840,12 @@ paths:
           application/json:
             schema:
               type: object
-              required: [parts]
               properties:
                 parts:
                   type: array
-                  description: 1..`part_count` qismlarning barchasi
+                  description: |
+                    1..`part_count` qismlarning barchasi. Berilmasa — ETag'lar storage'dan olinadi (`ListParts`,
+                    har qism to'liq hajmda bo'lishi shart); yozuv fayllari (minglab qism) uchun shunday yuboriladi.
                   items:
                     type: object
                     required: [part_number, etag]
@@ -1728,6 +1891,28 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/HighlightPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/matches/{matchId}/recording:
+    get:
+      tags: [Recordings]
+      operationId: getMatchRecording
+      summary: To'liq o'yin videosi (faqat ishtirokchilarga)
+      description: |
+        Ko'ra oladi: roster'dagi o'yinchi (`confirmed`, `checked_in`), tayinlangan host, admin; boshqalarga — 403.
+        Yozuv bo'lmasa — 404. Tayyor kameralar HLS ijro havolasi bilan (`/v1/playback/{token}/master.m3u8`),
+        qolganlari — faqat holat. `moments` — host belgilari: har tayyor kamerada qaysi soniyada (videoda sakrash uchun)
+        va kesilgan klip (`highlight_id`, tayyor bo'lsa).
+      parameters:
+        - $ref: '#/components/parameters/MatchId'
+      responses:
+        '200':
+          description: Yozuv
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MatchRecording' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -2616,6 +2801,12 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
+    ClientCameraId:
+      name: clientCameraId
+      in: path
+      required: true
+      description: Qurilma yaratgan UUID (har yozuv fayli uchun alohida)
+      schema: { type: string, format: uuid }
     MediaId:
       name: mediaId
       in: path
@@ -3027,6 +3218,7 @@ components:
         - highlight.tagged
         - highlight.ready
         - highlight.shared
+        - recording.ready
         - privacy.export_ready
     Notification:
       type: object
@@ -3422,6 +3614,7 @@ components:
         is_guest: { type: boolean }
         level: { $ref: '#/components/schemas/SkillLevel' }
         side_no: { type: [integer, 'null'] }
+        bib_number: { type: [integer, 'null'], minimum: 1, maximum: 99 }
         status: { type: string, enum: [confirmed, checked_in, no_show] }
         checked_in_at: { type: [string, 'null'], format: date-time }
     Roster:
@@ -3537,7 +3730,9 @@ components:
               items: { $ref: '#/components/schemas/UploadedPart' }
             parts:
               type: array
-              description: Yuklanishi kerak bo'lgan qismlar
+              description: |
+                Yuklanishi kerak bo'lgan keyingi qismlar (ko'pi bilan 100 ta). Ro'yxat tugasa, qolganlari uchun —
+                `GET /v1/media/{mediaId}/upload`.
               items: { $ref: '#/components/schemas/UploadPartUrl' }
     CompleteUploadResult:
       type: object
@@ -3547,6 +3742,151 @@ components:
         status: { type: string, enum: [processing, ready] }
         highlight_id: { type: [string, 'null'], format: uuid }
         media: { $ref: '#/components/schemas/MediaAsset' }
+    # --- Recordings (AI-Cam A) ----------------------------------------------
+    CameraPosition:
+      type: string
+      enum: [left, right, wide]
+      description: '`left` / `right` — yarim maydonlar (markaziy chiziqdagi shtativ), `wide` — umumiy kadr'
+    RecordingStatus:
+      type: string
+      enum: [recording, uploading, processing, ready, failed]
+      description: |
+        Kameralardan hisoblanadi: yozayotgan kamera bor -> `recording`; yuklanmagan fayl -> `uploading`;
+        worker -> `processing`; hammasi tugagan, kamida bittasi tayyor -> `ready`; hammasi xato -> `failed`.
+    RecordingCameraStatus:
+      type: string
+      enum: [recording, recorded, uploading, processing, ready, failed, cancelled]
+    RecordingCameraInput:
+      type: object
+      required: [position, started_at]
+      properties:
+        position: { $ref: '#/components/schemas/CameraPosition' }
+        started_at: { type: string, format: date-time, description: 'Birinchi kadr (qurilma soati, NTP)' }
+        stopped_at: { type: [string, 'null'], format: date-time }
+        duration_ms: { type: integer, minimum: 0, maximum: 10800000 }
+        device_model: { type: string, maxLength: 100, examples: ['iPhone 13'] }
+        fps: { type: number, examples: [30] }
+        width: { type: integer, examples: [3840] }
+        height: { type: integer, examples: [2160] }
+        rig_type: { type: string, enum: [single_phone, two_phone, three_phone] }
+    RecordingCamera:
+      type: object
+      required: [id, position, status, started_at]
+      properties:
+        id: { type: string, format: uuid }
+        position: { $ref: '#/components/schemas/CameraPosition' }
+        status: { $ref: '#/components/schemas/RecordingCameraStatus' }
+        started_at: { type: string, format: date-time }
+        duration_ms: { type: [integer, 'null'], description: Worker probe'dan keyin aniq }
+        width: { type: [integer, 'null'] }
+        height: { type: [integer, 'null'] }
+        fps: { type: [number, 'null'] }
+    HostRecordingCamera:
+      allOf:
+        - $ref: '#/components/schemas/RecordingCamera'
+        - type: object
+          required: [client_camera_id, recorded_by, media]
+          properties:
+            client_camera_id: { type: string, format: uuid }
+            recorded_by: { type: string, format: uuid }
+            device_model: { type: [string, 'null'] }
+            stopped_at: { type: [string, 'null'], format: date-time }
+            failure_code: { type: [string, 'null'] }
+            media:
+              description: Yuklash/qayta ishlash holati (yuklash boshlangach)
+              oneOf:
+                - $ref: '#/components/schemas/MediaAsset'
+                - type: 'null'
+    RecordingMarkerInput:
+      type: object
+      required: [client_marker_id, kind, occurred_at]
+      properties:
+        client_marker_id: { type: string, format: uuid }
+        kind: { type: string, enum: [highlight, kickoff] }
+        occurred_at: { type: string, format: date-time, description: Belgi qurilmasi soati (NTP) }
+        side: { type: [string, 'null'], enum: [left, right, null], description: Qaysi darvoza tomoni -> qaysi kamera }
+        participant_id: { type: [string, 'null'], format: uuid, description: 'Kim (consent bo''lsa klipda teglanadi)' }
+        pre_ms: { type: integer, minimum: 0, maximum: 55000, description: 'Belgidan oldin, ms (standart 12000)' }
+        post_ms: { type: integer, minimum: 0, maximum: 30000, description: 'Belgidan keyin, ms (standart 3000); `pre_ms + post_ms` — 3..60 s' }
+    RecordingMarker:
+      type: object
+      required: [id, client_marker_id, kind, occurred_at, pre_ms, post_ms, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        client_marker_id: { type: string, format: uuid }
+        kind: { type: string, enum: [highlight, kickoff] }
+        occurred_at: { type: string, format: date-time }
+        side: { type: [string, 'null'], enum: [left, right, null] }
+        participant_id: { type: [string, 'null'], format: uuid }
+        pre_ms: { type: integer }
+        post_ms: { type: integer }
+        camera_id: { type: [string, 'null'], format: uuid, description: Klip shu kameradan kesildi }
+        highlight_id: { type: [string, 'null'], format: uuid, description: 'Kesilgan klip (kamera tayyor bo''lgach)' }
+        created_at: { type: string, format: date-time }
+    HostRecording:
+      type: object
+      required: [id, match_id, status, rig_type, cameras, markers, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        match_id: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/RecordingStatus' }
+        rig_type: { type: string, enum: [single_phone, two_phone, three_phone] }
+        kickoff_at: { type: [string, 'null'], format: date-time }
+        ready_at: { type: [string, 'null'], format: date-time, description: Birinchi kamera tayyor bo'lgan vaqt }
+        created_at: { type: string, format: date-time }
+        cameras:
+          type: array
+          items: { $ref: '#/components/schemas/HostRecordingCamera' }
+        markers:
+          type: array
+          items: { $ref: '#/components/schemas/RecordingMarker' }
+    MatchRecording:
+      type: object
+      required: [match_id, status, cameras, moments]
+      properties:
+        match_id: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/RecordingStatus' }
+        kickoff_at: { type: [string, 'null'], format: date-time }
+        ready_at: { type: [string, 'null'], format: date-time }
+        cameras:
+          type: array
+          description: Bekor qilingan va xato bergan kameralarsiz; tartib — left, right, wide
+          items:
+            allOf:
+              - $ref: '#/components/schemas/RecordingCamera'
+              - type: object
+                required: [thumbnail_url, playback]
+                properties:
+                  thumbnail_url: { type: [string, 'null'], format: uri }
+                  playback:
+                    oneOf:
+                      - type: object
+                        required: [hls_url, expires_at]
+                        properties:
+                          hls_url: { type: string, format: uri, description: 'HLS master (1080p/720p/480p)' }
+                          expires_at: { type: string, format: date-time }
+                      - type: 'null'
+        moments:
+          type: array
+          description: Host belgilagan lahzalar (vaqt bo'yicha)
+          items:
+            type: object
+            required: [id, occurred_at, highlight_id, positions]
+            properties:
+              id: { type: string, format: uuid }
+              occurred_at: { type: string, format: date-time }
+              side: { type: [string, 'null'], enum: [left, right, null] }
+              match_offset_ms: { type: [integer, 'null'], description: Kick-off'dan beri }
+              highlight_id: { type: [string, 'null'], format: uuid, description: Tayyor klip }
+              positions:
+                type: array
+                description: Har tayyor kamerada shu lahza (video boshidan, ms)
+                items:
+                  type: object
+                  required: [camera_id, offset_ms]
+                  properties:
+                    camera_id: { type: string, format: uuid }
+                    offset_ms: { type: integer }
     HighlightPlayback:
       type: object
       required: [hls_url, mp4_url, expires_at]
@@ -3670,7 +4010,12 @@ components:
         job_id: { type: string, format: uuid }
         type: { type: string, enum: [transcode, thumbnail, ai_detect_events, ai_auto_clip, face_blur] }
         attempt: { type: integer }
-        profile: { type: string, examples: [highlight_v1] }
+        profile:
+          type: string
+          enum: [highlight_v1, recording_v1, clip_v1]
+          description: |
+            `highlight_v1` — host klipi; `recording_v1` — to'liq o'yin (HLS 1080p/720p/480p, 9:16 yo'q);
+            `clip_v1` — yozuvning HLS segmentlaridan `source.start_ms`..`+duration_ms` kesib, keyin `highlight_v1`.
         media:
           type: object
           properties:
@@ -3683,7 +4028,10 @@ components:
           type: object
           properties:
             bucket: { type: string }
-            key: { type: string }
+            key: { type: string, description: '`clip_v1` — yozuvning eng yuqori rendition playlist''i' }
+            kind: { type: string, enum: [hls], description: Faqat `clip_v1` }
+            start_ms: { type: integer, description: 'Faqat `clip_v1`: yozuv boshidan' }
+            duration_ms: { type: integer, description: Faqat `clip_v1` }
         output:
           type: object
           properties:

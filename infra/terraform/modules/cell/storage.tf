@@ -57,6 +57,20 @@ resource "aws_s3_bucket_lifecycle_configuration" "media" {
     }
   }
 
+  # To'liq o'yin yozuvlari (1080p/720p/480p, ~5 GB / kamera / 90 daq). Kliplar (highlights/) o'chirilguncha qoladi
+  rule {
+    id     = "recordings-expire"
+    status = "Enabled"
+
+    filter {
+      prefix = "recordings/"
+    }
+
+    expiration {
+      days = var.media_recording_expiration_days
+    }
+  }
+
   rule {
     id     = "housekeeping"
     status = "Enabled"

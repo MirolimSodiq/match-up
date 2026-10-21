@@ -114,6 +114,8 @@ export class NotificationEvents {
         return this.highlightReady(e);
       case 'HighlightShared':
         return this.highlightShared(e);
+      case 'RecordingReady':
+        return this.recordingReady(e);
       case 'DataExportReady':
         return this.dataExportReady(e);
       case 'UserErased':
@@ -392,6 +394,34 @@ export class NotificationEvents {
       ...[...taggedIds].map((id) => draft(id, 'highlight.tagged')),
       ...participants.filter((p) => !taggedIds.has(p.user_id)).map((p) => draft(p.user_id, 'highlight.ready')),
     ]);
+  }
+
+  /**
+   * RecordingReady -> match ishtirokchilariga (host'dan tashqari) "to'liq o'yin videosi tayyor" — sessiya uchun
+   * bir marta (birinchi kamera tayyor bo'lganda; qolgan kameralar jim qo'shiladi).
+   */
+  private async recordingReady(e: OutboxEvent) {
+    const s = await one<{ match_id: string; host_user_id: string }>(
+      this.db,
+      sql`SELECT match_id, host_user_id FROM recording_sessions WHERE id = ${e.aggregateId}`,
+    );
+    const m = s && (await loadMatchCtx(this.db, s.match_id));
+    if (!s || !m) return;
+    const participants = await rows<{ user_id: string }>(
+      this.db,
+      sql`SELECT DISTINCT mp.user_id FROM match_participants mp
+          WHERE mp.match_id = ${s.match_id} AND mp.status IN ('confirmed', 'checked_in')
+            AND mp.user_id IS NOT NULL AND mp.user_id <> ${s.host_user_id}`,
+    );
+    await this.notifications.notify(
+      participants.map((p) => ({
+        userId: p.user_id,
+        type: 'recording.ready' as const,
+        dedupeKey: this.key(e, p.user_id),
+        params: (l: TextLocale) => matchParams(m, l),
+        data: { url: `/match/${s.match_id}/recording`, match_id: s.match_id },
+      })),
+    );
   }
 
   /**

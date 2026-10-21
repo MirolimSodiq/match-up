@@ -5,23 +5,32 @@ import { Directory, File, FileMode, Paths, UploadType } from 'expo-file-system';
 import { api, call } from '@/api/client';
 import { ApiError } from '@/api/errors';
 import { uuid } from '@/lib/device';
+import { KEYS, storage } from '@/lib/storage';
 import { network } from '@/offline/network';
 import {
   classify,
   completeBody,
+  isRecording,
   mergeParts,
   missingParts,
   type PartSpec,
+  pickNext,
+  processingGiveUpMs,
+  type RecordingCamera,
   retryDelay,
+  shouldYield,
   type UploadJob,
+  type UploadKind,
   visibleJobs,
 } from './uploadCore';
 
 /**
- * Highlight yuklash navbati (diskda: `matchup-host/uploads.json` + video nusxasi `matchup-host/uploads/`).
- * Bir vaqtda bitta yuklash; har qism alohida native PUT (progress bilan). Internet uzilsa — pauza,
- * tarmoq qaytganda / ilova faollashganda / backoff tugaganda avtomatik davom etadi. Ilova qayta ochilsa
- * ham davom etadi: server qaysi qismlar borligini aytadi (`GET /v1/media/{id}/upload`).
+ * Yuklash navbati (diskda: `matchup-host/uploads.json` + video nusxasi `matchup-host/uploads/`): highlight
+ * kliplari va to'liq o'yin yozuvlari. Bir vaqtda bitta yuklash; har qism alohida native PUT (progress bilan).
+ * Internet uzilsa — pauza, tarmoq qaytganda / ilova faollashganda / backoff tugaganda avtomatik davom etadi.
+ * Ilova qayta ochilsa ham davom etadi: server qaysi qismlar borligini aytadi (`GET /v1/media/{id}/upload`).
+ * Yozuvlar — kliplardan keyin va standart bo'yicha faqat Wi-Fi'da; klip navbatga tushsa yozuv qismlar orasida
+ * bo'shatadi.
  */
 
 const persistent = Platform.OS !== 'web';
@@ -29,10 +38,11 @@ const root = persistent ? new Directory(Paths.document, 'matchup-host') : null;
 const videos = persistent ? new Directory(Paths.document, 'matchup-host', 'uploads') : null;
 const index = root ? new File(root, 'uploads.json') : null;
 const PROCESSING_POLL_MS = 4_000;
-/** Server tomonda qayta ishlanmay qolsa — shuncha vaqtdan keyin so'rashni to'xtatamiz (ekran ochilsa yana). */
-const PROCESSING_GIVE_UP_MS = 30 * 60_000;
 
 type Listener = () => void;
+
+/** Yozuv kliplarga yo'l berdi — xato emas, navbatga qaytadi. */
+class YieldSignal extends Error {}
 
 class PartHttpError extends Error {
   constructor(
@@ -60,6 +70,7 @@ class UploadEngine {
   private queryClient?: QueryClient;
   private started = false;
   private hydrated = false;
+  private allowCellular = false;
 
   // --- holat ------------------------------------------------------------------
   private hydrate() {
@@ -106,8 +117,22 @@ class UploadEngine {
 
   getVersion = () => this.version;
 
-  list(matchId: string) {
-    return visibleJobs(this.jobs, matchId);
+  list(matchId: string, kind: UploadKind = 'highlight') {
+    return visibleJobs(this.jobs, matchId, kind);
+  }
+
+  /** Yozuvlarni mobil internetda ham yuklash (standart — faqat Wi-Fi). */
+  get cellularAllowed() {
+    return this.allowCellular;
+  }
+
+  async setCellularAllowed(value: boolean) {
+    this.allowCellular = value;
+    await storage.set(KEYS.recordingCellular, value ? '1' : '0');
+    const running = this.running ? this.get(this.running) : undefined;
+    if (!value && running && isRecording(running) && !network.wifi) this.abort?.abort();
+    this.emit(false);
+    this.kick();
   }
 
   // --- hayot sikli ------------------------------------------------------------
@@ -120,11 +145,18 @@ class UploadEngine {
       if (network.online) this.kick();
       // Dev "offline rejim" yoki tizim tarmog'i yo'qoldi — joriy PUT darhol to'xtatiladi
       else this.abort?.abort();
+      // Wi-Fi'dan mobil internetga o'tildi — yozuv to'xtaydi (gigabaytlar mobil trafikda ketmasin)
+      const running = this.running ? this.get(this.running) : undefined;
+      if (network.online && running && isRecording(running) && !network.wifi && !this.allowCellular) this.abort?.abort();
     });
     AppState.addEventListener('change', (s) => {
       if (s === 'active') this.kick();
     });
     this.poller = setInterval(() => void this.pollProcessing(), PROCESSING_POLL_MS);
+    void storage.get(KEYS.recordingCellular).then((v) => {
+      this.allowCellular = v === '1';
+      this.kick();
+    });
   }
 
   setUser(id: string | undefined) {
@@ -184,6 +216,55 @@ class UploadEngine {
     return job;
   }
 
+  /**
+   * To'liq o'yin yozuvi (kamera telefoni): fayl kesh papkasidan ilova papkasiga **ko'chiriladi** (15 GB nusxa
+   * olinmaydi). Fayl serverda tayyor bo'lgach o'chiriladi.
+   */
+  async enqueueRecording(input: {
+    matchId: string;
+    sourceUri: string;
+    contentType: UploadJob['contentType'];
+    durationMs: number;
+    camera: RecordingCamera;
+  }): Promise<UploadJob> {
+    this.hydrate();
+    const id = uuid();
+    let fileUri = input.sourceUri;
+    let sizeBytes = 0;
+    const src = new File(input.sourceUri);
+    if (videos) {
+      if (!videos.exists) videos.create({ intermediates: true, idempotent: true });
+      const dest = new File(videos, `${input.camera.clientCameraId}.${input.contentType === 'video/quicktime' ? 'mov' : 'mp4'}`);
+      await src.move(dest);
+      fileUri = dest.uri;
+      sizeBytes = Number(dest.size);
+    } else {
+      sizeBytes = Number(src.size);
+    }
+    const now = Date.now();
+    const job: UploadJob = {
+      id,
+      kind: 'recording',
+      camera: input.camera,
+      matchId: input.matchId,
+      fileUri,
+      contentType: input.contentType,
+      sizeBytes,
+      durationMs: Math.max(1, Math.round(input.durationMs)),
+      recordedAt: input.camera.startedAt,
+      taggedParticipantIds: [],
+      state: 'queued',
+      etags: {},
+      attempt: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.jobs = [...this.jobs, job];
+    this.emit();
+    this.kick();
+    return job;
+  }
+
   /** Qo'lda "Davom ettirish" / "Qayta urinish". Serverda xato bergan klip — boshidan yangi yuklash. */
   retry(id: string) {
     const j = this.get(id);
@@ -214,11 +295,10 @@ class UploadEngine {
     }
   }
 
-  /** Navbatdagi yuklashni boshlaydi (bittadan). */
+  /** Navbatdagi yuklashni boshlaydi (bittadan): avval kliplar, keyin yozuvlar (Wi-Fi'da). */
   kick() {
     if (this.running || !this.userId || !network.online) return;
-    const now = Date.now();
-    const next = this.jobs.find((j) => (j.state === 'queued' || j.state === 'paused') && (j.nextRetryAt ?? 0) <= now);
+    const next = pickNext(this.jobs, Date.now(), { online: network.online, wifi: network.wifi }, this.allowCellular);
     if (!next) {
       this.scheduleWake();
       return;
@@ -246,25 +326,33 @@ class UploadEngine {
       let job = this.get(id)!;
       const file = new File(job.fileUri);
       if (!file.exists) throw new PartHttpError('FILE_MISSING', 0);
-      if (!job.sha256) {
+      // Yozuv: 15 GB faylning SHA-256 telefon uchun og'ir — worker probe bilan tekshiradi
+      if (!job.sha256 && !isRecording(job)) {
         const sha256 = await file.digest('SHA-256').catch(() => undefined);
         if (sha256) this.patch(id, { sha256 });
       }
 
-      const urls = await this.prepare(id);
+      let urls = await this.prepare(id);
       if (!urls) return; // allaqachon yakunlangan (serverda processing/ready)
       job = this.get(id)!;
       for (const part of missingParts(job)) {
         if (abort.signal.aborted || network.forcedOffline) throw ApiError.network(new Error('offline'));
+        if (shouldYield(job, this.jobs, Date.now())) throw new YieldSignal();
         let url = urls.get(part.partNumber);
+        if (!url) {
+          // Server URL'larni partiyalab beradi (yozuv: 100 tadan) — keyingi partiya
+          urls = (await this.prepare(id)) ?? new Map();
+          url = urls.get(part.partNumber);
+          if (!url) throw new PartHttpError('UPLOAD_INCOMPLETE', 0);
+        }
         let etag: string;
         try {
-          etag = await this.putPart(id, file, part, url!, abort.signal);
+          etag = await this.putPart(id, file, part, url, abort.signal);
         } catch (err) {
           if (!(err instanceof PartHttpError) || err.code !== 'S3_FORBIDDEN') throw err;
           // Presigned URL muddati o'tgan — yangilari bilan bir marta qayta
-          const fresh = await this.prepare(id);
-          url = fresh?.get(part.partNumber);
+          urls = (await this.prepare(id)) ?? new Map();
+          url = urls.get(part.partNumber);
           if (!url) throw err;
           etag = await this.putPart(id, file, part, url, abort.signal);
         }
@@ -275,9 +363,10 @@ class UploadEngine {
       job = this.get(id)!;
       const done = await call(api.POST('/v1/media/{mediaId}/complete', { params: { path: { mediaId: job.mediaId! } }, body: completeBody(job) }));
       this.patch(id, { state: 'processing', highlightId: done.highlight_id ?? undefined, attempt: 0, nextRetryAt: undefined });
-      void this.queryClient?.invalidateQueries({ queryKey: ['host-highlights', job.matchId] });
+      this.invalidate(job);
     } catch (err) {
-      this.onError(id, err);
+      if (err instanceof YieldSignal) this.patch(id, { state: 'queued', inflightBytes: 0 });
+      else this.onError(id, err);
     }
   }
 
@@ -287,6 +376,33 @@ class UploadEngine {
    */
   private async prepare(id: string): Promise<Map<number, string> | undefined> {
     const job = this.get(id)!;
+    if (!job.mediaId && job.camera) {
+      const c = job.camera;
+      // Kamera yozish boshida oflayn bo'lgan bo'lishi mumkin — ro'yxatga olish idempotent
+      await call(
+        api.PUT('/v1/host/matches/{matchId}/recording/cameras/{clientCameraId}', {
+          params: { path: { matchId: job.matchId, clientCameraId: c.clientCameraId } },
+          body: {
+            position: c.position,
+            started_at: c.startedAt,
+            stopped_at: c.stoppedAt,
+            duration_ms: job.durationMs,
+            device_model: c.deviceModel,
+            fps: c.fps,
+            width: c.width,
+            height: c.height,
+          },
+        }),
+      );
+      const init = await call(
+        api.POST('/v1/host/matches/{matchId}/recording/cameras/{clientCameraId}/upload', {
+          params: { path: { matchId: job.matchId, clientCameraId: c.clientCameraId } },
+          body: { content_type: job.contentType, size_bytes: job.sizeBytes, duration_ms: job.durationMs },
+        }),
+      );
+      this.patch(id, { mediaId: init.media_id, partSize: init.upload.part_size_bytes, etags: mergeParts({ sizeBytes: job.sizeBytes, partSize: init.upload.part_size_bytes }, init.upload.uploaded_parts) });
+      return new Map(init.upload.parts.map((p) => [p.part_number, p.url]));
+    }
     if (!job.mediaId) {
       const init = await call(
         api.POST('/v1/host/matches/{matchId}/highlights/uploads', {
@@ -343,7 +459,8 @@ class UploadEngine {
         res = await tmp.upload(url, {
           httpMethod: 'PUT',
           uploadType: UploadType.BINARY_CONTENT,
-          sessionType: 'foreground',
+          // Yozuv: ilova fonga o'tsa ham joriy qism tugasin (iOS); keyingisi ilova faollashganda
+          sessionType: this.get(id)?.kind === 'recording' ? 'background' : 'foreground',
           signal,
           // iOS native Int64 -> BigInt keladi
           onProgress: ({ bytesSent }) => this.patch(id, { inflightBytes: Math.min(Number(bytesSent), part.length) }, false),
@@ -384,20 +501,24 @@ class UploadEngine {
     }
   }
 
+  private invalidate(job: UploadJob) {
+    void this.queryClient?.invalidateQueries({ queryKey: [isRecording(job) ? 'host-recording' : 'host-highlights', job.matchId] });
+  }
+
   /** Server tomondagi qayta ishlash (worker) holati. */
   private async pollProcessing() {
     if (!this.userId || !network.online) return;
     const now = Date.now();
-    for (const j of this.jobs.filter((x) => x.state === 'processing' && x.mediaId && now - x.updatedAt < PROCESSING_GIVE_UP_MS)) {
+    for (const j of this.jobs.filter((x) => x.state === 'processing' && x.mediaId && now - x.updatedAt < processingGiveUpMs(x))) {
       try {
         const m = await call(api.GET('/v1/media/{mediaId}', { params: { path: { mediaId: j.mediaId! } } }));
         if (m.status === 'ready') {
           this.deleteFile(j);
           this.patch(j.id, { state: 'ready', highlightId: m.highlight_id ?? j.highlightId });
-          void this.queryClient?.invalidateQueries({ queryKey: ['host-highlights', j.matchId] });
+          this.invalidate(j);
         } else if (m.status === 'failed' || m.status === 'rejected') {
           this.patch(j.id, { state: 'failed', failureCode: m.failure_code ?? 'PROCESSING_FAILED', error: m.failure_code ?? undefined });
-          void this.queryClient?.invalidateQueries({ queryKey: ['host-highlights', j.matchId] });
+          this.invalidate(j);
         } else if (m.processing?.stage) {
           this.emit(false);
         }
@@ -410,7 +531,13 @@ class UploadEngine {
 
 export const uploadEngine = new UploadEngine();
 
-export function useUploads(matchId: string): UploadJob[] {
+export function useUploads(matchId: string, kind: UploadKind = 'highlight'): UploadJob[] {
   const version = useSyncExternalStore(uploadEngine.subscribe, uploadEngine.getVersion);
-  return useMemo(() => uploadEngine.list(matchId), [version, matchId]);
+  return useMemo(() => uploadEngine.list(matchId, kind), [version, matchId, kind]);
+}
+
+/** Yozuvlarni mobil internetda ham yuklash sozlamasi (ekranda o'zgarsa qayta chiziladi). */
+export function useCellularAllowed(): boolean {
+  useSyncExternalStore(uploadEngine.subscribe, uploadEngine.getVersion);
+  return uploadEngine.cellularAllowed;
 }

@@ -1,6 +1,6 @@
 // AUTO-GENERATED: `pnpm db:pull`
 import { relations } from "drizzle-orm/relations";
-import { currencies, countries, cities, users, mediaAssets, userSessions, deviceTokens, authIdentities, venues, pitches, fieldLeases, sports, matches, cancellationPolicies, competitions, waiverTemplates, waiverSignatures, matchParticipants, bookings, matchSides, matchWaitlist, competitionEntries, paymentProviderConfigs, payments, paymentEvents, refunds, walletAccounts, walletTransactions, consents, dataSubjectRequests, auditLogs, hostProfiles, hostPayouts, hostAssignments, checkinEvents, matchFeedback, highlights, notifications, highlightShares, teams, matchEvents, pushDeliveries, reconciliationRuns, reconciliationItems, mediaProcessingJobs, venueAmenities, amenities, pitchSports, hostSports, userRoles, highlightTags, highlightReactions, fxRates, teamMembers, playerSportProfiles } from "./schema";
+import { currencies, countries, cities, users, mediaAssets, userSessions, deviceTokens, authIdentities, venues, pitches, fieldLeases, sports, matches, cancellationPolicies, competitions, waiverTemplates, waiverSignatures, matchWaitlist, bookings, competitionEntries, paymentProviderConfigs, matchParticipants, matchSides, payments, paymentEvents, refunds, walletAccounts, walletTransactions, consents, dataSubjectRequests, auditLogs, hostProfiles, hostPayouts, hostAssignments, checkinEvents, matchFeedback, notifications, highlights, recordingSessions, highlightShares, teams, matchEvents, pushDeliveries, recordingCameras, recordingMarkers, reconciliationRuns, reconciliationItems, mediaProcessingJobs, venueAmenities, amenities, pitchSports, hostSports, userRoles, highlightTags, highlightReactions, fxRates, teamMembers, playerSportProfiles } from "./schema";
 
 export const countriesRelations = relations(countries, ({one, many}) => ({
 	currency: one(currencies, {
@@ -71,18 +71,18 @@ export const usersRelations = relations(users, ({one, many}) => ({
 	fieldLeases: many(fieldLeases),
 	matches: many(matches),
 	waiverSignatures: many(waiverSignatures),
-	matchParticipants_userId: many(matchParticipants, {
-		relationName: "matchParticipants_userId_users_id"
-	}),
-	matchParticipants_checkedInBy: many(matchParticipants, {
-		relationName: "matchParticipants_checkedInBy_users_id"
-	}),
 	matchWaitlists: many(matchWaitlist),
 	bookings_userId: many(bookings, {
 		relationName: "bookings_userId_users_id"
 	}),
 	bookings_cancelledBy: many(bookings, {
 		relationName: "bookings_cancelledBy_users_id"
+	}),
+	matchParticipants_userId: many(matchParticipants, {
+		relationName: "matchParticipants_userId_users_id"
+	}),
+	matchParticipants_checkedInBy: many(matchParticipants, {
+		relationName: "matchParticipants_checkedInBy_users_id"
 	}),
 	payments: many(payments),
 	refunds_initiatedBy: many(refunds, {
@@ -113,8 +113,8 @@ export const usersRelations = relations(users, ({one, many}) => ({
 	matchFeedbacks_toUserId: many(matchFeedback, {
 		relationName: "matchFeedback_toUserId_users_id"
 	}),
-	highlights: many(highlights),
 	notifications: many(notifications),
+	highlights: many(highlights),
 	mediaAssets: many(mediaAssets, {
 		relationName: "mediaAssets_ownerUserId_users_id"
 	}),
@@ -123,6 +123,9 @@ export const usersRelations = relations(users, ({one, many}) => ({
 	competitions: many(competitions),
 	competitionEntries: many(competitionEntries),
 	matchEvents: many(matchEvents),
+	recordingSessions: many(recordingSessions),
+	recordingCameras: many(recordingCameras),
+	recordingMarkers: many(recordingMarkers),
 	reconciliationRuns: many(reconciliationRuns),
 	userRoles_userId: many(userRoles, {
 		relationName: "userRoles_userId_users_id"
@@ -154,6 +157,7 @@ export const mediaAssetsRelations = relations(mediaAssets, ({one, many}) => ({
 		relationName: "mediaAssets_ownerUserId_users_id"
 	}),
 	teams: many(teams),
+	recordingCameras: many(recordingCameras),
 	mediaProcessingJobs: many(mediaProcessingJobs),
 }));
 
@@ -252,14 +256,15 @@ export const matchesRelations = relations(matches, ({one, many}) => ({
 		references: [competitions.id]
 	}),
 	waiverSignatures: many(waiverSignatures),
-	matchParticipants: many(matchParticipants),
 	matchWaitlists: many(matchWaitlist),
 	bookings: many(bookings),
+	matchParticipants: many(matchParticipants),
 	hostAssignments: many(hostAssignments),
 	checkinEvents: many(checkinEvents),
 	matchFeedbacks: many(matchFeedback),
 	highlights: many(highlights),
 	matchEvents: many(matchEvents),
+	recordingSessions: many(recordingSessions),
 	matchSides: many(matchSides),
 }));
 
@@ -331,35 +336,18 @@ export const waiverSignaturesRelations = relations(waiverSignatures, ({one, many
 	bookings: many(bookings),
 }));
 
-export const matchParticipantsRelations = relations(matchParticipants, ({one, many}) => ({
+export const matchWaitlistRelations = relations(matchWaitlist, ({one}) => ({
 	match: one(matches, {
-		fields: [matchParticipants.matchId],
+		fields: [matchWaitlist.matchId],
 		references: [matches.id]
 	}),
-	booking: one(bookings, {
-		fields: [matchParticipants.bookingId],
-		references: [bookings.id]
+	user: one(users, {
+		fields: [matchWaitlist.userId],
+		references: [users.id]
 	}),
-	user_userId: one(users, {
-		fields: [matchParticipants.userId],
-		references: [users.id],
-		relationName: "matchParticipants_userId_users_id"
-	}),
-	user_checkedInBy: one(users, {
-		fields: [matchParticipants.checkedInBy],
-		references: [users.id],
-		relationName: "matchParticipants_checkedInBy_users_id"
-	}),
-	matchSide: one(matchSides, {
-		fields: [matchParticipants.matchId],
-		references: [matchSides.matchId]
-	}),
-	checkinEvents: many(checkinEvents),
-	matchEvents: many(matchEvents),
 }));
 
 export const bookingsRelations = relations(bookings, ({one, many}) => ({
-	matchParticipants: many(matchParticipants),
 	user_userId: one(users, {
 		fields: [bookings.userId],
 		references: [users.id],
@@ -386,33 +374,10 @@ export const bookingsRelations = relations(bookings, ({one, many}) => ({
 		fields: [bookings.competitionEntryId],
 		references: [competitionEntries.id]
 	}),
+	matchParticipants: many(matchParticipants),
 	payments: many(payments),
 	refunds: many(refunds),
 	walletTransactions: many(walletTransactions),
-}));
-
-export const matchSidesRelations = relations(matchSides, ({one, many}) => ({
-	matchParticipants: many(matchParticipants),
-	matchEvents: many(matchEvents),
-	match: one(matches, {
-		fields: [matchSides.matchId],
-		references: [matches.id]
-	}),
-	team: one(teams, {
-		fields: [matchSides.teamId],
-		references: [teams.id]
-	}),
-}));
-
-export const matchWaitlistRelations = relations(matchWaitlist, ({one}) => ({
-	match: one(matches, {
-		fields: [matchWaitlist.matchId],
-		references: [matches.id]
-	}),
-	user: one(users, {
-		fields: [matchWaitlist.userId],
-		references: [users.id]
-	}),
 }));
 
 export const competitionEntriesRelations = relations(competitionEntries, ({one, many}) => ({
@@ -435,6 +400,47 @@ export const paymentProviderConfigsRelations = relations(paymentProviderConfigs,
 	country: one(countries, {
 		fields: [paymentProviderConfigs.countryCode],
 		references: [countries.code]
+	}),
+}));
+
+export const matchParticipantsRelations = relations(matchParticipants, ({one, many}) => ({
+	match: one(matches, {
+		fields: [matchParticipants.matchId],
+		references: [matches.id]
+	}),
+	booking: one(bookings, {
+		fields: [matchParticipants.bookingId],
+		references: [bookings.id]
+	}),
+	user_userId: one(users, {
+		fields: [matchParticipants.userId],
+		references: [users.id],
+		relationName: "matchParticipants_userId_users_id"
+	}),
+	user_checkedInBy: one(users, {
+		fields: [matchParticipants.checkedInBy],
+		references: [users.id],
+		relationName: "matchParticipants_checkedInBy_users_id"
+	}),
+	matchSide: one(matchSides, {
+		fields: [matchParticipants.matchId],
+		references: [matchSides.matchId]
+	}),
+	checkinEvents: many(checkinEvents),
+	matchEvents: many(matchEvents),
+	recordingMarkers: many(recordingMarkers),
+}));
+
+export const matchSidesRelations = relations(matchSides, ({one, many}) => ({
+	matchParticipants: many(matchParticipants),
+	matchEvents: many(matchEvents),
+	match: one(matches, {
+		fields: [matchSides.matchId],
+		references: [matches.id]
+	}),
+	team: one(teams, {
+		fields: [matchSides.teamId],
+		references: [teams.id]
 	}),
 }));
 
@@ -635,6 +641,14 @@ export const matchFeedbackRelations = relations(matchFeedback, ({one}) => ({
 	}),
 }));
 
+export const notificationsRelations = relations(notifications, ({one, many}) => ({
+	user: one(users, {
+		fields: [notifications.userId],
+		references: [users.id]
+	}),
+	pushDeliveries: many(pushDeliveries),
+}));
+
 export const highlightsRelations = relations(highlights, ({one, many}) => ({
 	match: one(matches, {
 		fields: [highlights.matchId],
@@ -648,18 +662,30 @@ export const highlightsRelations = relations(highlights, ({one, many}) => ({
 		fields: [highlights.createdBy],
 		references: [users.id]
 	}),
+	recordingSession: one(recordingSessions, {
+		fields: [highlights.recordingSessionId],
+		references: [recordingSessions.id]
+	}),
 	highlightShares: many(highlightShares),
 	matchEvents: many(matchEvents),
+	recordingMarkers: many(recordingMarkers),
 	highlightTags: many(highlightTags),
 	highlightReactions: many(highlightReactions),
 }));
 
-export const notificationsRelations = relations(notifications, ({one, many}) => ({
+export const recordingSessionsRelations = relations(recordingSessions, ({one, many}) => ({
+	highlights: many(highlights),
+	match: one(matches, {
+		fields: [recordingSessions.matchId],
+		references: [matches.id]
+	}),
 	user: one(users, {
-		fields: [notifications.userId],
+		fields: [recordingSessions.hostUserId],
 		references: [users.id]
 	}),
-	pushDeliveries: many(pushDeliveries),
+	recordingCameras: many(recordingCameras),
+	recordingMarkers: many(recordingMarkers),
+	mediaProcessingJobs: many(mediaProcessingJobs),
 }));
 
 export const highlightSharesRelations = relations(highlightShares, ({one}) => ({
@@ -729,6 +755,45 @@ export const pushDeliveriesRelations = relations(pushDeliveries, ({one}) => ({
 	}),
 }));
 
+export const recordingCamerasRelations = relations(recordingCameras, ({one, many}) => ({
+	recordingSession: one(recordingSessions, {
+		fields: [recordingCameras.sessionId],
+		references: [recordingSessions.id]
+	}),
+	user: one(users, {
+		fields: [recordingCameras.recordedBy],
+		references: [users.id]
+	}),
+	mediaAsset: one(mediaAssets, {
+		fields: [recordingCameras.mediaAssetId],
+		references: [mediaAssets.id]
+	}),
+	recordingMarkers: many(recordingMarkers),
+}));
+
+export const recordingMarkersRelations = relations(recordingMarkers, ({one}) => ({
+	recordingSession: one(recordingSessions, {
+		fields: [recordingMarkers.sessionId],
+		references: [recordingSessions.id]
+	}),
+	matchParticipant: one(matchParticipants, {
+		fields: [recordingMarkers.participantId],
+		references: [matchParticipants.id]
+	}),
+	user: one(users, {
+		fields: [recordingMarkers.createdBy],
+		references: [users.id]
+	}),
+	recordingCamera: one(recordingCameras, {
+		fields: [recordingMarkers.cameraId],
+		references: [recordingCameras.id]
+	}),
+	highlight: one(highlights, {
+		fields: [recordingMarkers.highlightId],
+		references: [highlights.id]
+	}),
+}));
+
 export const reconciliationRunsRelations = relations(reconciliationRuns, ({one, many}) => ({
 	user: one(users, {
 		fields: [reconciliationRuns.triggeredBy],
@@ -756,6 +821,10 @@ export const mediaProcessingJobsRelations = relations(mediaProcessingJobs, ({one
 	mediaAsset: one(mediaAssets, {
 		fields: [mediaProcessingJobs.mediaAssetId],
 		references: [mediaAssets.id]
+	}),
+	recordingSession: one(recordingSessions, {
+		fields: [mediaProcessingJobs.recordingSessionId],
+		references: [recordingSessions.id]
 	}),
 }));
 

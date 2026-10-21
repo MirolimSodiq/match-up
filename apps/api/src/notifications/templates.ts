@@ -18,6 +18,7 @@ export type NotificationType =
   | 'highlight.tagged'
   | 'highlight.ready'
   | 'highlight.shared'
+  | 'recording.ready'
   | 'privacy.export_ready';
 
 export type NotificationCategory = 'transactional' | 'marketing';
@@ -181,6 +182,15 @@ export const TEMPLATES: Record<NotificationType, Template> = {
       'uz-Latn': (p) => ({ title: "Highlight'ingiz ulashildi", body: `${p.actor} siz belgilangan klipni ulashdi — ${p.match}, ${p.when}.` }),
       ru: (p) => ({ title: 'Вашим хайлайтом поделились', body: `${p.actor} поделился(-ась) клипом, где вы отмечены, — «${p.match}», ${p.when}.` }),
       en: (p) => ({ title: 'Your highlight was shared', body: `${p.actor} shared a clip you're tagged in — ${p.match}, ${p.when}.` }),
+    },
+  },
+  'recording.ready': {
+    category: 'transactional',
+    priority: 'normal',
+    text: {
+      'uz-Latn': (p) => ({ title: "O'yin videosi tayyor", body: `${p.match}, ${p.when} — to'liq o'yinni ko'ring va eng yaxshi lahzalarga o'ting.` }),
+      ru: (p) => ({ title: 'Видео игры готово', body: `«${p.match}», ${p.when} — смотрите всю игру и лучшие моменты.` }),
+      en: (p) => ({ title: 'Your game video is ready', body: `${p.match}, ${p.when} — watch the full game and jump to the best moments.` }),
     },
   },
   'privacy.export_ready': {

@@ -49,4 +49,5 @@ export const KEYS = {
   locale: 'mu.host.locale',
   devOffline: 'mu.host.dev_offline',
   profile: 'mu.host.profile',
+  recordingCellular: 'mu.host.recording_cellular',
 } as const;

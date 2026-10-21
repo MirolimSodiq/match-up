@@ -1,7 +1,15 @@
 # Match Up media worker
 
 Host yozgan highlight kliplarini qayta ishlaydi: **probe → validatsiya → HLS (720p, 480p) → thumbnail → 9:16 MP4**.
-AI-Cam (GPU, `docs/AI_CAM.md`) shu servis ustiga quriladi — navbat, storage va API qatlamlari qayta ishlatiladi.
+AI-Cam (`docs/AI_CAM.md`) shu servis ustiga quriladi — navbat, storage va API qatlamlari qayta ishlatiladi.
+
+| Profil (`start` javobida) | Bosqichlar | Lane (stream) |
+|---|---|---|
+| `highlight_v1` — host klipi (≤ 60 s) | download → probe → validate → hls (720p/480p) → thumbnail → vertical → upload | `matchup:media-jobs` |
+| `recording_v1` — to'liq o'yin (AI-Cam A, ≤ 3 soat, ≤ 40 GB) | download → probe → validate → hls (1080p/720p/480p **bitta o'tishda**, segment nomi 5 xonali) → thumbnail (60-soniya) → upload | `matchup:media-jobs:recording` |
+| `clip_v1` — host belgisidan klip | cut (yozuv playlist'i → faqat kerakli segmentlar → ulash → aniq kesish, `source.mp4`) → keyin `highlight_v1` bilan bir xil | `matchup:media-jobs` |
+
+Bitta jarayon bitta stream'ni o'qiydi (`MEDIA_JOBS_STREAM`): prod'da ikki ECS servis (`media-worker`, `media-worker-recording`), lokal — ikki jarayon (pastda).
 
 ```
 Redis Stream matchup:media-jobs (consumer group media-worker)
@@ -57,10 +65,12 @@ Lokal (API `PORT=3002`, `docker compose up -d minio minio-init`):
 REDIS_URL=redis://localhost:6379/4 API_INTERNAL_URL=http://localhost:3002 MEDIA_WORKER_TOKEN=dev-media-worker-token-0123456789abcdef S3_ENDPOINT=http://localhost:9000 S3_REGION=us-east-1 S3_ACCESS_KEY_ID=matchup S3_SECRET_ACCESS_KEY=matchup_dev_only S3_FORCE_PATH_STYLE=true uv run python -m media_worker
 ```
 
+To'liq o'yin yozuvlari (AI-Cam) uchun ikkinchi jarayon — xuddi shu buyruq `MEDIA_JOBS_STREAM=matchup:media-jobs:recording WORK_DIR=/tmp/media-worker-recording` bilan.
+
 | Env | Standart | |
 |---|---|---|
 | `REDIS_URL` | `redis://localhost:6379/4` | |
-| `MEDIA_JOBS_STREAM` / `MEDIA_JOBS_GROUP` | `matchup:media-jobs` / `media-worker` | dead-letter: `<stream>:dead` |
+| `MEDIA_JOBS_STREAM` / `MEDIA_JOBS_GROUP` | `matchup:media-jobs` / `media-worker` | dead-letter: `<stream>:dead`; yozuv lane'i — `matchup:media-jobs:recording` |
 | `API_INTERNAL_URL`, `MEDIA_WORKER_TOKEN` | `http://localhost:3002`, — | token API'niki bilan bir xil (≥ 32 belgi) |
 | `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE` | AWS default chain | MinIO uchun endpoint + path style |
 | `WORK_DIR` | `/tmp/media-worker` | ish papkasi va heartbeat |

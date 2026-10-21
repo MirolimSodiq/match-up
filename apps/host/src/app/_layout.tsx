@@ -4,6 +4,7 @@ import { type PropsWithChildren, useEffect, useMemo, useState } from 'react';
 import { AppState, Platform, StyleSheet } from 'react-native';
 import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { DefaultTheme, SplashScreen, Stack, type Theme, ThemeProvider } from 'expo-router';
+import * as ScreenOrientation from 'expo-screen-orientation';
 import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
 import * as SystemUI from 'expo-system-ui';
@@ -15,6 +16,7 @@ import { SessionProvider, useSession } from '@/auth/session';
 import { PushNotifications } from '@/notifications/PushNotifications';
 import { errorMessage } from '@/i18n/errors';
 import { uploadEngine } from '@/media/uploads';
+import { markerEngine } from '@/recording/markers';
 import { syncEngine } from '@/offline/sync';
 
 const navigationTheme: Theme = { ...DefaultTheme, colors: { ...DefaultTheme.colors, ...navigationColors } };
@@ -42,7 +44,10 @@ export default function RootLayout() {
   useEffect(() => {
     syncEngine.start(queryClient);
     uploadEngine.start(queryClient);
+    markerEngine.start(queryClient);
     if (Platform.OS === 'web') return;
+    // app.json `orientation: default` (kamera rejimi landshaft); qolgan ekranlar — portret
+    void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => undefined);
     const sub = AppState.addEventListener('change', (s) => focusManager.setFocused(s === 'active'));
     return () => sub.remove();
   }, [queryClient]);
@@ -111,6 +116,10 @@ function RootNavigator() {
         <Stack.Screen name="match/[id]/sync" options={sheet} />
         <Stack.Screen name="match/[id]/highlight" options={sheet} />
         <Stack.Screen name="match/[id]/record" options={{ headerShown: false, presentation: 'fullScreenModal' }} />
+        <Stack.Screen name="match/[id]/camera" options={sheet} />
+        {/* Landshaft — ekranning o'zida (expo-screen-orientation); yozuv paytida swipe bilan yopilmasin */}
+        <Stack.Screen name="match/[id]/camera-record" options={{ headerShown: false, animation: 'fade', gestureEnabled: false }} />
+        <Stack.Screen name="match/[id]/remote" options={sheet} />
       </Stack.Protected>
     </Stack>
   );

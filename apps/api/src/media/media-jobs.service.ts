@@ -3,7 +3,9 @@ import { sql } from 'drizzle-orm';
 import { AppError } from '../common/errors';
 import { emit } from '../common/outbox';
 import { DB, type Db, type Executor, one } from '../db/db';
-import { HIGHLIGHT_LIMITS, type Rendition } from './media.service';
+import type { MediaProfile } from './media-sql';
+import { HIGHLIGHT_LIMITS, MediaService, type Rendition } from './media.service';
+import { RECORDING_LIMITS, recordingFailed, recordingProcessed } from './recordings';
 import { ObjectStorage } from './storage';
 
 interface JobRow {
@@ -40,6 +42,10 @@ export interface JobReadyResult {
   };
 }
 
+function profileOf(j: Pick<JobRow, 'input'>): MediaProfile {
+  return (j.input.profile as MediaProfile | undefined) ?? 'highlight_v1';
+}
+
 export interface JobFailedResult {
   status: 'failed';
   worker_version: string;
@@ -64,6 +70,7 @@ export class MediaJobsService {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly storage: ObjectStorage,
+    private readonly media: MediaService,
   ) {}
 
   private outputPrefix(j: Pick<JobRow, 'object_key'>): string {
@@ -105,12 +112,13 @@ export class MediaJobsService {
           RETURNING attempts`,
     );
     if (!started) throw new AppError('INVALID_STATE', { status: j.status });
-    const prefix = this.outputPrefix(j);
+    const profile = profileOf(j);
+    const limits = profile === 'recording_v1' ? RECORDING_LIMITS : HIGHLIGHT_LIMITS;
     return {
       job_id: j.id,
       type: j.type,
       attempt: started.attempts,
-      profile: (j.input.profile as string | undefined) ?? 'highlight_v1',
+      profile,
       media: {
         id: j.media_asset_id,
         content_type: j.content_type,
@@ -118,9 +126,33 @@ export class MediaJobsService {
         declared_duration_ms: j.duration_ms,
         checksum_sha256: j.checksum_sha256 ? Buffer.from(j.checksum_sha256).toString('hex') : null,
       },
-      source: { bucket: j.bucket, key: j.object_key },
-      output: { bucket: this.storage.mediaBucket, prefix },
-      limits: { max_duration_ms: HIGHLIGHT_LIMITS.maxDurationMs, max_bytes: HIGHLIGHT_LIMITS.maxBytes },
+      source: profile === 'clip_v1' ? await this.clipSource(j) : { bucket: j.bucket, key: j.object_key },
+      output: { bucket: this.storage.mediaBucket, prefix: this.outputPrefix(j) },
+      limits: { max_duration_ms: limits.maxDurationMs, max_bytes: limits.maxBytes },
+    };
+  }
+
+  /**
+   * Klip manbai — yozuvning eng yuqori sifatli HLS rendition'i: worker faqat kerakli segmentlarni (bir necha MB)
+   * yuklab oladi va `start_ms`dan `duration_ms` kesadi. Yozuv o'chirilgan bo'lsa job yopiladi (worker ACK qiladi).
+   */
+  private async clipSource(j: JobRow) {
+    const rec = await one<{ output_bucket: string; renditions: Rendition[] | null }>(
+      this.db,
+      sql`SELECT output_bucket, renditions FROM media_assets
+          WHERE id = ${j.input.recording_media_id as string} AND status = 'ready' AND output_bucket IS NOT NULL`,
+    );
+    const top = rec?.renditions?.length ? [...rec.renditions].sort((a, b) => b.bandwidth - a.bandwidth)[0]! : undefined;
+    if (!rec || !top) {
+      await this.result(j.id, { status: 'failed', worker_version: 'api', error_code: 'SOURCE_UNAVAILABLE', error_message: 'yozuv tayyor emas yoki o\'chirilgan' });
+      throw new AppError('INVALID_STATE', { status: 'failed' });
+    }
+    return {
+      bucket: rec.output_bucket,
+      key: top.playlist_key,
+      kind: 'hls' as const,
+      start_ms: j.input.start_ms as number,
+      duration_ms: j.input.duration_ms as number,
     };
   }
 
@@ -136,73 +168,94 @@ export class MediaJobsService {
     return { ok: true };
   }
 
-  /** Yakuniy natija (idempotent: takroriy `ready` — o'zgarishsiz 200). */
+  /** Yakuniy natija (idempotent: takroriy `ready` — o'zgarishsiz 200). Yozuv tayyor bo'lsa — klip job'lari navbatga. */
   async result(jobId: string, body: JobResult) {
-    return this.db.transaction(async (tx) => {
-      const j = await this.job(jobId, tx, true);
-      if (j.status === 'succeeded') return { job_id: j.id, status: 'succeeded' as const };
-      if (j.status === 'cancelled') throw new AppError('INVALID_STATE', { status: j.status });
-      // Kech kelgan muvaffaqiyat (dead-letter'dan keyin boshqa yetkazish) qabul qilinadi; kech kelgan xato — yo'q
-      if (j.status === 'failed' && body.status === 'failed') return { job_id: j.id, status: 'failed' as const };
+    const { response, dispatch } = await this.db.transaction((tx) => this.apply(tx, jobId, body));
+    for (const id of dispatch) await this.media.dispatch(id);
+    return response;
+  }
 
-      if (body.status === 'failed') {
-        await tx.execute(
-          sql`UPDATE media_processing_jobs
-              SET status = 'failed', error = ${`${body.error_code}: ${body.error_message ?? ''}`.slice(0, 2000)},
-                  worker_version = ${body.worker_version}, finished_at = now(), heartbeat_at = now()
-              WHERE id = ${j.id}`,
-        );
-        await tx.execute(
-          sql`UPDATE media_assets SET status = 'failed', failure_code = ${body.error_code.slice(0, 64)}, updated_at = now()
-              WHERE id = ${j.media_asset_id} AND status = 'processing'`,
-        );
-        return { job_id: j.id, status: 'failed' as const };
-      }
+  private async apply(tx: Executor, jobId: string, body: JobResult) {
+    const done = (response: { job_id: string; status: 'succeeded' | 'failed'; highlight_id?: string | null }, dispatch: string[] = []) => ({
+      response,
+      dispatch,
+    });
+    const j = await this.job(jobId, tx, true);
+    if (j.status === 'succeeded') return done({ job_id: j.id, status: 'succeeded' });
+    if (j.status === 'cancelled') throw new AppError('INVALID_STATE', { status: j.status });
+    // Kech kelgan muvaffaqiyat (dead-letter'dan keyin boshqa yetkazish) qabul qilinadi; kech kelgan xato — yo'q
+    if (j.status === 'failed' && body.status === 'failed') return done({ job_id: j.id, status: 'failed' });
+    const profile = profileOf(j);
 
-      const o = body.output;
-      const prefix = this.outputPrefix(j);
-      const keys = [o.hls_master_key, o.thumbnail_key, o.vertical_key, ...o.renditions.map((r) => r.playlist_key)];
-      if (!keys.every((k) => insidePrefix(prefix, k)) || !o.renditions.length) {
-        throw new AppError('VALIDATION_FAILED', {}, [{ field: 'output', code: 'invalid', message: `kalitlar ${prefix} ichida bo'lishi kerak` }]);
-      }
-      const duration = Math.round(o.duration_ms);
+    if (body.status === 'failed') {
       await tx.execute(
         sql`UPDATE media_processing_jobs
-            SET status = 'succeeded', stage = 'done', output = ${JSON.stringify(o)}::jsonb, error = NULL,
+            SET status = 'failed', error = ${`${body.error_code}: ${body.error_message ?? ''}`.slice(0, 2000)},
                 worker_version = ${body.worker_version}, finished_at = now(), heartbeat_at = now()
             WHERE id = ${j.id}`,
       );
-      const media = await one<{ id: string }>(
-        tx,
-        sql`UPDATE media_assets
-            SET status = 'ready', output_bucket = ${this.storage.mediaBucket}, playback_path = ${o.hls_master_key},
-                thumbnail_key = ${o.thumbnail_key}, vertical_key = ${o.vertical_key ?? null},
-                renditions = ${JSON.stringify(o.renditions)}::jsonb, duration_ms = ${duration},
-                width = ${Math.round(o.width)}, height = ${Math.round(o.height)}, failure_code = NULL,
-                processed_at = now(), updated_at = now()
-            WHERE id = ${j.media_asset_id} AND status IN ('processing', 'failed') RETURNING id`,
+      const failed = await tx.execute(
+        sql`UPDATE media_assets SET status = 'failed', failure_code = ${body.error_code.slice(0, 64)}, updated_at = now()
+            WHERE id = ${j.media_asset_id} AND status = 'processing'`,
       );
-      if (!media) return { job_id: j.id, status: 'succeeded' as const }; // media o'chirilgan/rad etilgan
+      const clips = failed.rowCount && profile === 'recording_v1' ? await recordingFailed(tx, j.media_asset_id, body.error_code, this.media.clipConfig) : [];
+      return done({ job_id: j.id, status: 'failed' }, clips);
+    }
 
-      const h = await one<{ id: string; match_id: string; created_by: string }>(
+    const o = body.output;
+    const prefix = this.outputPrefix(j);
+    const keys = [o.hls_master_key, o.thumbnail_key, o.vertical_key, ...o.renditions.map((r) => r.playlist_key)];
+    if (!keys.every((k) => insidePrefix(prefix, k)) || !o.renditions.length) {
+      throw new AppError('VALIDATION_FAILED', {}, [{ field: 'output', code: 'invalid', message: `kalitlar ${prefix} ichida bo'lishi kerak` }]);
+    }
+    const duration = Math.round(o.duration_ms);
+    await tx.execute(
+      sql`UPDATE media_processing_jobs
+          SET status = 'succeeded', stage = 'done', output = ${JSON.stringify(o)}::jsonb, error = NULL,
+              worker_version = ${body.worker_version}, finished_at = now(), heartbeat_at = now()
+          WHERE id = ${j.id}`,
+    );
+    const media = await one<{ id: string }>(
+      tx,
+      sql`UPDATE media_assets
+          SET status = 'ready', output_bucket = ${this.storage.mediaBucket}, playback_path = ${o.hls_master_key},
+              thumbnail_key = ${o.thumbnail_key}, vertical_key = ${o.vertical_key ?? null},
+              renditions = ${JSON.stringify(o.renditions)}::jsonb, duration_ms = ${duration},
+              width = ${Math.round(o.width)}, height = ${Math.round(o.height)}, failure_code = NULL,
+              processed_at = now(), updated_at = now()
+          WHERE id = ${j.media_asset_id} AND status IN ('processing', 'failed') RETURNING id`,
+    );
+    if (!media) return done({ job_id: j.id, status: 'succeeded' }); // media o'chirilgan/rad etilgan
+
+    if (profile === 'recording_v1') {
+      const fps = typeof o.probe?.fps === 'number' ? o.probe.fps : null;
+      const clips = await recordingProcessed(
         tx,
-        sql`UPDATE highlights SET duration_ms = ${duration > 0 ? duration : null}, published_at = coalesce(published_at, now()),
-                                  updated_at = now()
-            WHERE media_asset_id = ${j.media_asset_id} AND deleted_at IS NULL
-            RETURNING id, match_id, created_by`,
+        j.media_asset_id,
+        { duration_ms: duration, width: Math.round(o.width), height: Math.round(o.height), fps },
+        this.media.clipConfig,
       );
-      if (h) {
-        const tagged = await tx.execute(sql`SELECT user_id FROM highlight_tags WHERE highlight_id = ${h.id}`);
-        await emit(tx, 'highlight', h.id, 'HighlightReady', {
-          highlight_id: h.id,
-          match_id: h.match_id,
-          media_id: j.media_asset_id,
-          created_by: h.created_by,
-          tagged_user_ids: (tagged.rows as { user_id: string }[]).map((r) => r.user_id),
-          duration_ms: duration,
-        });
-      }
-      return { job_id: j.id, status: 'succeeded' as const, highlight_id: h?.id ?? null };
-    });
+      return done({ job_id: j.id, status: 'succeeded', highlight_id: null }, clips);
+    }
+
+    const h = await one<{ id: string; match_id: string; created_by: string }>(
+      tx,
+      sql`UPDATE highlights SET duration_ms = ${duration > 0 ? duration : null}, published_at = coalesce(published_at, now()),
+                                updated_at = now()
+          WHERE media_asset_id = ${j.media_asset_id} AND deleted_at IS NULL
+          RETURNING id, match_id, created_by`,
+    );
+    if (h) {
+      const tagged = await tx.execute(sql`SELECT user_id FROM highlight_tags WHERE highlight_id = ${h.id}`);
+      await emit(tx, 'highlight', h.id, 'HighlightReady', {
+        highlight_id: h.id,
+        match_id: h.match_id,
+        media_id: j.media_asset_id,
+        created_by: h.created_by,
+        tagged_user_ids: (tagged.rows as { user_id: string }[]).map((r) => r.user_id),
+        duration_ms: duration,
+      });
+    }
+    return done({ job_id: j.id, status: 'succeeded', highlight_id: h?.id ?? null });
   }
 }

@@ -497,12 +497,15 @@ sequenceDiagram
 | GET | `/v1/host/matches/{id}/roster` | to'liq roster + `qr_public_key` + `roster_version` (offline kesh) |
 | POST | `/v1/host/matches/{id}/arrive` | `{location, accuracy_m}` → geofence ≤ 200 m |
 | POST | `/v1/host/matches/{id}/checkins` | batch, offline sync, `client_event_id` bilan idempotent |
-| PATCH | `/v1/host/matches/{id}/participants/{pid}` | `{side_no}` yoki `{status: no_show}` |
+| PATCH | `/v1/host/matches/{id}/participants/{pid}` | `{side_no}`, `{bib_number}` (AI-Cam, `409 BIB_TAKEN`) yoki `{status: no_show}` |
 | POST | `/v1/host/matches/{id}/complete` | `{scores, mvp_participant_id, incidents}` |
 | POST | `/v1/host/matches/{id}/highlights/uploads` | S3 multipart presigned URL'lar (≤ 60 s, ≤ 150 MB, mp4/mov); faqat tayinlangan host |
 | GET | `/v1/host/matches/{id}/highlights` | shu match kliplari (qayta ishlanayotgan / xato berganlari bilan) |
-| GET / DELETE | `/v1/media/{id}/upload` | davom ettirish: yuklangan qismlar + yangi URL'lar / bekor qilish |
-| POST | `/v1/media/{id}/complete` | `CompleteMultipartUpload` → highlight (+ teglar) → transcode navbati (idempotent) |
+| GET / PUT | `/v1/host/matches/{id}/recording[/cameras/{clientCameraId}]` | AI-Cam A: to'liq o'yin yozuvi — sessiya / kamera faylini ro'yxatga olish (idempotent, oflayn'dan keyin ham) |
+| POST | `/v1/host/matches/{id}/recording/cameras/{clientCameraId}/upload` | yozuv fayli multipart (≤ 40 GB, ≤ 3 soat, qism 16 MiB) — keyin oddiy `/v1/media/{id}/…` |
+| POST / DELETE | `/v1/host/matches/{id}/recording/markers[/{clientMarkerId}]` | "Highlight!" / "Kick-off" belgilari — kamera tayyor bo'lgach klip avtomatik kesiladi ([`AI_CAM.md`](AI_CAM.md) §12) |
+| GET / DELETE | `/v1/media/{id}/upload` | davom ettirish: yuklangan qismlar + keyingi (100 tagacha) qismlar uchun yangi URL'lar / bekor qilish |
+| POST | `/v1/media/{id}/complete` | `CompleteMultipartUpload` → highlight (+ teglar) yoki yozuv kamerasi → transcode navbati (idempotent; `parts` siz — ETag'lar `ListParts` dan) |
 | GET | `/v1/media/{id}` | yuklash va qayta ishlash holati (egasi) |
 
 **Highlight'lar (player)**
@@ -514,7 +517,8 @@ sequenceDiagram
 | GET | `/v1/highlights/{id}` | yangi imzolangan ijro URL'lari bilan |
 | PUT / DELETE | `/v1/highlights/{id}/like` | idempotent, `likes_count` bilan bir tranzaksiyada |
 | POST | `/v1/highlights/{id}/share` | `highlight_shares` + imzolangan ochiq havola `/h/{token}` (7 kun) |
-| GET | `/v1/playback/{token}/{master\|720p\|480p}.m3u8` | HLS playlist'lar (token URL'da), segmentlar — imzolangan CDN/S3 URL |
+| GET | `/v1/matches/{id}/recording` | to'liq o'yin videosi (faqat ishtirokchilar, host, admin): kameralar HLS bilan, belgilangan lahzalar har kameradagi vaqti bilan |
+| GET | `/v1/playback/{token}/{master\|1080p\|720p\|480p}.m3u8` | HLS playlist'lar (token URL'da) — klip va yozuv kameralari; segmentlar — imzolangan CDN/S3 URL |
 | POST | `/internal/media/jobs/{id}/start\|progress\|result` | faqat media worker (servis token, VPC ichida) |
 
 ```json
@@ -816,7 +820,7 @@ sequenceDiagram
 |---|---|
 | Yuklash | Video **backend orqali o'tmaydi**: S3 multipart, qism 8 MiB (oxirgisidan tashqari), presigned `UploadPart` URL'larida `Content-Length` imzolangan — e'lon qilingan hajmdan ortiq yuklab bo'lmaydi; `complete` da `HEAD` bilan ≤ 150 MB qayta tekshiriladi. Sessiya 48 soat (`MEDIA_UPLOAD_SESSION_HOURS`), URL'lar 1 soat; davom ettirishda server haqiqati — `ListParts`. Highlight qatori faqat `complete` da yaratiladi (kontekst `media_assets.context` da). |
 | Host ilovasi | Galereya (iOS 60 s qirqish + 720p H.264 eksport) yoki kamera (720p, ≤ 60 s). Navbat diskda (`uploads.json` + video nusxasi): bitta yuklash, har qism native PUT (progress), internet uzilsa/xato bo'lsa backoff bilan pauza, tarmoq qaytganda / ilova faollashganda davom; ilova qayta ochilsa ham. Video nusxasi faqat worker `ready` (checksum tasdiqlangan) bo'lgach o'chiriladi. |
-| Navbat | **Redis Stream** `matchup:media-jobs` (dev va prod bir xil), consumer group `media-worker`, at-least-once: ishlov paytida `XCLAIM` bilan lease uzaytiriladi, o'lgan worker xabari `XPENDING IDLE` dan keyin boshqasiga o'tadi, 5 yetkazishdan keyin `:dead` stream va `failed`. Xabarda faqat id'lar — tafsilot `start` javobida. Transport interfeysi: API `MediaJobQueue` + `JOB_ROUTES` (`transcode` → Redis Stream; `ai_*` → SQS + AWS Batch, AI-Cam), worker `JobSource`. |
+| Navbat | **Redis Stream** `matchup:media-jobs` (dev va prod bir xil), consumer group `media-worker`, at-least-once: ishlov paytida `XCLAIM` bilan lease uzaytiriladi, o'lgan worker xabari `XPENDING IDLE` dan keyin boshqasiga o'tadi, 5 yetkazishdan keyin `:dead` stream va `failed`. Xabarda faqat id'lar — tafsilot `start` javobida. Transport interfeysi: API `MediaJobQueue` + `JOB_ROUTES` (`transcode` → Redis Stream; `ai_*` → SQS + AWS Batch, AI-Cam), worker `JobSource`. Lane: to'liq o'yin yozuvlari (`recording_v1`) — alohida `matchup:media-jobs:recording` stream va worker servisi (soatlab kodlash kliplarni kutdirmaydi). |
 | Holat | `media_processing_jobs` (`queued → running → succeeded / failed / cancelled`, `stage`, `attempts`, `heartbeat_at`, `transport`, `message_id`). Worker DB'ga yozmaydi — faqat `/internal/media/jobs/*` (servis token `MEDIA_WORKER_TOKEN`; tashqi ALB `/internal/*` ni yopadi). Natija tranzaksiyasi: `media_assets.ready` (renditions, thumbnail, 9:16), `highlights.published_at`, outbox `HighlightReady`. |
 | Worker | Python 3.12 + FFmpeg (`services/media-worker`): har bosqich idempotent (`.done-<stage>`), natija kalitlari deterministik, `manifest.json` — qayta yetkazilganda qayta kodlamasdan natija. HLS: H.264 Main + AAC, segment ~4 s, keyframe 2 s, upscale yo'q; 9:16 — markazdan crop, 720x1280, faststart. ECS Fargate Spot (CPU bo'yicha autoscaling). |
 | Ijro | Natija bucket'i yopiq. Thumbnail va 9:16 MP4 — CloudFront signed URL (`MEDIA_CDN_*`) yoki S3/MinIO presigned GET. HLS: AVPlayer/ExoPlayer nisbiy segmentlarga query-imzoni o'tkazmaydi, shuning uchun playlist'lar (bir necha KB) API'dan: `/v1/playback/{token}/…m3u8` — har segment imzolangan absolyut URL bilan almashtiriladi. Token — `HMAC(media_id, exp)` (JWT kalitidan HKDF), 6 soat. |
