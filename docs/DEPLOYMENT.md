@@ -51,10 +51,11 @@ docker compose -f docker-compose.staging.yml down -v
 |---|---|
 | `typecheck` | corepack + pnpm 10.12.1 (store keshi), `turbo run typecheck` (6 paket), host unit testlari (vitest) |
 | `openapi-lint` | `npx @redocly/cli@1.34.5 lint api/openapi.yaml` |
-| `api-e2e` | Service container'lar: `postgis/postgis:18-3.6` + `valkey/valkey:8-alpine`; `pnpm --filter @matchup/api test:e2e` |
+| `api-e2e` | Service container'lar: `postgis/postgis:18-3.6` + `valkey/valkey:8-alpine` + MinIO (`bitnamilegacy/minio`, highlight upload testlari); `pnpm --filter @matchup/api test:e2e` |
+| `media-worker` | Python 3.12 + apt FFmpeg + `uv`: `services/media-worker` pytest (test videolari lavfi bilan generatsiya qilinadi) |
 | `db-verify` | PGDG'dan PostgreSQL 18 `psql` + `pgbench`, `db/tests/verify.sh` ni `DATABASE_URL` rejimida |
 | `admin-build` | `turbo run build --filter=@matchup/admin` (`.next/cache` keshlanadi) |
-| `docker` | api va admin image'larini build qiladi (push yo'q), GHA cache |
+| `docker` | api, admin va media-worker image'larini build qiladi (push yo'q), GHA cache |
 | `terraform` | `infra/terraform/check.sh`: `fmt -check` + `validate` (credential'siz) |
 | `actionlint` | workflow'larni tekshiradi |
 
@@ -101,6 +102,12 @@ docker build -f apps/admin/Dockerfile -t matchup-admin .
 - RDS CA bundle (`NODE_EXTRA_CA_CERTS`) — `DATABASE_URL ...?sslmode=verify-full` bilan sertifikat va hostname tekshiriladi.
 - Entrypoint: ilova Ed25519 kalitlarni faqat fayldan o'qiydi (`*_KEY_FILE`). Kalit env orqali PEM matni sifatida kelsa (`JWT_PRIVATE_KEY=...`, ECS), entrypoint uni `/tmp/matchup-keys/` ga 0600 bilan yozadi, `*_KEY_FILE` ni o'rnatadi va PEM'ni env'dan o'chiradi. Fayl orqali kelsa (docker secrets) hech narsa qilinmaydi.
 - `/health` DB va Valkey'ni tekshiradi.
+
+**Media worker** (`services/media-worker/Dockerfile`, `python:3.12-slim-trixie` + FFmpeg 7.1 + `uv`, ~970 MB — FFmpeg kutubxonalari): `python -m media_worker`, uid 10001, root FS read-only (ish papkasi `/tmp/media-worker`), `HEALTHCHECK` — `python -m media_worker health` (navbat sikli heartbeat'i < 2 daq). Kontekst — `services/media-worker`:
+
+```bash
+docker build -t matchup-media-worker services/media-worker
+```
 
 **Admin** (Next.js `output: 'standalone'`, ~330 MB): `apps/admin/server.js`, port 3100. Runtime env: `API_URL`, `SENTRY_DSN`, `SENTRY_ENVIRONMENT`. Brauzer Sentry DSN build vaqtida inline qilinadi: `--build-arg NEXT_PUBLIC_SENTRY_DSN=...`.
 
@@ -171,6 +178,8 @@ Barcha maxfiy qiymatlar Secrets Manager'da (`matchup-<env>/...`, cell KMS kaliti
 | `click` | `service_id`, `merchant_id`, `secret_key` -> `CLICK_*` | qo'lda |
 | `eskiz` | `email`, `password` -> `ESKIZ_EMAIL`, `ESKIZ_PASSWORD` | qo'lda |
 | `sentry` | `api_dsn` -> api `SENTRY_DSN`, `admin_dsn` -> admin `SENTRY_DSN` (bo'sh = o'chiq) | qo'lda |
+| `media-worker-token` | butun qiymat -> `MEDIA_WORKER_TOKEN` (api va media-worker; `/internal/media/*`) | Terraform (write-only, `media_worker_token_version`) |
+| `media-cdn` | `private_key` -> `MEDIA_CDN_PRIVATE_KEY` (entrypoint faylga yozadi). Faqat `media_signing_public_key_pem` berilganda ishlatiladi | qo'lda |
 
 Terraform qo'lda to'ldiriladigan secret'larga bir marta bo'sh JSON skeletini yozadi va keyin ularga tegmaydi. To'ldirish (kalitlar `pnpm keys:gen` dagi kabi Ed25519, PKCS#8 / SPKI PEM):
 
@@ -179,6 +188,8 @@ aws secretsmanager put-secret-value --secret-id matchup-staging/signing-keys --s
 ```
 
 Bo'sh qoldirilsa: `eskiz` yoki `signing-keys` — API start olmaydi (aniq xato xabari bilan), `sentry` — monitoring o'chiq. Secret o'zgargandan keyin servisni `--force-new-deployment` bilan qayta ishga tushiring (ECS secret'ni faqat start'da o'qiydi).
+
+CloudFront signed URL: RSA 2048 kalit juftligi yarating (`openssl genrsa -out cf.pem 2048 && openssl rsa -pubout -in cf.pem -out cf.pub.pem`), public qismini `media_signing_public_key_pem` ga bering (key group + `MEDIA_CDN_KEY_PAIR_ID` avtomatik), private qismini `media-cdn` secret'ining `private_key` ga yozing. Berilmasa API ijro uchun S3 presigned GET beradi (CloudFront chetlab o'tiladi).
 
 Rotatsiya: DB paroli — `db_password_version` ni 1 ga oshirib apply (RDS va `database-url` bir run'da yangilanadi), keyin servislarni qayta deploy; Valkey — `cache_auth_token_version` (ROTATE strategiyasi: eski token o'tish davrida ishlaydi).
 
@@ -263,5 +274,5 @@ cd apps/player && npx eas-cli build --profile preview --platform android
 - API image'ning ~80 MB qismi `@sentry/nestjs` v11 olib keladigan bundler bog'liqliklari (webpack, babel) — SDK tuzilishi.
 - WAF (rate limit) va VPC flow log'lar hali yo'q; ARCHITECTURE §4.1 dagi "CDN + WAF" keyingi bosqichda.
 - DB'da ilova uchun alohida cheklangan role yo'q — api va migratsiya bitta `matchup` foydalanuvchisi bilan ishlaydi.
-- Media signed URL'lar uchun kalit juftligi va API tomoni hali yo'q (modul `media_signing_public_key_pem` ni qabul qiladi).
+- Media worker CPU bo'yicha kengayadi; navbat uzunligi (`XLEN`/`XPENDING matchup:media-jobs`) bo'yicha CloudWatch metrikasi va kengayish — keyingi qadam. Tashqi ALB `/internal/*` ni 404 bilan yopadi; worker API'ga service discovery (`api.<name>.internal`) orqali ulanadi.
 - Mobil source map'lar uchun `metro.config.js` da `getSentryExpoConfig` ulanmagan (parallel ishlar bilan to'qnashmaslik uchun) — production relizdan oldin qo'shilsin.

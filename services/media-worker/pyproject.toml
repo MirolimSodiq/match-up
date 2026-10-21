@@ -1,0 +1,30 @@
+[project]
+name = "matchup-media-worker"
+version = "0.1.0"
+description = "Match Up media worker: highlight kliplarini FFmpeg bilan HLS (720p/480p), thumbnail va 9:16 MP4 ga aylantiradi"
+requires-python = ">=3.12"
+dependencies = [
+  "boto3>=1.40,<2",
+  "httpx>=0.28,<1",
+  "redis>=6.4,<8",
+]
+
+[dependency-groups]
+dev = [
+  "fakeredis>=2.31,<3",
+  "pytest>=8.4,<10",
+]
+
+[project.scripts]
+media-worker = "media_worker.__main__:main"
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["media_worker"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

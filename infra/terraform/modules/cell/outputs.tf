@@ -45,6 +45,14 @@ output "media_bucket" {
   value = aws_s3_bucket.media.bucket
 }
 
+output "media_raw_bucket" {
+  value = aws_s3_bucket.media_raw.bucket
+}
+
+output "media_worker_service" {
+  value = aws_ecs_service.media_worker.name
+}
+
 output "media_cdn_domain" {
   value = aws_cloudfront_distribution.media.domain_name
 }

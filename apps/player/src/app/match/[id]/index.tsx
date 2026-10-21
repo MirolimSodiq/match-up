@@ -14,6 +14,8 @@ import { currentLocale } from '@/i18n';
 import { formatDay, formatTime, zonedParts } from '@/lib/datetime';
 import { money } from '@/lib/money';
 import { errorMessage } from '@/i18n/errors';
+import { useMatchHighlights } from '@/features/highlights/api';
+import { HighlightStrip } from '@/features/highlights/HighlightTile';
 import { useMatchLive } from '@/realtime/live';
 
 /** Gridda ko'rsatiladigan o'rinlar chegarasi (katta match'larda ro'yxat cho'zilib ketmasin). */
@@ -129,6 +131,8 @@ function MatchView({ match: m, sc, sportName, live }: { match: MatchDetail; sc: 
 
         <Players match={m} sc={sc} live={live} />
 
+        <MatchHighlights match={m} sc={sc} />
+
         {m.cancellation_policy?.summary || m.booking_closes_at ? (
           <Glass>
             <Text style={[styles.blockLabel, { color: sc.muted }]}>{t('match.cancellationPolicy')}</Text>
@@ -237,6 +241,30 @@ function Players({ match: m, sc, live }: { match: MatchDetail; sc: SportColors; 
         ))}
       </View>
       {players.length === 0 ? <Text style={[styles.blockNote, { color: sc.muted }]}>{t('match.noPlayersYet')}</Text> : null}
+    </View>
+  );
+}
+
+/** Highlight'lar — faqat o'yin ishtirokchilariga (server tekshiradi; boshqalarga 403 -> bo'lim ko'rinmaydi). */
+function MatchHighlights({ match: m, sc }: { match: MatchDetail; sc: SportColors }) {
+  const { t } = useTranslation();
+  const participant = m.my_booking?.status === 'confirmed' || m.my_booking?.status === 'completed';
+  const q = useMatchHighlights(m.id, participant);
+  if (!participant || q.isError) return null;
+  const items = q.data?.items ?? [];
+  const played = m.status === 'in_progress' || m.status === 'completed';
+  if (!items.length && !played) return null;
+  return (
+    <View style={styles.players} testID="match-highlights">
+      <View style={styles.playersHead}>
+        <Text style={styles.sectionTitle}>{t('highlights.title')}</Text>
+        {items.length ? <Text style={styles.playersCount}>{items.length}</Text> : null}
+      </View>
+      {items.length ? (
+        <HighlightStrip items={items} onSport />
+      ) : (
+        <Text style={[styles.blockNote, { color: sc.muted }]}>{q.isPending ? t('common.loading') : t('highlights.emptyMatch')}</Text>
+      )}
     </View>
   );
 }

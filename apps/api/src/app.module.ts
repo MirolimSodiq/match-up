@@ -18,6 +18,7 @@ import { HostModule } from './host/host.module';
 import { IdentityModule } from './identity/identity.module';
 import { JobsModule } from './jobs/jobs.module';
 import { MatchesModule } from './matches/matches.controller';
+import { MediaModule } from './media/media.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { PaymentsModule } from './payments/payments.module';
 import { PrivacyModule } from './privacy/privacy.module';
@@ -78,6 +79,7 @@ class HealthController {
     BookingsModule,
     PaymentsModule,
     HostModule,
+    MediaModule,
     AdminModule,
     NotificationsModule,
     PrivacyModule,

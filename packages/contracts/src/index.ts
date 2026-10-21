@@ -50,6 +50,21 @@ export type CancelBookingResult = Json<operations['cancelBooking']['responses'][
 export type Refund = NonNullable<CancelBookingResult['refund']>;
 export type Ticket = NonNullable<Json<operations['getTicket']['responses'][200]>['tickets']>[number];
 
+// --- Highlight video (yuklash, feed, ijro) ----------------------------------
+export type MediaStatus = Schemas['MediaStatus'];
+export type MediaAsset = Schemas['MediaAsset'];
+export type HighlightUploadCreate = Schemas['HighlightUploadCreate'];
+export type UploadInit = Schemas['UploadInit'];
+export type UploadPartUrl = Schemas['UploadPartUrl'];
+export type UploadedPart = Schemas['UploadedPart'];
+export type CompleteUploadResult = Schemas['CompleteUploadResult'];
+export type Highlight = Schemas['Highlight'];
+export type HighlightPage = Schemas['HighlightPage'];
+export type HighlightPlayback = Schemas['HighlightPlayback'];
+export type HighlightLike = Schemas['HighlightLike'];
+export type HighlightShare = Schemas['HighlightShare'];
+export type SharedHighlight = Schemas['SharedHighlight'];
+
 // --- Push / in-app xabarlar va WebSocket -------------------------------------
 export type DeviceRegistration = Schemas['DeviceRegistration'];
 export type Device = Schemas['Device'];

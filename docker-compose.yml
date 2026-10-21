@@ -1,4 +1,4 @@
-# Lokal dev muhit: PostgreSQL 18 + PostGIS va Redis.
+# Lokal dev muhit: PostgreSQL 18 + PostGIS, Redis va MinIO (S3-mos object storage).
 # Faqat lokal ishlab chiqish uchun — parollar production'da ishlatilmaydi.
 name: matchup
 
@@ -29,5 +29,41 @@ services:
     ports:
       - "${MATCHUP_REDIS_PORT:-6379}:6379"
 
+  # S3-mos storage: highlight yuklash (presigned multipart) va worker natijalari.
+  # minio/minio image'lari Docker Hub'dan olib tashlangan -> Bitnami'ning muzlatilgan nusxasi (server + mc).
+  minio:
+    image: bitnamilegacy/minio:2025.7.23
+    environment:
+      MINIO_ROOT_USER: matchup
+      MINIO_ROOT_PASSWORD: matchup_dev_only
+    ports:
+      - "${MATCHUP_MINIO_PORT:-9000}:9000"
+      - "${MATCHUP_MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - miniodata:/bitnami/minio/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  # Bir martalik: bucket'lar va lifecycle (infra/local/minio-init.sh, idempotent)
+  minio-init:
+    image: bitnamilegacy/minio:2025.7.23
+    entrypoint: ["/bin/sh", "/init/minio-init.sh"]
+    environment:
+      MC: /opt/bitnami/minio-client/bin/mc
+      MC_CONFIG_DIR: /tmp/mc
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ROOT_USER: matchup
+      MINIO_ROOT_PASSWORD: matchup_dev_only
+    volumes:
+      - ./infra/local/minio-init.sh:/init/minio-init.sh:ro
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: "no"
+
 volumes:
   pgdata:
+  miniodata:

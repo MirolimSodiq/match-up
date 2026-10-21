@@ -37,6 +37,7 @@ import { currentLocale } from '@/i18n';
 import { formatDay, formatTime } from '@/lib/datetime';
 import { money } from '@/lib/money';
 import { formatDistance, useNow } from '@/lib/time';
+import { HighlightsSection } from '@/features/Highlights';
 import { CheckinProgress, ParticipantRow, SyncBanner } from '@/features/Roster';
 import { useMatchControl } from '@/features/useMatchControl';
 import { type CheckinAction, distanceFromDetail, distanceMeters, type ParticipantView } from '@/offline/core';
@@ -204,7 +205,7 @@ export default function MatchControlScreen() {
             )}
           </Card>
 
-          <Button title={`${t('match.highlights')} · ${t('common.soon')}`} icon="videocam-outline" variant="ghost" disabled />
+          <HighlightsSection matchId={id} canUpload={active || status === 'completed'} />
         </View>
       </ScrollView>
       <View style={[styles.statusStrip, { height: insets.top, backgroundColor: sc.base }]} />

@@ -19,3 +19,17 @@ process.env.TELEGRAM_APP_REDIRECTS = 'matchup://,exp://';
 process.env.PUBLIC_BASE_URL = 'https://api.e2e.matchup.example';
 // GDPR eksport fayllari repo'dan tashqarida
 process.env.STORAGE_DIR = require('node:path').join(require('node:os').tmpdir(), 'matchup-e2e-storage');
+// Highlight pipeline: MinIO (docker compose: minio) yoki CI service. Alohida bucket'lar — dev ma'lumotlariga tegmaydi;
+// global-setup ularni yaratadi. Qism hajmi S3 minimumi (5 MiB) — test fayllari kichik.
+process.env.S3_ENDPOINT = process.env.E2E_S3_ENDPOINT ?? 'http://localhost:9000';
+delete process.env.S3_PUBLIC_ENDPOINT;
+process.env.S3_REGION = 'us-east-1';
+process.env.S3_ACCESS_KEY_ID = process.env.E2E_S3_ACCESS_KEY_ID ?? 'matchup';
+process.env.S3_SECRET_ACCESS_KEY = process.env.E2E_S3_SECRET_ACCESS_KEY ?? 'matchup_dev_only';
+process.env.S3_FORCE_PATH_STYLE = 'true';
+process.env.MEDIA_RAW_BUCKET = 'matchup-e2e-media-raw';
+process.env.MEDIA_BUCKET = 'matchup-e2e-media';
+process.env.MEDIA_UPLOAD_PART_SIZE = String(5 * 1024 * 1024);
+process.env.MEDIA_JOBS_STREAM = 'matchup:media-jobs';
+process.env.MEDIA_WORKER_TOKEN = 'e2e-media-worker-token-0123456789abcdef';
+delete process.env.MEDIA_CDN_DOMAIN;

@@ -1,8 +1,10 @@
 import { Controller, Get, HttpCode, Module, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
 import { z } from 'zod';
-import { AppError } from '../common/errors';
 import { CurrentUser, ReqLocale, Roles, ZBody, ZQuery, type AuthUser } from '../common/http';
 import type { Locale } from '../common/i18n';
+import { HighlightsService } from '../media/highlights.service';
+import { HighlightUploadBody, MediaModule } from '../media/media.module';
+import { MediaService } from '../media/media.service';
 import { DispatchService, HostService } from './host.service';
 
 const GeoPoint = z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) });
@@ -47,7 +49,11 @@ const Complete = z.object({
 @Roles('host')
 @Controller('v1/host')
 export class HostController {
-  constructor(private readonly host: HostService) {}
+  constructor(
+    private readonly host: HostService,
+    private readonly media: MediaService,
+    private readonly highlights: HighlightsService,
+  ) {}
 
   @Get('offers')
   offers(@CurrentUser() user: AuthUser, @ReqLocale() locale: Locale) {
@@ -104,14 +110,27 @@ export class HostController {
     return this.host.complete(user.id, id, body, locale);
   }
 
+  /** S3 multipart (presigned) — video API orqali o'tmaydi; `POST /v1/media/{id}/complete` bilan yakunlanadi. */
   @Post('matches/:matchId/highlights/uploads')
-  highlightUpload(): never {
-    // S3 multipart presigned URL'lar — object storage (S3/MinIO) ulanganidan keyin
-    throw new AppError('NOT_IMPLEMENTED');
+  @HttpCode(201)
+  highlightUpload(
+    @Param('matchId', ParseUUIDPipe) id: string,
+    @ZBody(HighlightUploadBody) body: z.infer<typeof HighlightUploadBody>,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.media.initHighlightUpload(user.id, id, body);
+  }
+
+  /** Shu match'ning kliplari (qayta ishlanayotgan va xato berganlari bilan). */
+  @Get('matches/:matchId/highlights')
+  async matchHighlights(@Param('matchId', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    await this.media.requireUploader(user.id, id);
+    return this.highlights.hostMatchHighlights(user.id, id);
   }
 }
 
 @Module({
+  imports: [MediaModule],
   controllers: [HostController],
   providers: [HostService, DispatchService],
   exports: [DispatchService],
