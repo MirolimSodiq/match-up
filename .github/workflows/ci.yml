@@ -67,14 +67,51 @@ jobs:
         options: >-
           --health-cmd "valkey-cli ping"
           --health-interval 3s --health-timeout 3s --health-retries 20
+      # Highlight upload e2e (presigned multipart). Bucket'larni test global-setup yaratadi.
+      minio:
+        image: bitnamilegacy/minio:2025.7.23
+        env:
+          MINIO_ROOT_USER: matchup
+          MINIO_ROOT_PASSWORD: matchup_ci_only
+        ports: ["9000:9000"]
+        options: >-
+          --health-cmd "curl -fsS http://127.0.0.1:9000/minio/health/live"
+          --health-interval 3s --health-timeout 3s --health-retries 40
     env:
       E2E_DATABASE_URL: postgres://matchup:matchup_ci_only@localhost:5432/matchup_e2e
       E2E_REDIS_URL: redis://localhost:6379/15
+      E2E_S3_ENDPOINT: http://localhost:9000
+      E2E_S3_ACCESS_KEY_ID: matchup
+      E2E_S3_SECRET_ACCESS_KEY: matchup_ci_only
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-pnpm
       - name: E2E (jest, haqiqiy DB)
         run: pnpm --filter @matchup/api test:e2e
+
+  media-worker:
+    name: Media worker (pytest + FFmpeg)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: services/media-worker
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      # Test videolari FFmpeg lavfi bilan generatsiya qilinadi (Ubuntu 24.04: FFmpeg 6.1)
+      - name: FFmpeg + uv
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          pip install uv==0.13.4
+          ffmpeg -version | head -1
+      - name: pytest
+        run: |
+          uv sync --frozen
+          uv run pytest -q
 
   db-verify:
     name: DB testlari (verify.sh, pgbench race)
@@ -129,15 +166,24 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: [api, admin]
+        include:
+          - app: api
+            context: .
+            file: apps/api/Dockerfile
+          - app: admin
+            context: .
+            file: apps/admin/Dockerfile
+          - app: media-worker
+            context: services/media-worker
+            file: services/media-worker/Dockerfile
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
       # Faqat build (push yo'q): registry/deploy bosqichi AWS OIDC role ulangandan keyin qo'shiladi
       - uses: docker/build-push-action@v7
         with:
-          context: .
-          file: apps/${{ matrix.app }}/Dockerfile
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
           push: false
           load: true
           tags: matchup-${{ matrix.app }}:ci
@@ -146,6 +192,9 @@ jobs:
       - name: Image ishga tushadi (api — migratsiya buyrug'i mavjud)
         if: matrix.app == 'api'
         run: docker run --rm --entrypoint node matchup-api:ci -e "require('fs').accessSync('dist/scripts/migrate.js'); require('fs').accessSync('db/migrations/0001_core_mvp.sql')"
+      - name: Image ishga tushadi (media-worker — FFmpeg va paket)
+        if: matrix.app == 'media-worker'
+        run: docker run --rm --entrypoint sh matchup-media-worker:ci -c "ffmpeg -version | head -1 && python -c 'import media_worker, boto3, redis, httpx; print(media_worker.WORKER_VERSION)'"
 
   terraform:
     name: Terraform fmt + validate

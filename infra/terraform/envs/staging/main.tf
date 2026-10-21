@@ -15,6 +15,7 @@ module "cell" {
   api_image_tag          = var.api_image_tag
   admin_image_tag        = var.admin_image_tag
   migrate_image_tag      = var.migrate_image_tag
+  media_worker_image_tag = var.media_worker_image_tag
   use_fargate_spot       = true
   enable_execute_command = true
   api_min_count          = 1
@@ -34,4 +35,7 @@ module "cell" {
 
   cache_node_type  = "cache.t4g.micro"
   cache_node_count = 1
+
+  media_worker_min_count = 1
+  media_worker_max_count = 2
 }

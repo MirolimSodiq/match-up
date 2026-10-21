@@ -34,3 +34,9 @@ variable "migrate_image_tag" {
   type        = string
   default     = null
 }
+
+variable "media_worker_image_tag" {
+  description = "services/media-worker image tegi: -var media_worker_image_tag=<git sha>"
+  type        = string
+  default     = "initial"
+}

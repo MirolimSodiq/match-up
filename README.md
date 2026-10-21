@@ -15,6 +15,7 @@ Pickup sports platformasi (Plei / Birgo uslubida): o'yinchilar tayyor havaskor o
 | [apps/player](apps/player) | **O'yinchi ilovasi** — Expo (React Native, TypeScript) |
 | [apps/host](apps/host) | **Match Host ilovasi** — Expo: takliflar, offline QR check-in, jamoalar, yakunlash |
 | [apps/admin](apps/admin) | **Admin panel** — Next.js (App Router), Tailwind, TanStack Query/Table; BFF orqali OTP login (faqat `admin` roli) |
+| [services/media-worker](services/media-worker) | **Media worker** — Python 3.12 + FFmpeg: highlight kliplari -> HLS (720p/480p), thumbnail, 9:16 MP4 |
 | [packages/contracts](packages/contracts) | `api/openapi.yaml` dan generatsiya qilingan API tiplari (openapi-typescript) |
 | [packages/ui](packages/ui) | Dizayn tizimi: sof TS tokenlar (`@matchup/ui/tokens`, web ham) + RN komponentlar |
 | [db/migrations/](db/migrations/) | SQL migratsiyalar — sxemaning yagona haqiqat manbai |
@@ -35,7 +36,8 @@ Pickup sports platformasi (Plei / Birgo uslubida): o'yinchilar tayyor havaskor o
 | Background job'lar | ✅ | hold expiry, host dispatch, minimumga yetmagan match'larni bekor qilish, outbox relay (BullMQ) |
 | Social login, GDPR job'lari | ✅ | Google / Apple / Telegram, identity bog'lash; ma'lumot eksporti, 30 kunlik grace bilan anonimlashtirish |
 | Push va real-time | ✅ | Expo Push, eslatmalar, waitlist takliflari; Socket.IO (`match:*`, `booking:*`, `host:*`) |
-| Keyingi iteratsiya | ⏳ | Uzum, reconciliation, highlight video yuklash (S3), AI-Cam ([docs/AI_CAM.md](docs/AI_CAM.md)), provider refund'lari, Stripe — to'liq ro'yxat: [docs/STATUS.md](docs/STATUS.md) |
+| Highlight video | ✅ | S3/MinIO presigned multipart (davom ettiriladigan), Redis Stream -> Python worker (HLS, thumbnail, 9:16), match va profil feed'i, like, imzolangan ulashish havolasi |
+| Keyingi iteratsiya | ⏳ | Uzum, reconciliation, AI-Cam ([docs/AI_CAM.md](docs/AI_CAM.md)), provider refund'lari, Stripe — to'liq ro'yxat: [docs/STATUS.md](docs/STATUS.md) |
 
 Rejalashtirilgan endpointlar hozircha `501 NOT_IMPLEMENTED` qaytaradi.
 
@@ -60,6 +62,12 @@ cd apps/api && corepack pnpm dev
 ```
 
 API: `http://localhost:3000` (`GET /health`). Dev rejimida OTP kodlari server logiga yoziladi (`[DEV OTP]`).
+
+`db:up` MinIO'ni ham ko'taradi (`localhost:9000`, konsol `:9001`, bucket'lar `matchup-media-raw`, `matchup-media`). Highlight'larni qayta ishlash uchun media worker (Python 3.12, FFmpeg, [uv](https://docs.astral.sh/uv/)):
+
+```bash
+cd services/media-worker && uv sync && MEDIA_WORKER_TOKEN=dev-media-worker-token-0123456789abcdef S3_ENDPOINT=http://localhost:9000 S3_REGION=us-east-1 S3_ACCESS_KEY_ID=matchup S3_SECRET_ACCESS_KEY=matchup_dev_only S3_FORCE_PATH_STYLE=true uv run python -m media_worker
+```
 
 Admin panel (`http://localhost:3100`, seed admin: `+998901110001`):
 

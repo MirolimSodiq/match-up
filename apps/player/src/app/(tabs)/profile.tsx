@@ -6,6 +6,8 @@ import { useTranslation } from 'react-i18next';
 import { Avatar, Card, colors, Divider, ErrorView, fontFamily, gradients, Group, ListRow, Loading, Notice, PageTitle, radius, ScreenGlow, space, sportColors, SportIcon, states, TAB_BAR_SPACE, type } from '@matchup/ui';
 import { openErasure, useCities, useDataRequests, useMe, useSports, useWallet } from '@/api/queries';
 import { useSession } from '@/auth/session';
+import { useMyHighlights } from '@/features/highlights/api';
+import { HighlightStrip } from '@/features/highlights/HighlightTile';
 import { LanguagePicker } from '@/features/LanguagePicker';
 import { prettyPhone } from '@/features/phone';
 import { currentLocale } from '@/i18n';
@@ -76,6 +78,8 @@ export default function ProfileScreen() {
           <Stat label={t('profile.gamesPlayed')} value={u.stats?.games_played ?? 0} />
           <Stat label={t('profile.noShows')} value={u.stats?.no_show_count ?? 0} />
         </View>
+
+        <MyHighlights />
 
         <Group title={t('profile.account')}>
           <Card tone="white" style={styles.list}>
@@ -148,7 +152,39 @@ function Stat({ label, value }: { label: string; value: number }) {
   );
 }
 
+/** Profil: oxirgi highlight'lar tasmasi va to'liq ro'yxatga havola. */
+function MyHighlights() {
+  const { t } = useTranslation();
+  const q = useMyHighlights('all');
+  const items = q.data?.pages[0]?.items ?? [];
+  if (q.isError) return null;
+  return (
+    <View style={styles.highlights} testID="profile-highlights">
+      <View style={styles.highlightsHead}>
+        <Text style={type.section}>{t('highlights.mine')}</Text>
+        {items.length ? (
+          <Pressable accessibilityRole="button" onPress={() => router.push('/highlights')} hitSlop={8}>
+            <Text style={styles.seeAll}>{t('highlights.seeAll')}</Text>
+          </Pressable>
+        ) : null}
+      </View>
+      {items.length ? (
+        <HighlightStrip items={items.slice(0, 10)} />
+      ) : (
+        <Card tone="white" style={styles.highlightsEmpty}>
+          <Ionicons name="videocam-outline" size={22} color={colors.textMuted} />
+          <Text style={[type.small, styles.flex]}>{q.isPending ? t('common.loading') : t('highlights.emptyHint')}</Text>
+        </Card>
+      )}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  highlights: { gap: space.sm },
+  highlightsHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' },
+  seeAll: { fontFamily: fontFamily.semibold, fontSize: 14, color: colors.primary },
+  highlightsEmpty: { flexDirection: 'row', alignItems: 'center', gap: space.md },
   root: { flex: 1, backgroundColor: colors.bg },
   flex: { flex: 1 },
   content: { paddingHorizontal: space.lg, paddingBottom: TAB_BAR_SPACE + space.lg, gap: space.md },

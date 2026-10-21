@@ -1,7 +1,7 @@
 # Image'lar: tegi o'zgarmas (git SHA), push'da skan, eski image'lar avtomatik tozalanadi.
 
 locals {
-  ecr_repos = toset(["api", "admin"])
+  ecr_repos = toset(["api", "admin", "media-worker"])
 }
 
 resource "aws_ecr_repository" "app" {

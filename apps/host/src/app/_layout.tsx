@@ -14,6 +14,7 @@ import { ApiError } from '@/api/errors';
 import { SessionProvider, useSession } from '@/auth/session';
 import { PushNotifications } from '@/notifications/PushNotifications';
 import { errorMessage } from '@/i18n/errors';
+import { uploadEngine } from '@/media/uploads';
 import { syncEngine } from '@/offline/sync';
 
 const navigationTheme: Theme = { ...DefaultTheme, colors: { ...DefaultTheme.colors, ...navigationColors } };
@@ -40,6 +41,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     syncEngine.start(queryClient);
+    uploadEngine.start(queryClient);
     if (Platform.OS === 'web') return;
     const sub = AppState.addEventListener('change', (s) => focusManager.setFocused(s === 'active'));
     return () => sub.remove();
@@ -107,6 +109,8 @@ function RootNavigator() {
         <Stack.Screen name="match/[id]/teams" options={sheet} />
         <Stack.Screen name="match/[id]/complete" options={sheet} />
         <Stack.Screen name="match/[id]/sync" options={sheet} />
+        <Stack.Screen name="match/[id]/highlight" options={sheet} />
+        <Stack.Screen name="match/[id]/record" options={{ headerShown: false, presentation: 'fullScreenModal' }} />
       </Stack.Protected>
     </Stack>
   );

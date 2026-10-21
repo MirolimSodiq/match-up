@@ -14,6 +14,8 @@ locals {
     "click"        = { service_id = "", merchant_id = "", secret_key = "" }
     "eskiz"        = { email = "", password = "" }
     "sentry"       = { api_dsn = "", admin_dsn = "" }
+    # CloudFront signed URL private key (public qismi — var.media_signing_public_key_pem)
+    "media-cdn" = { private_key = "" }
   }
 }
 

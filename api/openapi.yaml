@@ -45,7 +45,17 @@ tags:
   - name: Host
     description: Freelance Match Host paneli — offer'lar, roster, check-in, highlight
   - name: Media
-    description: Media yuklashni yakunlash
+    description: |
+      Host yuklash oqimi: S3 multipart (presigned URL'lar, video API orqali o'tmaydi), davom ettirish, yakunlash.
+      Lokal — MinIO, production — S3 + CloudFront (eu-central-1).
+  - name: Highlights
+    description: |
+      Player feed'i (match va profil), like, ulashish, HLS ijro. Highlight faqat match ishtirokchilariga ko'rinadi
+      (`visibility = participants`); teglar — faqat `media_appearance` consent'i borlar.
+  - name: Internal
+    description: |
+      Python media worker -> API (`Authorization: Bearer <MEDIA_WORKER_TOKEN>`). Faqat VPC ichida —
+      ALB `/internal/*` ni tashqariga ochmaydi. Worker DB'ga yozmaydi: holat `media_processing_jobs` da.
   - name: Notifications
     description: |
       Push token'lar (Expo; keyinchalik FCM/APNs), in-app xabarlar tarixi.
@@ -1513,47 +1523,112 @@ paths:
       operationId: initHighlightUpload
       summary: Highlight video yuklashni boshlash (S3 multipart, presigned)
       description: |
-        Client videoni 720p H.264 ga siqadi, keyin qismlarni to'g'ridan-to'g'ri object storage'ga yuklaydi
-        (backend orqali o'tmaydi). Maksimal 60 soniya / 150 MB.
+        Faqat shu match'ga tayinlangan host (`accepted`, `arrived`, `completed`; match bekor qilinmagan).
+        Cheklovlar: ≤ 60 s, ≤ 150 MB, `video/mp4` yoki `video/quicktime`.
+
+        Video **backend orqali o'tmaydi**: client faylni `part_size_bytes` bo'laklarga bo'lib, har bir bo'lakni
+        `parts[].url` ga `PUT` qiladi (body — aynan `parts[].size_bytes` bayt; `Content-Length` imzoga kiradi) va
+        javobdagi `ETag` header'ini saqlaydi. URL'lar `expires_at` gacha amal qiladi; muddat o'tsa yoki internet
+        uzilsa — `GET /v1/media/{mediaId}/upload`. Hammasi yuklangach — `POST /v1/media/{mediaId}/complete`.
+        Highlight qatori yakunlashda yaratiladi (`source = host_manual`, `visibility = participants`).
       parameters:
         - $ref: '#/components/parameters/MatchId'
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              required: [content_type, size_bytes, duration_ms]
-              properties:
-                content_type: { type: string, enum: [video/mp4, video/quicktime] }
-                size_bytes: { type: integer, maximum: 157286400 }
-                duration_ms: { type: integer, maximum: 60000 }
-                recorded_at: { type: string, format: date-time }
-                match_offset_ms: { type: integer, minimum: 0 }
-                title: { type: string, maxLength: 120 }
-                tagged_user_ids:
-                  type: array
-                  items: { type: string, format: uuid }
-                  description: Faqat `media_appearance` consent'i borlar teglanadi (qolganlari jim tashlab yuboriladi)
+            schema: { $ref: '#/components/schemas/HighlightUploadCreate' }
       responses:
         '201':
-          description: Yuklash URL'lari
+          description: Multipart sessiya va qismlar uchun presigned URL'lar
           content:
             application/json:
               schema: { $ref: '#/components/schemas/UploadInit' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
+
+  /v1/host/matches/{matchId}/highlights:
+    get:
+      tags: [Host]
+      operationId: listHostMatchHighlights
+      summary: Shu match'ning kliplari (host uchun — qayta ishlanayotgan va xato berganlari ham)
+      parameters:
+        - $ref: '#/components/parameters/MatchId'
+      responses:
+        '200':
+          description: Kliplar (eng yangisi birinchi)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Highlight' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /v1/media/{mediaId}:
+    get:
+      tags: [Media]
+      operationId: getMedia
+      summary: Yuklangan fayl holati (faqat egasi)
+      description: Host ilovasi qayta ishlash holatini (`processing.stage`) shu yerdan kuzatadi.
+      parameters:
+        - $ref: '#/components/parameters/MediaId'
+      responses:
+        '200':
+          description: Media
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MediaAsset' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/media/{mediaId}/upload:
+    get:
+      tags: [Media]
+      operationId: resumeMediaUpload
+      summary: Uzilgan yuklashni davom ettirish
+      description: |
+        Storage'dagi yuklangan qismlar (`uploaded_parts`, ETag bilan — client ularni yo'qotgan bo'lsa ham) va
+        qolgan qismlar uchun yangi presigned URL'lar. Hajmi to'liq bo'lmagan qism qayta yuklanadi.
+        Sessiya `session_expires_at` dan keyin abort qilinadi (`410 UPLOAD_EXPIRED`).
+      parameters:
+        - $ref: '#/components/parameters/MediaId'
+      responses:
+        '200':
+          description: Yuklash holati
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UploadInit' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '410': { $ref: '#/components/responses/Gone' }
+    delete:
+      tags: [Media]
+      operationId: abortMediaUpload
+      summary: Yuklashni bekor qilish (AbortMultipartUpload)
+      parameters:
+        - $ref: '#/components/parameters/MediaId'
+      responses:
+        '204': { description: Bekor qilindi }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
 
   /v1/media/{mediaId}/complete:
     post:
       tags: [Media]
       operationId: completeMediaUpload
       summary: Multipart yuklashni yakunlash
-      description: Object storage `CompleteMultipartUpload` -> `media_assets.status = processing` -> transcode navbati (SQS -> Python worker).
+      description: |
+        `CompleteMultipartUpload` -> `media_assets.status = processing` -> highlight qatori (+ teglar) ->
+        `media_processing_jobs` (`transcode`) -> Redis Stream `matchup:media-jobs` -> Python worker.
+        Teglar: faqat roster'dagi va `media_appearance` consent'i bor o'yinchilar; qolganlari jim tashlab yuboriladi.
+        Idempotent: takroriy chaqiruv (masalan, javob yo'qolgan) o'sha natijani qaytaradi.
       parameters:
-        - name: mediaId
-          in: path
-          required: true
-          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/MediaId'
       requestBody:
         required: true
         content:
@@ -1564,25 +1639,300 @@ paths:
               properties:
                 parts:
                   type: array
+                  description: 1..`part_count` qismlarning barchasi
                   items:
                     type: object
                     required: [part_number, etag]
                     properties:
-                      part_number: { type: integer }
-                      etag: { type: string }
-                checksum_sha256: { type: string }
+                      part_number: { type: integer, minimum: 1 }
+                      etag: { type: string, description: 'PUT javobidagi `ETag` (qo''shtirnoq bilan yoki qo''shtirnoqsiz)' }
+                checksum_sha256:
+                  type: string
+                  description: Butun faylning SHA-256 (hex yoki base64). Worker tekshiradi, mos kelmasa — `CHECKSUM_MISMATCH`.
       responses:
         '202':
           description: Qayta ishlashga yuborildi
           content:
             application/json:
+              schema: { $ref: '#/components/schemas/CompleteUploadResult' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`UPLOAD_INCOMPLETE` (qismlar yetishmaydi / ETag mos emas) yoki `INVALID_STATE`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '410': { $ref: '#/components/responses/Gone' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  # ===========================================================================
+  # HIGHLIGHTS — player feed, like, ulashish, ijro
+  # ===========================================================================
+  /v1/matches/{matchId}/highlights:
+    get:
+      tags: [Highlights]
+      operationId: listMatchHighlights
+      summary: Match highlight'lari (faqat ishtirokchilarga)
+      description: |
+        Ko'ra oladi: roster'dagi o'yinchi (`confirmed`, `checked_in`), tayinlangan host, admin. Boshqalarga — 403.
+        Faqat tayyor (worker qayta ishlagan) kliplar.
+      parameters:
+        - $ref: '#/components/parameters/MatchId'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Kliplar (eng yangisi birinchi)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HighlightPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/me/highlights:
+    get:
+      tags: [Highlights]
+      operationId: listMyHighlights
+      summary: Profil feed'i — men o'ynagan match'lar yoki men teglangan kliplar
+      parameters:
+        - name: scope
+          in: query
+          schema: { type: string, enum: [all, tagged], default: all }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Kliplar
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HighlightPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/highlights/{highlightId}:
+    get:
+      tags: [Highlights]
+      operationId: getHighlight
+      summary: Bitta highlight (yangi imzolangan ijro URL'lari bilan)
+      parameters:
+        - $ref: '#/components/parameters/HighlightId'
+      responses:
+        '200':
+          description: Highlight
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Highlight' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/highlights/{highlightId}/like:
+    put:
+      tags: [Highlights]
+      operationId: likeHighlight
+      summary: Like (idempotent)
+      parameters:
+        - $ref: '#/components/parameters/HighlightId'
+      responses:
+        '200':
+          description: Joriy holat
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HighlightLike' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Highlights]
+      operationId: unlikeHighlight
+      summary: Like'ni olib tashlash (idempotent)
+      parameters:
+        - $ref: '#/components/parameters/HighlightId'
+      responses:
+        '200':
+          description: Joriy holat
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HighlightLike' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/highlights/{highlightId}/share:
+    post:
+      tags: [Highlights]
+      operationId: shareHighlight
+      summary: Ulashish havolasi (imzolangan, muddatli)
+      description: |
+        `highlight_shares` qatori + `HighlightShared` outbox event. Havola (`/h/{token}`) auth'siz ochiladi,
+        `SHARE_LINK_TTL_DAYS` (standart 7 kun) amal qiladi; sahifada ism va teglar ko'rsatilmaydi.
+      parameters:
+        - $ref: '#/components/parameters/HighlightId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                channel: { type: string, enum: [telegram, instagram, link, other], default: link }
+      responses:
+        '201':
+          description: Havola
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HighlightShare' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/shared/highlights/{token}:
+    get:
+      tags: [Highlights]
+      operationId: getSharedHighlight
+      summary: Ulashilgan highlight (ochiq, token = imzo)
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/ShareToken'
+      responses:
+        '200':
+          description: Highlight
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SharedHighlight' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /h/{token}:
+    get:
+      tags: [Highlights]
+      operationId: sharedHighlightPage
+      summary: Ulashish sahifasi (HTML, og:image / og:video — Telegram preview)
+      security: []
+      servers:
+        - url: https://api.uz-1.matchup.example
+      parameters:
+        - $ref: '#/components/parameters/ShareToken'
+      responses:
+        '200':
+          description: HTML sahifa (`noindex`)
+          content:
+            text/html:
+              schema: { type: string }
+        '404':
+          description: Havola muddati tugagan yoki highlight o'chirilgan (HTML)
+          content:
+            text/html:
+              schema: { type: string }
+
+  /v1/playback/{token}/{file}:
+    get:
+      tags: [Highlights]
+      operationId: getPlaybackPlaylist
+      summary: HLS playlist (master yoki rendition) — `Highlight.media.playback.hls_url` shu yerga olib keladi
+      description: |
+        Video player'lar Authorization header yubormaydi, shuning uchun token URL'da (muddati — `expires_at`).
+        `master.m3u8` -> rendition'lar (`720p.m3u8`, `480p.m3u8`); rendition playlist'idagi har segment
+        imzolangan absolyut URL (CloudFront signed URL yoki S3/MinIO presigned) bilan almashtirilgan —
+        segmentlar API orqali o'tmaydi.
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string, pattern: '^[A-Za-z0-9_-]{48}$' }
+        - name: file
+          in: path
+          required: true
+          schema: { type: string, examples: [master.m3u8, 720p.m3u8] }
+      responses:
+        '200':
+          description: M3U8
+          content:
+            application/vnd.apple.mpegurl:
+              schema: { type: string }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ===========================================================================
+  # INTERNAL — Python media worker (servis token, faqat VPC ichida; ALB tashqariga ochmaydi)
+  # ===========================================================================
+  /internal/media/jobs/{jobId}/start:
+    post:
+      tags: [Internal]
+      operationId: startMediaJob
+      summary: Worker job'ni oldi -> `running`, attempts + 1
+      description: |
+        Navbat xabari (`matchup:media-jobs`: `v`, `job_id`, `type`, `media_id`, `enqueued_at`) faqat id'larni olib yuradi —
+        tafsilotlar shu javobda. 409: job tugagan/bekor qilingan yoki boshqa worker hozir ishlayapti
+        (heartbeat < 2 daq) — worker xabarni ACK qilib tashlaydi.
+      security: [{ workerToken: [] }]
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [worker_version]
+              properties:
+                worker_version: { type: string, examples: [media-worker/0.1.0] }
+      responses:
+        '200':
+          description: Job tafsilotlari
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MediaJob' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /internal/media/jobs/{jobId}/progress:
+    post:
+      tags: [Internal]
+      operationId: reportMediaJobProgress
+      summary: Joriy bosqich + heartbeat
+      security: [{ workerToken: [] }]
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [stage]
+              properties:
+                stage: { type: string, examples: [download, probe, validate, hls, thumbnail, vertical, upload] }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, properties: { ok: { type: boolean } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /internal/media/jobs/{jobId}/result:
+    post:
+      tags: [Internal]
+      operationId: reportMediaJobResult
+      summary: Yakuniy natija — `ready` (HLS, thumbnail, davomiylik) yoki `failed`
+      description: |
+        `ready`: `media_assets.status = ready`, `highlights.published_at`, outbox `HighlightReady`
+        (`highlight_id`, `match_id`, `media_id`, `created_by`, `tagged_user_ids`). Barcha kalitlar job'ning
+        `output.prefix` ichida bo'lishi shart. Idempotent: takroriy `ready` — o'zgarishsiz 200.
+      security: [{ workerToken: [] }]
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MediaJobResult' }
+      responses:
+        '200':
+          description: Qabul qilindi
+          content:
+            application/json:
               schema:
                 type: object
                 properties:
-                  media_id: { type: string, format: uuid }
-                  status: { type: string, enum: [processing] }
-                  highlight_id: { type: string, format: uuid }
+                  job_id: { type: string, format: uuid }
+                  status: { type: string, enum: [succeeded, failed] }
+                  highlight_id: { type: [string, 'null'], format: uuid }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
 
   # ===========================================================================
   # ADMIN — ichki operatsiyalar (faqat `admin` / `super_admin` roli)
@@ -2076,6 +2426,10 @@ components:
       type: apiKey
       in: header
       name: Stripe-Signature
+    workerToken:
+      type: http
+      scheme: bearer
+      description: Servis token (`MEDIA_WORKER_TOKEN`), faqat media worker
 
   parameters:
     TelegramRedirectUri:
@@ -2131,6 +2485,26 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
+    MediaId:
+      name: mediaId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    HighlightId:
+      name: highlightId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    JobId:
+      name: jobId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ShareToken:
+      name: token
+      in: path
+      required: true
+      schema: { type: string, pattern: '^[A-Za-z0-9_-]{48}$' }
     RefundId:
       name: refundId
       in: path
@@ -2191,6 +2565,11 @@ components:
           schema: { $ref: '#/components/schemas/Problem' }
     Conflict:
       description: Holat ziddiyati (state machine ruxsat bermaydi)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Gone:
+      description: Muddati o'tgan (masalan `UPLOAD_EXPIRED`)
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
@@ -2875,24 +3254,277 @@ components:
         participant_id: { type: string, format: uuid }
         occurred_at: { type: string, format: date-time }
         location: { $ref: '#/components/schemas/GeoPoint' }
+    # --- Media / highlights -------------------------------------------------
+    HighlightUploadCreate:
+      type: object
+      required: [content_type, size_bytes, duration_ms]
+      properties:
+        content_type: { type: string, enum: [video/mp4, video/quicktime] }
+        size_bytes: { type: integer, minimum: 1, maximum: 157286400, description: Aniq fayl hajmi (qismlar shundan hisoblanadi) }
+        duration_ms: { type: integer, minimum: 1, maximum: 60000 }
+        recorded_at: { type: string, format: date-time }
+        match_offset_ms: { type: integer, minimum: 0, description: Kick-off'dan beri }
+        title: { type: string, maxLength: 120 }
+        tagged_user_ids:
+          type: array
+          maxItems: 30
+          items: { type: string, format: uuid }
+          description: Faqat roster'dagi va `media_appearance` consent'i borlar teglanadi (qolganlari jim tashlab yuboriladi)
+        tagged_participant_ids:
+          type: array
+          maxItems: 30
+          items: { type: string, format: uuid }
+          description: Host roster'idagi `participant_id` lar (`tagged_user_ids` bilan bir xil qoida)
+    MediaStatus:
+      type: string
+      enum: [uploading, processing, ready, failed, rejected, deleted]
+    MediaAsset:
+      type: object
+      required: [id, kind, status, content_type, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [video, image] }
+        status: { $ref: '#/components/schemas/MediaStatus' }
+        content_type: { type: string }
+        size_bytes: { type: [integer, 'null'] }
+        duration_ms: { type: [integer, 'null'] }
+        width: { type: [integer, 'null'], description: Ko'rinadigan kenglik (aylantirish hisobga olingan) }
+        height: { type: [integer, 'null'] }
+        match_id: { type: [string, 'null'], format: uuid }
+        highlight_id: { type: [string, 'null'], format: uuid, description: Yuklash yakunlangach }
+        processing:
+          type: [object, 'null']
+          properties:
+            status: { type: string, enum: [queued, running, succeeded, failed, cancelled] }
+            stage: { type: [string, 'null'], examples: [hls] }
+        failure_code:
+          type: [string, 'null']
+          examples: [DURATION_TOO_LONG, NOT_A_VIDEO, UNSUPPORTED_FORMAT, CHECKSUM_MISMATCH, MAX_RETRIES_EXCEEDED]
+        created_at: { type: string, format: date-time }
+        uploaded_at: { type: [string, 'null'], format: date-time }
+        processed_at: { type: [string, 'null'], format: date-time }
+    UploadPartUrl:
+      type: object
+      required: [part_number, size_bytes, url]
+      properties:
+        part_number: { type: integer }
+        size_bytes: { type: integer, description: 'PUT body aynan shu hajmda (`Content-Length` imzolangan)' }
+        url: { type: string, format: uri }
+    UploadedPart:
+      type: object
+      required: [part_number, etag, size_bytes]
+      properties:
+        part_number: { type: integer }
+        etag: { type: string }
+        size_bytes: { type: integer }
     UploadInit:
       type: object
+      required: [media_id, media, upload]
       properties:
         media_id: { type: string, format: uuid }
+        media: { $ref: '#/components/schemas/MediaAsset' }
         upload:
           type: object
+          required: [type, upload_id, part_size_bytes, part_count, expires_at, session_expires_at, uploaded_parts, parts]
           properties:
             type: { const: s3_multipart }
             upload_id: { type: string }
             part_size_bytes: { type: integer, examples: [8388608] }
-            expires_at: { type: string, format: date-time }
+            part_count: { type: integer }
+            expires_at: { type: string, format: date-time, description: Presigned URL'lar muddati }
+            session_expires_at: { type: string, format: date-time, description: Shundan keyin yuklash abort qilinadi }
+            uploaded_parts:
+              type: array
+              description: Storage'da allaqachon bor qismlar (davom ettirishda)
+              items: { $ref: '#/components/schemas/UploadedPart' }
             parts:
               type: array
-              items:
-                type: object
-                properties:
-                  part_number: { type: integer }
-                  url: { type: string, format: uri }
+              description: Yuklanishi kerak bo'lgan qismlar
+              items: { $ref: '#/components/schemas/UploadPartUrl' }
+    CompleteUploadResult:
+      type: object
+      required: [media_id, status, highlight_id, media]
+      properties:
+        media_id: { type: string, format: uuid }
+        status: { type: string, enum: [processing, ready] }
+        highlight_id: { type: [string, 'null'], format: uuid }
+        media: { $ref: '#/components/schemas/MediaAsset' }
+    HighlightPlayback:
+      type: object
+      required: [hls_url, mp4_url, expires_at]
+      properties:
+        hls_url: { type: string, format: uri, description: 'HLS master playlist (720p + 480p), `/v1/playback/{token}/master.m3u8`' }
+        mp4_url: { type: [string, 'null'], format: uri, description: '9:16 MP4 (720x1280) — Reels/Telegram, yuklab olish' }
+        expires_at: { type: string, format: date-time, description: Shundan keyin yangi URL uchun highlight'ni qayta oling }
+    Highlight:
+      type: object
+      required: [id, match_id, source, status, likes_count, shares_count, liked_by_me, tags, creator, match, media]
+      properties:
+        id: { type: string, format: uuid }
+        match_id: { type: string, format: uuid }
+        source: { type: string, enum: [host_manual, ai_generated, player_upload] }
+        title: { type: [string, 'null'] }
+        status: { type: string, enum: [processing, ready, failed], description: Player feed'ida doim `ready` }
+        failure_code: { type: [string, 'null'] }
+        duration_ms: { type: [integer, 'null'] }
+        match_offset_ms: { type: [integer, 'null'] }
+        visibility: { type: string, enum: [public, participants, private] }
+        created_at: { type: string, format: date-time }
+        published_at: { type: [string, 'null'], format: date-time }
+        creator:
+          type: object
+          required: [id, display_name]
+          properties:
+            id: { type: string, format: uuid }
+            display_name: { type: [string, 'null'] }
+        tags:
+          type: array
+          description: Teglangan o'yinchilar (faqat joriy `media_appearance` consent'i borlar)
+          items:
+            type: object
+            required: [user_id, display_name]
+            properties:
+              user_id: { type: string, format: uuid }
+              display_name: { type: string }
+        likes_count: { type: integer }
+        shares_count: { type: integer }
+        liked_by_me: { type: boolean }
+        match:
+          type: object
+          required: [id, public_code, sport, starts_at, timezone, venue_name]
+          properties:
+            id: { type: string, format: uuid }
+            public_code: { type: string, examples: [MU-RACE] }
+            sport: { type: string }
+            starts_at: { type: string, format: date-time }
+            timezone: { type: string }
+            venue_name: { type: string }
+        media:
+          type: object
+          required: [id, thumbnail_url, playback]
+          properties:
+            id: { type: string, format: uuid }
+            width: { type: [integer, 'null'] }
+            height: { type: [integer, 'null'] }
+            thumbnail_url: { type: [string, 'null'], format: uri }
+            playback:
+              oneOf:
+                - $ref: '#/components/schemas/HighlightPlayback'
+                - type: 'null'
+    HighlightPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Highlight' }
+        next_cursor: { type: [string, 'null'] }
+    HighlightLike:
+      type: object
+      required: [highlight_id, liked, likes_count]
+      properties:
+        highlight_id: { type: string, format: uuid }
+        liked: { type: boolean }
+        likes_count: { type: integer }
+    HighlightShare:
+      type: object
+      required: [share_id, channel, url, text, expires_at]
+      properties:
+        share_id: { type: string, format: uuid }
+        channel: { type: string, enum: [telegram, instagram, link, other] }
+        url: { type: string, format: uri, examples: ['https://api.uz-1.matchup.example/h/AaFauIS9dIqKYsgr-B33kmrYErPJO8Ze2fpngr9OTqzIwaUi'] }
+        text: { type: string, description: Share sheet uchun tayyor matn (Accept-Language) }
+        expires_at: { type: string, format: date-time }
+    SharedHighlight:
+      type: object
+      required: [id, match, playback, expires_at]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: [string, 'null'] }
+        duration_ms: { type: [integer, 'null'] }
+        width: { type: [integer, 'null'] }
+        height: { type: [integer, 'null'] }
+        match:
+          type: object
+          properties:
+            public_code: { type: string }
+            sport: { type: string }
+            starts_at: { type: string, format: date-time }
+            timezone: { type: string }
+            venue_name: { type: string }
+        thumbnail_url: { type: [string, 'null'], format: uri }
+        playback: { $ref: '#/components/schemas/HighlightPlayback' }
+        expires_at: { type: string, format: date-time }
+    MediaRendition:
+      type: object
+      required: [name, width, height, bandwidth, playlist_key]
+      properties:
+        name: { type: string, examples: ['720p'] }
+        width: { type: integer }
+        height: { type: integer }
+        bandwidth: { type: integer, description: Eng og'ir segment bit/s (+10%) }
+        codecs: { type: string, examples: ['avc1.4d4028,mp4a.40.2'] }
+        playlist_key: { type: string }
+    MediaJob:
+      type: object
+      required: [job_id, type, attempt, profile, media, source, output, limits]
+      properties:
+        job_id: { type: string, format: uuid }
+        type: { type: string, enum: [transcode, thumbnail, ai_detect_events, ai_auto_clip, face_blur] }
+        attempt: { type: integer }
+        profile: { type: string, examples: [highlight_v1] }
+        media:
+          type: object
+          properties:
+            id: { type: string, format: uuid }
+            content_type: { type: string }
+            size_bytes: { type: [integer, 'null'] }
+            declared_duration_ms: { type: [integer, 'null'] }
+            checksum_sha256: { type: [string, 'null'], description: hex }
+        source:
+          type: object
+          properties:
+            bucket: { type: string }
+            key: { type: string }
+        output:
+          type: object
+          properties:
+            bucket: { type: string }
+            prefix: { type: string, examples: ['highlights/{match_id}/{media_id}/'] }
+        limits:
+          type: object
+          properties:
+            max_duration_ms: { type: integer }
+            max_bytes: { type: integer }
+    MediaJobResult:
+      oneOf:
+        - type: object
+          required: [status, worker_version, output]
+          properties:
+            status: { const: ready }
+            worker_version: { type: string }
+            output:
+              type: object
+              required: [hls_master_key, renditions, thumbnail_key, duration_ms, width, height]
+              properties:
+                hls_master_key: { type: string }
+                renditions:
+                  type: array
+                  items: { $ref: '#/components/schemas/MediaRendition' }
+                thumbnail_key: { type: string }
+                vertical_key: { type: [string, 'null'] }
+                duration_ms: { type: number }
+                width: { type: number }
+                height: { type: number }
+                has_audio: { type: boolean }
+                probe: { type: object, additionalProperties: true }
+        - type: object
+          required: [status, worker_version, error_code]
+          properties:
+            status: { const: failed }
+            worker_version: { type: string }
+            error_code: { type: string, pattern: '^[A-Z0-9_]{1,64}$', examples: [DURATION_TOO_LONG] }
+            error_message: { type: string }
 
     # --- Admin --------------------------------------------------------------
     AdminMatchCreate:

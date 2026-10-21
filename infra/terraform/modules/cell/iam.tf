@@ -9,7 +9,8 @@ locals {
       log_group = "api"
       secrets = concat(
         [aws_secretsmanager_secret.database_url.arn, aws_secretsmanager_secret.redis_url.arn],
-        [for k in ["signing-keys", "payme", "click", "eskiz", "sentry"] : aws_secretsmanager_secret.manual[k].arn],
+        [aws_secretsmanager_secret.media_worker_token.arn],
+        [for k in ["signing-keys", "payme", "click", "eskiz", "sentry", "media-cdn"] : aws_secretsmanager_secret.manual[k].arn],
       )
     }
     migrate = {
@@ -21,6 +22,11 @@ locals {
       repo      = "admin"
       log_group = "admin"
       secrets   = [aws_secretsmanager_secret.manual["sentry"].arn]
+    }
+    media-worker = {
+      repo      = "media-worker"
+      log_group = "media-worker"
+      secrets   = [aws_secretsmanager_secret.redis_url.arn, aws_secretsmanager_secret.media_worker_token.arn]
     }
   }
 }
@@ -112,12 +118,19 @@ resource "aws_iam_role" "task" {
   assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume.json
 }
 
-# API: media bucket'ga faqat obyekt darajasida (presigned upload/download, o'chirish)
+# API: media bucket'larga faqat obyekt darajasida (presigned upload/download, o'chirish).
+# Xom kliplar: multipart sessiya (Create/Complete = PutObject), qismlar ro'yxati, abort, HEAD.
 data "aws_iam_policy_document" "api_task" {
   statement {
     sid       = "MediaObjects"
     actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload"]
     resources = ["${aws_s3_bucket.media.arn}/*"]
+  }
+
+  statement {
+    sid       = "RawUploads"
+    actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload", "s3:ListMultipartUploadParts"]
+    resources = ["${aws_s3_bucket.media_raw.arn}/highlights/*"]
   }
 }
 

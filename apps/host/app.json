@@ -39,9 +39,9 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Match Host o'yinchilarning QR chiptalarini skanerlash uchun kameradan foydalanadi.",
-          "microphonePermission": false,
-          "recordAudioAndroid": false
+          "cameraPermission": "Match Host o'yinchilarning QR chiptalarini skanerlash va highlight video yozish uchun kameradan foydalanadi.",
+          "microphonePermission": "Match Host highlight videoga maydon ovozini yozish uchun mikrofondan foydalanadi.",
+          "recordAudioAndroid": true
         }
       ],
       [
@@ -49,6 +49,14 @@
         {
           "color": "#161B33",
           "defaultChannel": "default"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Match Host galereyadagi highlight videoni tanlash uchun foydalanadi.",
+          "cameraPermission": false,
+          "microphonePermission": false
         }
       ],
       "expo-font",
