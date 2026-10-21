@@ -98,6 +98,11 @@ const STATUS_TONE: Record<string, Tone> = {
   accepted: 'success',
   arrived: 'success',
   declined: 'neutral',
+  running: 'info',
+  missing_at_provider: 'danger',
+  missing_locally: 'danger',
+  amount_mismatch: 'warning',
+  status_mismatch: 'warning',
 };
 
 export function StatusBadge({ status, label }: { status: string; label: string }) {
