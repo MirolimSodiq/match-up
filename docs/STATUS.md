@@ -1,42 +1,46 @@
 # Loyiha holati
 
-> Oxirgi yangilanish: 2026-10-20, `main` = `23fcde1`. Yangi Claude sessiyasi shu fayldan davom ettirishi mumkin: avval shuni, keyin `docs/ARCHITECTURE.md` ni o'qing.
+> Oxirgi yangilanish: 2026-10-21, `main` (GitHub'ga push qilingan). Yangi Claude sessiyasi shu fayldan davom ettirishi mumkin: avval shuni, keyin `docs/ARCHITECTURE.md` ni o'qing.
 
 ## Bajarildi (`main` da)
 
 | Qism | Natija | Tekshiruv |
 |---|---|---|
-| Arxitektura | `docs/ARCHITECTURE.md`: stack, DB, API, data residency (2026-yil mart qonuni), to'lovlar, compliance, roadmap | — |
-| DB | migratsiyalar 0001–0005, dev seed, `db/tests/verify.sh` (oversell race) | 30/30 |
-| Backend (`apps/api`) | auth (OTP, social: Google/Apple/Telegram), profil, discovery, waiver, booking, Payme/Click/hamyon, host panel, admin API, push va WebSocket, GDPR eksport/erasure, BullMQ job'lar, outbox, DB/Redis uzilishiga chidamlilik | e2e 70/70 |
-| Player ilovasi (`apps/player`) | Expo, yorug' sport dizayni, to'lov WebView, QR chipta, social login, profil: kirish usullari va maxfiylik (eksport, o'chirish), push, jonli slot'lar | tsc |
-| Host ilovasi (`apps/host`) | takliflar, offline roster, QR skaner (Ed25519 offline), jamoalar, yakunlash, push | vitest 36/36 |
+| Arxitektura | `docs/ARCHITECTURE.md`: stack, DB, API, data residency (2026-yil mart qonuni), to'lovlar, compliance, roadmap; `docs/AI_CAM.md` — AI-Cam dizayni; `docs/DEPLOYMENT.md` | — |
+| DB | migratsiyalar 0001–0005, 0007, 0008 (`0006` AI-Cam uchun band), dev seed, `db/tests/verify.sh` (oversell race) | 30/30 |
+| Backend (`apps/api`) | auth (OTP, Google/Apple/Telegram), profil, discovery, waiver, booking, to'lovlar (Payme, Click, **Uzum**, hamyon), **kechki reconciliation**, host panel, admin API, push va WebSocket, GDPR eksport/erasure (+ eksport tayyor push'i), **highlight video pipeline** (MinIO/S3 presigned multipart, ichki endpointlar, feed, like, share, highlight push'lari), BullMQ job'lar, outbox, DB/Redis uzilishiga chidamlilik | e2e 102/102 |
+| Media worker (`services/media-worker`) | Python 3.12 + FFmpeg: Redis Stream `matchup:media-jobs` → HLS 720p/480p, thumbnail, 9:16 vertikal MP4 | pytest 32/32 |
+| Player ilovasi (`apps/player`) | Expo, yorug' sport dizayni, to'lov WebView (Uzum ham), QR chipta, social login, profil (kirish usullari, maxfiylik), push va deep link'lar, jonli slot'lar, highlight feed | tsc |
+| Host ilovasi (`apps/host`) | takliflar, offline roster, QR skaner (Ed25519 offline), jamoalar, yakunlash, push, highlight yozish va resumable yuklash | vitest 45/45 |
 | Admin panel (`apps/admin`) | Next.js BFF, match/venue/host/refund/dashboard | build |
 | Dizayn tizimi | `packages/ui` (tokenlar + RN komponentlar), `packages/contracts` (OpenAPI tiplari) | tsc |
-| CI va infra | GitHub Actions, Dockerfile'lar (api, admin), lokal staging, Terraform (eu-central-1), Sentry, EAS, `docs/DEPLOYMENT.md` | terraform validate, actionlint |
+| CI va infra | GitHub Actions (typecheck, e2e, worker pytest, lint, build), Dockerfile'lar, lokal staging, Terraform (eu-central-1, media bucket'lar, worker ECS), Sentry, EAS | terraform validate, actionlint |
 
 ## Jarayonda / merge qilinmagan
 
-| Branch | Ish | Holat |
-|---|---|---|
-| `claude/media-pipeline-a6ca55` | Highlight video pipeline: MinIO/S3 presigned multipart (resume), Redis Stream `matchup:media-jobs` → `services/media-worker` (Python 3.12, FFmpeg: HLS 720p/480p, thumbnail, 9:16), ichki endpointlar, player feed / like / share, host'da yozish va yuklash, Terraform (media-raw bucket, worker ECS/IAM), CI | commit qilinmagan; migratsiya `0008`; e2e 80/80, worker pytest 31/31, host vitest 45/45 |
-| `claude/quirky-murdock-8a7fe0` | Highlight push: `HighlightReady` → teglangan o'yinchilarga `highlight.tagged` (joriy `media_appearance` consent bilan), qolgan ishtirokchilarga `highlight.ready` (har match uchun bitta); `HighlightShared` → teglanganlarga `highlight.shared` (har klip uchun bitta). Deep link `/highlight/{id}` | commit qilinmagan; media-pipeline'ning commit qilinmagan nusxasi ustida (shu branch'dan keyin merge qilinadi); e2e 85/85 |
+Yo'q. Barcha `claude/*` branch'lar `main` ga qo'shilgan; ular faqat lokal tarix sifatida qolgan, GitHub'ga push qilinmagan.
 
 ## Qoldi
 
 | # | Ish | Izoh |
 |---|---|---|
-| 1 | Uzum Bank va kechki reconciliation (Payme `GetStatement`, Click hisobotlari) | 2-to'lqin |
-| 2 | ~~Highlight video yuklash~~ — `claude/media-pipeline-a6ca55` da tayyor (merge kutilmoqda). Push xabarlari — `claude/quirky-murdock-8a7fe0`. Qolgani: navbat uzunligi bo'yicha worker autoscaling, admin moderatsiyasi, GDPR eksportiga media | AI-Cam Bosqich A uchun asos |
-| 3 | **AI-Cam Engine** — rig, sinxronlash, tracking, bib orqali o'yinchini tanish, event'lar, reyting, `/v1/matches/{id}/analytics` | Phase 2, dizayn: [`docs/AI_CAM.md`](AI_CAM.md), bosqichlar A–D |
-| 4 | Provider refund'larni avtomatlashtirish (hozir admin navbatida qo'lda) | Payme/Click API imkoniyatlariga bog'liq |
-| 5 | Stripe / Apple Pay / PayPal | chet el yuridik shaxsi kerak (Phase 3) |
-| 6 | Sinalmagan qismlar | push bosilganda deep link; haqiqiy client ID bilan Apple/Google login; CI haqiqiy GitHub'da (remote hali yo'q) |
-| 7 | Phase 1.5 / 2 | roster asosidagi sug'urta, balanslangan jamoalar, Teams/Leagues/Tournaments UI, social feed |
-| 8 | Yuridik | biometrik ta'rif (video), davlat reyestri, waiver kuchi, host'lar bilan shartnoma (`ARCHITECTURE.md` §6) |
+| 1 | Admin panelda reconciliation sahifasi (`GET /v1/admin/finance/reconciliation` uchun UI) | backend tayyor; UI sessiyasi Uzum branch'i merge bo'lishini kutib to'xtagan edi — endi boshlash mumkin |
+| 2 | **AI-Cam Engine** — Bosqich A: to'liq o'yinni yozish rejimi (2 telefon), `recording_sessions`, bib raqamini biriktirish; keyin B–D | dizayn: [`docs/AI_CAM.md`](AI_CAM.md); migratsiya `0006` band; media pipeline asos bo'ladi |
+| 3 | Media qoldiqlari | navbat uzunligi bo'yicha worker autoscaling, admin'da highlight moderatsiyasi, GDPR eksportiga media fayllar |
+| 4 | Provider refund'larni avtomatlashtirish | hozir admin navbatida qo'lda; Payme/Click/Uzum API imkoniyatlariga bog'liq |
+| 5 | `UserErased` event'i uchun handler | hozircha xabarnoma/tozalash yo'q |
+| 6 | Stripe / Apple Pay / PayPal | chet el yuridik shaxsi kerak (Phase 3) |
+| 7 | Sinalmagan qismlar | push bosilganda deep link (haqiqiy qurilmada); haqiqiy client ID bilan Apple/Google login; Uzum checkout havolasi formati (Uzum menejeri bilan tasdiqlash); CI'ning birinchi haqiqiy GitHub run'i |
+| 8 | Phase 1.5 / 2 | roster asosidagi sug'urta, balanslangan jamoalar, Teams/Leagues/Tournaments UI, social feed |
+| 9 | Yuridik | biometrik ta'rif (video), davlat reyestri, waiver kuchi, host'lar bilan shartnoma (`ARCHITECTURE.md` §6) |
 
 ## Ishlash tartibi (sessiyalar uchun)
 
-- Har katta qism alohida sessiyada, o'z worktree'sida bajariladi. Dev baza, Redis DB, API porti va e2e bazasi har sessiyaga alohida beriladi; migratsiya raqamlari oldindan taqsimlanadi (`0006` — AI-Cam, `0007` — Uzum, `0008` — media pipeline; keyingisi — `0009`).
-- Merge'dan keyin: `pnpm install`, Drizzle sxemasini toza bazadan qayta generatsiya qilish (`db:migrate` + `db:pull`), `@matchup/contracts generate`, keyin barcha typecheck va testlar.
+- Har katta qism alohida sessiyada, o'z worktree'sida bajariladi. Dev baza, Redis DB, API porti va e2e bazasi har sessiyaga alohida beriladi (`E2E_DATABASE_URL`, `E2E_REDIS_URL`).
+- Migratsiya raqamlari oldindan taqsimlanadi: `0006` — AI-Cam (band), keyingi bo'sh raqam — `0009`.
+- Merge'dan keyin:
+  1. `corepack pnpm install`;
+  2. Drizzle sxemasini toza bazadan qayta generatsiya qilish (`db:migrate` + `db:pull`);
+  3. `corepack pnpm --filter @matchup/contracts generate`;
+  4. hamma tekshiruvlar: 6 paket typecheck, API e2e, host vitest, worker pytest, OpenAPI lint, admin build.
 - Foydalanuvchi bilan o'zbek tilida (lotin) gaplashiladi; kod va texnik atamalar inglizcha qoladi.

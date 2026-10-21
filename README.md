@@ -30,14 +30,14 @@ Pickup sports platformasi (Plei / Birgo uslubida): o'yinchilar tayyor havaskor o
 | Catalog, Discovery | ✅ | sport, shahar, venue; geo-qidiruv (PostGIS), keyset pagination, match tafsilotlari, waitlist |
 | Waiver | ✅ | joriy versiya, hash tekshiruvi bilan imzo, OTP bilan imzo, voyaga yetmaganlar |
 | Booking | ✅ | atomik seat hold, idempotency, mehmonlar, bekor qilish (policy bo'yicha refund), QR chipta (Ed25519) |
-| To'lovlar | ✅ Payme, Click, Wallet | Payme Merchant API (6 metod), Click SHOP API, hamyon; late payment / qayta hold |
+| To'lovlar | ✅ Payme, Click, Uzum, Wallet | Payme Merchant API (6 metod), Click SHOP API, Uzum Merchant API, hamyon; late payment / qayta hold; kechki reconciliation |
 | Host panel | ✅ | dispatch offer'lar, accept/decline, roster, geofence, offline QR check-in, yakunlash |
 | Admin | ✅ | match yaratish (lease bilan), nashr, bekor qilish (100% refund + bonus); venue/pitch, match jadvali va tafsiloti, host'lar, to'lovlar, refund navbati, dashboard, `audit_logs` |
 | Background job'lar | ✅ | hold expiry, host dispatch, minimumga yetmagan match'larni bekor qilish, outbox relay (BullMQ) |
 | Social login, GDPR job'lari | ✅ | Google / Apple / Telegram, identity bog'lash; ma'lumot eksporti, 30 kunlik grace bilan anonimlashtirish |
 | Push va real-time | ✅ | Expo Push, eslatmalar, waitlist takliflari; Socket.IO (`match:*`, `booking:*`, `host:*`) |
 | Highlight video | ✅ | S3/MinIO presigned multipart (davom ettiriladigan), Redis Stream -> Python worker (HLS, thumbnail, 9:16), match va profil feed'i, like, imzolangan ulashish havolasi |
-| Keyingi iteratsiya | ⏳ | Uzum, reconciliation, AI-Cam ([docs/AI_CAM.md](docs/AI_CAM.md)), provider refund'lari, Stripe — to'liq ro'yxat: [docs/STATUS.md](docs/STATUS.md) |
+| Keyingi iteratsiya | ⏳ | AI-Cam ([docs/AI_CAM.md](docs/AI_CAM.md)), admin reconciliation sahifasi, provider refund'lari, Stripe — to'liq ro'yxat: [docs/STATUS.md](docs/STATUS.md) |
 
 Rejalashtirilgan endpointlar hozircha `501 NOT_IMPLEMENTED` qaytaradi.
 
