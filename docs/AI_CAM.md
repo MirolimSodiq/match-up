@@ -1,7 +1,7 @@
 # AI-Cam Engine — video highlight'lar va o'yinchi reytingi
 
 > Maydondagi 2–3 telefon yozuvidan butun maydon ko'rinishi, avtomatik highlight kliplar (gol, dribling, progressiv pas) va har bir o'yinchi uchun FIFA uslubidagi reyting (masalan, **8.7**) yaratadigan modul.
-> Holat: **Bosqich A — backend va host ilovasi tayyor** (migratsiya `0006`, API, worker profillari `recording_v1` / `clip_v1`, host'da kamera rejimi va pult; §12). Player ilovasi — keyingi qadam. Bosqich B–D — reja.
+> Holat: **Bosqich A — tayyor** (migratsiya `0006`, API, worker profillari `recording_v1` / `clip_v1`, host'da kamera rejimi va pult, player'da to'liq o'yin videosi; §12). Haqiqiy telefonda 90 daqiqalik yozuv bilan pilot — keyingi qadam. Bosqich B–D — reja.
 
 | Bog'liq joy | Nima bor |
 |---|---|
@@ -308,6 +308,8 @@ sequenceDiagram
 | Kamera (landshaft) | `expo-screen-orientation` bilan qulf (ilova qolgan qismi portret); 4K, stabilizatsiya o'chiq, fokus bir marta qulflanadi, iOS'da HEVC; `maxFileSize` = bo'sh joy − 2 GB. Boshlanish vaqti — birinchi progress hodisasidan (`now − duration`); to'xtaganda fayl kesh papkasidan ilova papkasiga **ko'chiriladi** |
 | Pult | Kick-off, "Chap darvoza" / "O'ng darvoza", tomonsiz "Highlight"; o'yin soati; bekor qilish; belgilar diskda (`markers.json`) va oflayn navbatdan yuboriladi |
 | Roster | bib raqami (ishtirokchi varag'ida; online `PATCH`, `BIB_TAKEN`) |
+
+**Player ilovasi** (`apps/player`): match sahifasida "To'liq o'yin videosi" kartasi (faqat ishtirokchilarga; yozuv bo'lmasa — yo'q) → to'liq ekran HLS player (`/match/{id}/recording`): kamera tanlagich (chap / o'ng / umumiy; almashtirilganda o'sha lahzada davom etadi — devor soati bo'yicha), lahzalar ro'yxati (▶ — videoda 8 s oldindan, "Klip" — kesilgan highlight). `recording.ready` push shu ekranga ochiladi.
 
 Yuklash dvigateli kliplar bilan umumiy: yozuvlar kliplardan keyin va standart bo'yicha faqat Wi-Fi'da; klip navbatga tushsa yozuv qismlar orasida bo'shatadi; iOS'da har qism `background` sessiyada (ilova fonga o'tsa ham joriy qism tugaydi). 15 GB faylning SHA-256'i telefonda hisoblanmaydi — worker probe bilan tekshiradi.
 
