@@ -1,5 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { type PropsWithChildren, useState } from 'react';
+import { type PropsWithChildren, useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, Alert, Image, Platform, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -17,6 +17,7 @@ import { errorMessage } from '@/i18n/errors';
 import { useMatchHighlights } from '@/features/highlights/api';
 import { HighlightStrip } from '@/features/highlights/HighlightTile';
 import { playableCameras, useMatchRecording } from '@/features/recording/api';
+import { useMatchFeedback } from '@/features/feedback/api';
 import { useMatchLive } from '@/realtime/live';
 
 /** Gridda ko'rsatiladigan o'rinlar chegarasi (katta match'larda ro'yxat cho'zilib ketmasin). */
@@ -24,11 +25,20 @@ const MAX_SLOTS_SHOWN = 16;
 
 export default function MatchScreen() {
   const { t } = useTranslation();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, rate } = useLocalSearchParams<{ id: string; rate?: string }>();
   const match = useMatch(id);
   const sports = useSports();
   // Jonli bo'sh joylar (WebSocket): boshqalar band qilsa/bekor qilsa sonlar darhol o'zgaradi
   const { live } = useMatchLive(id, match.data?.id);
+
+  // `match.rate` push'i (`/match/{id}?rate=1`): match ochilgach ustidan baholash ekrani — bir marta
+  const rateOpened = useRef(false);
+  const matchId = match.data?.id;
+  useEffect(() => {
+    if (rate !== '1' || !matchId || rateOpened.current) return;
+    rateOpened.current = true;
+    router.push({ pathname: '/match/[id]/rate', params: { id: matchId } });
+  }, [rate, matchId]);
 
   if (match.isPending || match.error) {
     return (
@@ -129,6 +139,8 @@ function MatchView({ match: m, sc, sportName, live }: { match: MatchDetail; sc: 
           <InfoRow sc={sc} label={t('match.level')} value={levelLabel(m, t)} />
           <InfoRow sc={sc} label={t('match.host')} value={m.host_assigned ? t('match.hostAssigned') : t('match.hostPending')} last />
         </Glass>
+
+        <MatchRateCard match={m} sc={sc} />
 
         <Players match={m} sc={sc} live={live} />
 
@@ -286,6 +298,39 @@ function MatchRecordingCard({ match: m, sc }: { match: MatchDetail; sc: SportCol
   );
 }
 
+/**
+ * Yakunlangan o'yin: baholash taklifi. Kim baholay olishini server hal qiladi (o'yinga kelganlar; boshqalarga 403 —
+ * karta ko'rinmaydi): yakunlangan o'yinda `my_booking` bo'lmaydi (u faqat faol band uchun).
+ * Baho qoldirilgan bo'lsa — o'yin bahosi; muddat o'tib, baho yo'q bo'lsa — karta yo'q.
+ */
+function MatchRateCard({ match: m, sc }: { match: MatchDetail; sc: SportColors }) {
+  const { t } = useTranslation();
+  const q = useMatchFeedback(m.id, m.status === 'completed');
+  if (!q.data) return null;
+  const mine = q.data.given.find((g) => g.target === 'match');
+  if (!q.data.open && !q.data.given.length) return null;
+  return (
+    <Pressable
+      testID="match-rate"
+      accessibilityRole="button"
+      accessibilityLabel={q.data.open ? t('rate.cardTitle') : t('rate.cardRated')}
+      onPress={() => router.push({ pathname: '/match/[id]/rate', params: { id: m.id } })}
+      style={({ pressed }) => [styles.recording, pressed && { opacity: states.pressedOpacity }]}
+    >
+      <View style={styles.rateIcon}>
+        <Ionicons name={mine ? 'star' : 'star-outline'} size={22} color={colors.onSport} />
+      </View>
+      <View style={styles.recordingText}>
+        <Text style={styles.recordingTitle}>{mine ? t('rate.cardRated') : t('rate.cardTitle')}</Text>
+        <Text style={[styles.blockNote, { color: sc.muted }]}>
+          {mine ? t('rate.yourRating', { rating: mine.rating }) : t('rate.cardHint')}
+        </Text>
+      </View>
+      <Ionicons name="chevron-forward" size={20} color={colors.onSport} />
+    </Pressable>
+  );
+}
+
 /** Highlight'lar — faqat o'yin ishtirokchilariga (server tekshiradi; boshqalarga 403 -> bo'lim ko'rinmaydi). */
 function MatchHighlights({ match: m, sc }: { match: MatchDetail; sc: SportColors }) {
   const { t } = useTranslation();
@@ -413,6 +458,7 @@ const styles = StyleSheet.create({
   recordingThumb: { width: 112, aspectRatio: 16 / 9, borderRadius: radius.md, overflow: 'hidden', backgroundColor: colors.sportShade, alignItems: 'center', justifyContent: 'center' },
   recordingPlay: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center' },
   recordingText: { flex: 1, gap: 2 },
+  rateIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.sportShade, alignItems: 'center', justifyContent: 'center' },
   recordingTitle: { fontFamily: fontFamily.semibold, fontSize: 16, color: colors.onSport },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: space.md, marginTop: space.xs },
   player: { alignItems: 'center', width: 56, gap: 4 },

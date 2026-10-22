@@ -119,6 +119,7 @@ function RootNavigator() {
         <Stack.Screen name="match/[id]/index" options={sheet} />
         <Stack.Screen name="match/[id]/waiver" options={sheet} />
         <Stack.Screen name="match/[id]/checkout" options={sheet} />
+        <Stack.Screen name="match/[id]/rate" options={sheet} />
         <Stack.Screen name="booking/[id]/index" options={{ headerShown: false }} />
         <Stack.Screen name="booking/[id]/pay" options={{ headerShown: false, presentation: 'fullScreenModal' }} />
         <Stack.Screen name="booking/[id]/ticket" options={sheet} />
