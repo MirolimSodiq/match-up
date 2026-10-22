@@ -2604,84 +2604,6 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
-  /v1/admin/payments:
-    get:
-      tags: [Admin]
-      operationId: adminListPayments
-      summary: To'lovlar ro'yxati (filtrlar va valyuta bo'yicha jamilar bilan)
-      parameters:
-        - { name: status, in: query, description: Vergul bilan payment status'lari, schema: { type: string, examples: ['succeeded,refunded'] } }
-        - { name: provider, in: query, description: Vergul bilan provider'lar, schema: { type: string, examples: ['payme,click'] } }
-        - $ref: '#/components/parameters/DateFrom'
-        - $ref: '#/components/parameters/DateTo'
-        - { name: match_id, in: query, schema: { type: string, format: uuid } }
-        - { name: q, in: query, description: 'Telefon, match kodi, booking/to''lov id yoki provider tranzaksiya id', schema: { type: string, maxLength: 100 } }
-        - $ref: '#/components/parameters/AdminLimit'
-        - $ref: '#/components/parameters/Offset'
-      responses:
-        '200':
-          description: To'lovlar (`created_at` bo'yicha, eng yangisi birinchi)
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/AdminPaymentList' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '422': { $ref: '#/components/responses/ValidationError' }
-
-  /v1/admin/refunds:
-    get:
-      tags: [Admin]
-      operationId: adminListRefunds
-      summary: Refund navbati
-      description: |
-        Standart — qo'lda bajariladigan navbat: `status=pending`, `destination=original_method`, eng eskisi birinchi.
-        Boshqa filtrlarda yakunlanganlari eng yangisi birinchi.
-      parameters:
-        - { name: status, in: query, schema: { type: string, default: pending, examples: ['succeeded'] } }
-        - { name: destination, in: query, schema: { type: string, default: original_method, examples: ['original_method,wallet'] } }
-        - { name: provider, in: query, schema: { type: string, examples: [payme] } }
-        - { name: q, in: query, schema: { type: string, maxLength: 100 } }
-        - $ref: '#/components/parameters/AdminLimit'
-        - $ref: '#/components/parameters/Offset'
-      responses:
-        '200':
-          description: Refund'lar
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/AdminRefundList' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-
-  /v1/admin/refunds/{refundId}/complete:
-    post:
-      tags: [Admin]
-      operationId: adminCompleteRefund
-      summary: Provider kabinetida bajarilgan refund'ni "bajarildi" deb belgilash
-      description: |
-        Faqat `pending` + `original_method`. Refund -> `succeeded` (`provider_refund_id`, izoh, `processed_by`),
-        `payments.refunded_amount` oshadi (to'lov summasidan oshmaydi), to'lov status'i `refunded` yoki `partially_refunded`.
-        `RefundIssued` event va `audit_logs` yozuvi bilan bitta tranzaksiyada.
-      parameters:
-        - $ref: '#/components/parameters/RefundId'
-        - $ref: '#/components/parameters/IdempotencyKey'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [provider_refund_id]
-              properties:
-                provider_refund_id: { type: string, minLength: 1, maxLength: 200, examples: [PAYME-RF-0001] }
-                note: { type: string, maxLength: 1000 }
-      responses:
-        '200':
-          description: Bajarildi
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/AdminRefund' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
-        '422': { $ref: '#/components/responses/ValidationError' }
-
   /v1/admin/host-payouts:
     get:
       tags: [Admin]
@@ -2812,6 +2734,84 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AdminHostPayout' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /v1/admin/payments:
+    get:
+      tags: [Admin]
+      operationId: adminListPayments
+      summary: To'lovlar ro'yxati (filtrlar va valyuta bo'yicha jamilar bilan)
+      parameters:
+        - { name: status, in: query, description: Vergul bilan payment status'lari, schema: { type: string, examples: ['succeeded,refunded'] } }
+        - { name: provider, in: query, description: Vergul bilan provider'lar, schema: { type: string, examples: ['payme,click'] } }
+        - $ref: '#/components/parameters/DateFrom'
+        - $ref: '#/components/parameters/DateTo'
+        - { name: match_id, in: query, schema: { type: string, format: uuid } }
+        - { name: q, in: query, description: 'Telefon, match kodi, booking/to''lov id yoki provider tranzaksiya id', schema: { type: string, maxLength: 100 } }
+        - $ref: '#/components/parameters/AdminLimit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: To'lovlar (`created_at` bo'yicha, eng yangisi birinchi)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminPaymentList' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /v1/admin/refunds:
+    get:
+      tags: [Admin]
+      operationId: adminListRefunds
+      summary: Refund navbati
+      description: |
+        Standart — qo'lda bajariladigan navbat: `status=pending`, `destination=original_method`, eng eskisi birinchi.
+        Boshqa filtrlarda yakunlanganlari eng yangisi birinchi.
+      parameters:
+        - { name: status, in: query, schema: { type: string, default: pending, examples: ['succeeded'] } }
+        - { name: destination, in: query, schema: { type: string, default: original_method, examples: ['original_method,wallet'] } }
+        - { name: provider, in: query, schema: { type: string, examples: [payme] } }
+        - { name: q, in: query, schema: { type: string, maxLength: 100 } }
+        - $ref: '#/components/parameters/AdminLimit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Refund'lar
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminRefundList' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /v1/admin/refunds/{refundId}/complete:
+    post:
+      tags: [Admin]
+      operationId: adminCompleteRefund
+      summary: Provider kabinetida bajarilgan refund'ni "bajarildi" deb belgilash
+      description: |
+        Faqat `pending` + `original_method`. Refund -> `succeeded` (`provider_refund_id`, izoh, `processed_by`),
+        `payments.refunded_amount` oshadi (to'lov summasidan oshmaydi), to'lov status'i `refunded` yoki `partially_refunded`.
+        `RefundIssued` event va `audit_logs` yozuvi bilan bitta tranzaksiyada.
+      parameters:
+        - $ref: '#/components/parameters/RefundId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [provider_refund_id]
+              properties:
+                provider_refund_id: { type: string, minLength: 1, maxLength: 200, examples: [PAYME-RF-0001] }
+                note: { type: string, maxLength: 1000 }
+      responses:
+        '200':
+          description: Bajarildi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminRefund' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
@@ -4976,6 +4976,74 @@ components:
         items: { type: array, items: { $ref: '#/components/schemas/AdminHost' } }
         total: { type: integer }
 
+    AdminHostPayout:
+      type: object
+      required: [id, host, period, amount, status, assignments_count, provider_ref, paid_at, paid_by, note, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        host:
+          type: object
+          required: [id, display_name, phone, payout_method, payout_details_ref]
+          properties:
+            id: { type: string, format: uuid }
+            display_name: { type: [string, 'null'] }
+            phone: { type: [string, 'null'] }
+            payout_method: { type: [string, 'null'], examples: [card_uzcard] }
+            payout_details_ref: { type: [string, 'null'], description: "Vault havolasi (karta raqami saqlanmaydi)" }
+        period:
+          type: object
+          required: [start, end]
+          description: Dushanba–yakshanba (Asia/Tashkent)
+          properties:
+            start: { type: string, format: date }
+            end: { type: string, format: date }
+        amount: { $ref: '#/components/schemas/Money' }
+        status: { type: string, enum: [pending, processing, paid, failed] }
+        assignments_count: { type: integer, minimum: 0 }
+        provider_ref: { type: [string, 'null'], description: "Bank / karta o'tkazmasi raqami" }
+        paid_at: { type: [string, 'null'], format: date-time }
+        paid_by:
+          oneOf:
+            - type: object
+              required: [id, display_name]
+              properties:
+                id: { type: string, format: uuid }
+                display_name: { type: [string, 'null'] }
+            - type: 'null'
+        note: { type: [string, 'null'] }
+        created_at: { type: string, format: date-time }
+    AdminHostPayoutList:
+      type: object
+      required: [items, total, totals]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/AdminHostPayout' } }
+        total: { type: integer }
+        totals: { type: array, items: { $ref: '#/components/schemas/CurrencyTotal' } }
+    AdminHostPayoutDetail:
+      allOf:
+        - $ref: '#/components/schemas/AdminHostPayout'
+        - type: object
+          required: [assignments]
+          properties:
+            assignments:
+              type: array
+              items:
+                type: object
+                required: [id, match, fee, completed_at]
+                properties:
+                  id: { type: string, format: uuid }
+                  match:
+                    type: object
+                    required: [id, public_code, title, starts_at, venue_name]
+                    properties:
+                      id: { type: string, format: uuid }
+                      public_code: { type: string }
+                      title: { type: string }
+                      starts_at: { type: string, format: date-time }
+                      venue_name: { type: string }
+                  fee: { $ref: '#/components/schemas/Money' }
+                  completed_at: { type: [string, 'null'], format: date-time }
+
     AdminPayment:
       type: object
       required: [id, booking_id, booking_status, provider, amount, refunded, status, provider_transaction_id, failure_code,
@@ -5213,74 +5281,6 @@ components:
         items: { type: array, items: { $ref: '#/components/schemas/AdminRefund' } }
         total: { type: integer }
         totals: { type: array, items: { $ref: '#/components/schemas/CurrencyTotal' } }
-
-    AdminHostPayout:
-      type: object
-      required: [id, host, period, amount, status, assignments_count, provider_ref, paid_at, paid_by, note, created_at]
-      properties:
-        id: { type: string, format: uuid }
-        host:
-          type: object
-          required: [id, display_name, phone, payout_method, payout_details_ref]
-          properties:
-            id: { type: string, format: uuid }
-            display_name: { type: [string, 'null'] }
-            phone: { type: [string, 'null'] }
-            payout_method: { type: [string, 'null'], examples: [card_uzcard] }
-            payout_details_ref: { type: [string, 'null'], description: "Vault havolasi (karta raqami saqlanmaydi)" }
-        period:
-          type: object
-          required: [start, end]
-          description: Dushanba–yakshanba (Asia/Tashkent)
-          properties:
-            start: { type: string, format: date }
-            end: { type: string, format: date }
-        amount: { $ref: '#/components/schemas/Money' }
-        status: { type: string, enum: [pending, processing, paid, failed] }
-        assignments_count: { type: integer, minimum: 0 }
-        provider_ref: { type: [string, 'null'], description: "Bank / karta o'tkazmasi raqami" }
-        paid_at: { type: [string, 'null'], format: date-time }
-        paid_by:
-          oneOf:
-            - type: object
-              required: [id, display_name]
-              properties:
-                id: { type: string, format: uuid }
-                display_name: { type: [string, 'null'] }
-            - type: 'null'
-        note: { type: [string, 'null'] }
-        created_at: { type: string, format: date-time }
-    AdminHostPayoutList:
-      type: object
-      required: [items, total, totals]
-      properties:
-        items: { type: array, items: { $ref: '#/components/schemas/AdminHostPayout' } }
-        total: { type: integer }
-        totals: { type: array, items: { $ref: '#/components/schemas/CurrencyTotal' } }
-    AdminHostPayoutDetail:
-      allOf:
-        - $ref: '#/components/schemas/AdminHostPayout'
-        - type: object
-          required: [assignments]
-          properties:
-            assignments:
-              type: array
-              items:
-                type: object
-                required: [id, match, fee, completed_at]
-                properties:
-                  id: { type: string, format: uuid }
-                  match:
-                    type: object
-                    required: [id, public_code, title, starts_at, venue_name]
-                    properties:
-                      id: { type: string, format: uuid }
-                      public_code: { type: string }
-                      title: { type: string }
-                      starts_at: { type: string, format: date-time }
-                      venue_name: { type: string }
-                  fee: { $ref: '#/components/schemas/Money' }
-                  completed_at: { type: [string, 'null'], format: date-time }
 
     AdminDashboard:
       type: object

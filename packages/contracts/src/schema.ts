@@ -1736,66 +1736,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/admin/payments": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** To'lovlar ro'yxati (filtrlar va valyuta bo'yicha jamilar bilan) */
-        get: operations["adminListPayments"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/refunds": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Refund navbati
-         * @description Standart — qo'lda bajariladigan navbat: `status=pending`, `destination=original_method`, eng eskisi birinchi.
-         *     Boshqa filtrlarda yakunlanganlari eng yangisi birinchi.
-         */
-        get: operations["adminListRefunds"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/refunds/{refundId}/complete": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Provider kabinetida bajarilgan refund'ni "bajarildi" deb belgilash
-         * @description Faqat `pending` + `original_method`. Refund -> `succeeded` (`provider_refund_id`, izoh, `processed_by`),
-         *     `payments.refunded_amount` oshadi (to'lov summasidan oshmaydi), to'lov status'i `refunded` yoki `partially_refunded`.
-         *     `RefundIssued` event va `audit_logs` yozuvi bilan bitta tranzaksiyada.
-         */
-        post: operations["adminCompleteRefund"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/admin/host-payouts": {
         parameters: {
             query?: never;
@@ -1895,6 +1835,66 @@ export interface paths {
          *     `audit_logs` (`host_payout.paid`) va `HostPayoutPaid` (host'ga push) bitta tranzaksiyada.
          */
         post: operations["adminMarkHostPayoutPaid"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/payments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** To'lovlar ro'yxati (filtrlar va valyuta bo'yicha jamilar bilan) */
+        get: operations["adminListPayments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/refunds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Refund navbati
+         * @description Standart — qo'lda bajariladigan navbat: `status=pending`, `destination=original_method`, eng eskisi birinchi.
+         *     Boshqa filtrlarda yakunlanganlari eng yangisi birinchi.
+         */
+        get: operations["adminListRefunds"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/refunds/{refundId}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Provider kabinetida bajarilgan refund'ni "bajarildi" deb belgilash
+         * @description Faqat `pending` + `original_method`. Refund -> `succeeded` (`provider_refund_id`, izoh, `processed_by`),
+         *     `payments.refunded_amount` oshadi (to'lov summasidan oshmaydi), to'lov status'i `refunded` yoki `partially_refunded`.
+         *     `RefundIssued` event va `audit_logs` yozuvi bilan bitta tranzaksiyada.
+         */
+        post: operations["adminCompleteRefund"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4004,6 +4004,66 @@ export interface components {
             items: components["schemas"]["AdminHost"][];
             total: number;
         };
+        AdminHostPayout: {
+            /** Format: uuid */
+            id: string;
+            host: {
+                /** Format: uuid */
+                id: string;
+                display_name: string | null;
+                phone: string | null;
+                /** @example card_uzcard */
+                payout_method: string | null;
+                /** @description Vault havolasi (karta raqami saqlanmaydi) */
+                payout_details_ref: string | null;
+            };
+            /** @description Dushanba–yakshanba (Asia/Tashkent) */
+            period: {
+                /** Format: date */
+                start: string;
+                /** Format: date */
+                end: string;
+            };
+            amount: components["schemas"]["Money"];
+            /** @enum {string} */
+            status: "pending" | "processing" | "paid" | "failed";
+            assignments_count: number;
+            /** @description Bank / karta o'tkazmasi raqami */
+            provider_ref: string | null;
+            /** Format: date-time */
+            paid_at: string | null;
+            paid_by: {
+                /** Format: uuid */
+                id: string;
+                display_name: string | null;
+            } | null;
+            note: string | null;
+            /** Format: date-time */
+            created_at: string;
+        };
+        AdminHostPayoutList: {
+            items: components["schemas"]["AdminHostPayout"][];
+            total: number;
+            totals: components["schemas"]["CurrencyTotal"][];
+        };
+        AdminHostPayoutDetail: components["schemas"]["AdminHostPayout"] & {
+            assignments: {
+                /** Format: uuid */
+                id: string;
+                match: {
+                    /** Format: uuid */
+                    id: string;
+                    public_code: string;
+                    title: string;
+                    /** Format: date-time */
+                    starts_at: string;
+                    venue_name: string;
+                };
+                fee: components["schemas"]["Money"];
+                /** Format: date-time */
+                completed_at: string | null;
+            }[];
+        };
         AdminPayment: {
             /** Format: uuid */
             id: string;
@@ -4237,66 +4297,6 @@ export interface components {
             items: components["schemas"]["AdminRefund"][];
             total: number;
             totals: components["schemas"]["CurrencyTotal"][];
-        };
-        AdminHostPayout: {
-            /** Format: uuid */
-            id: string;
-            host: {
-                /** Format: uuid */
-                id: string;
-                display_name: string | null;
-                phone: string | null;
-                /** @example card_uzcard */
-                payout_method: string | null;
-                /** @description Vault havolasi (karta raqami saqlanmaydi) */
-                payout_details_ref: string | null;
-            };
-            /** @description Dushanba–yakshanba (Asia/Tashkent) */
-            period: {
-                /** Format: date */
-                start: string;
-                /** Format: date */
-                end: string;
-            };
-            amount: components["schemas"]["Money"];
-            /** @enum {string} */
-            status: "pending" | "processing" | "paid" | "failed";
-            assignments_count: number;
-            /** @description Bank / karta o'tkazmasi raqami */
-            provider_ref: string | null;
-            /** Format: date-time */
-            paid_at: string | null;
-            paid_by: {
-                /** Format: uuid */
-                id: string;
-                display_name: string | null;
-            } | null;
-            note: string | null;
-            /** Format: date-time */
-            created_at: string;
-        };
-        AdminHostPayoutList: {
-            items: components["schemas"]["AdminHostPayout"][];
-            total: number;
-            totals: components["schemas"]["CurrencyTotal"][];
-        };
-        AdminHostPayoutDetail: components["schemas"]["AdminHostPayout"] & {
-            assignments: {
-                /** Format: uuid */
-                id: string;
-                match: {
-                    /** Format: uuid */
-                    id: string;
-                    public_code: string;
-                    title: string;
-                    /** Format: date-time */
-                    starts_at: string;
-                    venue_name: string;
-                };
-                fee: components["schemas"]["Money"];
-                /** Format: date-time */
-                completed_at: string | null;
-            }[];
         };
         AdminDashboard: {
             range: {
@@ -7464,107 +7464,6 @@ export interface operations {
             422: components["responses"]["ValidationError"];
         };
     };
-    adminListPayments: {
-        parameters: {
-            query?: {
-                /** @description Vergul bilan payment status'lari */
-                status?: string;
-                /** @description Vergul bilan provider'lar */
-                provider?: string;
-                /** @description ISO 8601, offset bilan (kiritiladi) */
-                date_from?: components["parameters"]["DateFrom"];
-                /** @description ISO 8601, offset bilan (kiritilmaydi) */
-                date_to?: components["parameters"]["DateTo"];
-                match_id?: string;
-                /** @description Telefon, match kodi, booking/to'lov id yoki provider tranzaksiya id */
-                q?: string;
-                limit?: components["parameters"]["AdminLimit"];
-                /** @description Admin jadvallari offset pagination ishlatadi (javobda `total`) */
-                offset?: components["parameters"]["Offset"];
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description To'lovlar (`created_at` bo'yicha, eng yangisi birinchi) */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AdminPaymentList"];
-                };
-            };
-            403: components["responses"]["Forbidden"];
-            422: components["responses"]["ValidationError"];
-        };
-    };
-    adminListRefunds: {
-        parameters: {
-            query?: {
-                status?: string;
-                destination?: string;
-                provider?: string;
-                q?: string;
-                limit?: components["parameters"]["AdminLimit"];
-                /** @description Admin jadvallari offset pagination ishlatadi (javobda `total`) */
-                offset?: components["parameters"]["Offset"];
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Refund'lar */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AdminRefundList"];
-                };
-            };
-            403: components["responses"]["Forbidden"];
-        };
-    };
-    adminCompleteRefund: {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-            };
-            path: {
-                refundId: components["parameters"]["RefundId"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    /** @example PAYME-RF-0001 */
-                    provider_refund_id: string;
-                    note?: string;
-                };
-            };
-        };
-        responses: {
-            /** @description Bajarildi */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AdminRefund"];
-                };
-            };
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["ValidationError"];
-        };
-    };
     adminListHostPayouts: {
         parameters: {
             query?: {
@@ -7715,6 +7614,107 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdminHostPayout"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    adminListPayments: {
+        parameters: {
+            query?: {
+                /** @description Vergul bilan payment status'lari */
+                status?: string;
+                /** @description Vergul bilan provider'lar */
+                provider?: string;
+                /** @description ISO 8601, offset bilan (kiritiladi) */
+                date_from?: components["parameters"]["DateFrom"];
+                /** @description ISO 8601, offset bilan (kiritilmaydi) */
+                date_to?: components["parameters"]["DateTo"];
+                match_id?: string;
+                /** @description Telefon, match kodi, booking/to'lov id yoki provider tranzaksiya id */
+                q?: string;
+                limit?: components["parameters"]["AdminLimit"];
+                /** @description Admin jadvallari offset pagination ishlatadi (javobda `total`) */
+                offset?: components["parameters"]["Offset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description To'lovlar (`created_at` bo'yicha, eng yangisi birinchi) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminPaymentList"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    adminListRefunds: {
+        parameters: {
+            query?: {
+                status?: string;
+                destination?: string;
+                provider?: string;
+                q?: string;
+                limit?: components["parameters"]["AdminLimit"];
+                /** @description Admin jadvallari offset pagination ishlatadi (javobda `total`) */
+                offset?: components["parameters"]["Offset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Refund'lar */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminRefundList"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    adminCompleteRefund: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                refundId: components["parameters"]["RefundId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @example PAYME-RF-0001 */
+                    provider_refund_id: string;
+                    note?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Bajarildi */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminRefund"];
                 };
             };
             404: components["responses"]["NotFound"];
