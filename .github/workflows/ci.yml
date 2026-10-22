@@ -145,6 +145,44 @@ jobs:
           psql --version && pgbench --version
           ./db/tests/verify.sh
 
+  # Generatsiya qilinadigan fayllar manbasi bilan mos: Drizzle sxemasi toza bazadan (migratsiyalar →
+  # db:pull), contracts — api/openapi.yaml dan. Farq bo'lsa, fayl qo'lda emas, shu buyruqlar bilan yangilanadi.
+  generated-drift:
+    name: Generated fayllar drift (Drizzle, contracts)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgis/postgis:18-3.6
+        env:
+          POSTGRES_USER: matchup
+          POSTGRES_PASSWORD: matchup_ci_only
+          POSTGRES_DB: matchup
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U matchup -d matchup"
+          --health-interval 3s --health-timeout 3s --health-retries 40
+    env:
+      DATABASE_URL: postgres://matchup:matchup_ci_only@localhost:5432/matchup
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-pnpm
+      - name: Drizzle sxemasi (db:migrate + db:pull)
+        run: |
+          pnpm --filter @matchup/api db:migrate
+          pnpm --filter @matchup/api db:pull
+          git diff --exit-code apps/api/src/db || {
+            echo "::error::apps/api/src/db migratsiyalardan farq qiladi — toza bazada db:migrate + db:pull qilib, natijani commit qiling"
+            exit 1
+          }
+      - name: Contracts (openapi-typescript)
+        run: |
+          pnpm --filter @matchup/contracts generate
+          git diff --exit-code packages/contracts/src/schema.ts || {
+            echo "::error::packages/contracts/src/schema.ts api/openapi.yaml dan farq qiladi — contracts generate qilib, natijani commit qiling"
+            exit 1
+          }
+
   admin-build:
     name: Admin build (Next.js)
     runs-on: ubuntu-24.04
