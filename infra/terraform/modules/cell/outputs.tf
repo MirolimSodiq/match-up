@@ -60,3 +60,18 @@ output "media_recording_worker_service" {
 output "media_cdn_domain" {
   value = aws_cloudfront_distribution.media.domain_name
 }
+
+output "deploy_role_arn" {
+  description = "GitHub repo variable STAGING_AWS_DEPLOY_ROLE_ARN (docs/DEPLOYMENT.md §6); null — github_* berilmagan"
+  value       = local.deploy_enabled ? aws_iam_role.deploy[0].arn : null
+}
+
+output "deploy_config_parameter" {
+  description = "infra/deploy/ecs-deploy.sh o'qiydigan SSM parametri"
+  value       = aws_ssm_parameter.deploy_config.name
+}
+
+output "image_tags" {
+  description = "Joriy image teglari (o'zgaruvchi yoki CI yozgan SSM)"
+  value       = local.image_tag
+}

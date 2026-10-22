@@ -51,9 +51,10 @@ locals {
   capacity_provider = var.use_fargate_spot ? "FARGATE_SPOT" : "FARGATE"
   media_cdn_signed  = var.media_signing_public_key_pem != null
 
-  api_image     = "${aws_ecr_repository.app["api"].repository_url}:${var.api_image_tag}"
-  admin_image   = "${aws_ecr_repository.app["admin"].repository_url}:${var.admin_image_tag}"
-  migrate_image = "${aws_ecr_repository.app["api"].repository_url}:${coalesce(var.migrate_image_tag, var.api_image_tag)}"
+  # Teglar — deploy.tf (o'zgaruvchi yoki CI yozgan SSM parametri)
+  api_image     = "${aws_ecr_repository.app["api"].repository_url}:${local.image_tag["api"]}"
+  admin_image   = "${aws_ecr_repository.app["admin"].repository_url}:${local.image_tag["admin"]}"
+  migrate_image = "${aws_ecr_repository.app["api"].repository_url}:${local.image_tag["migrate"]}"
 
   secret = {
     database_url = aws_secretsmanager_secret.database_url.arn
@@ -63,6 +64,7 @@ locals {
     click        = aws_secretsmanager_secret.manual["click"].arn
     eskiz        = aws_secretsmanager_secret.manual["eskiz"].arn
     sentry       = aws_secretsmanager_secret.manual["sentry"].arn
+    telegram     = aws_secretsmanager_secret.manual["telegram"].arn
   }
 
   api_env = merge(
@@ -77,7 +79,10 @@ locals {
       MEDIA_BUCKET       = aws_s3_bucket.media.bucket
       MEDIA_RAW_BUCKET   = aws_s3_bucket.media_raw.bucket
       S3_REGION          = local.region
+      # Ops ogohlantirishlaridagi havola (host no-show)
+      ADMIN_PUBLIC_URL = "https://${var.admin_domain}"
     },
+    var.ops_telegram_chat_id == null ? {} : { OPS_TELEGRAM_CHAT_ID = var.ops_telegram_chat_id },
     # CloudFront signed URL faqat key group ulanganda; aks holda API S3 presigned GET beradi
     local.media_cdn_signed ? {
       MEDIA_CDN_DOMAIN      = aws_cloudfront_distribution.media.domain_name
@@ -102,6 +107,8 @@ locals {
     ESKIZ_EMAIL        = "${local.secret.eskiz}:email::"
     ESKIZ_PASSWORD     = "${local.secret.eskiz}:password::"
     SENTRY_DSN         = "${local.secret.sentry}:api_dsn::"
+    # Telegram login va ops ogohlantirishlari; bo'sh — ikkalasi ham o'chiq
+    TELEGRAM_BOT_TOKEN = "${local.secret.telegram}:bot_token::"
     MEDIA_WORKER_TOKEN = aws_secretsmanager_secret.media_worker_token.arn
   }
   # Entrypoint PEM'ni faylga yozadi -> MEDIA_CDN_PRIVATE_KEY_FILE

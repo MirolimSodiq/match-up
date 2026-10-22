@@ -217,7 +217,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
-      # Faqat build (push yo'q): registry/deploy bosqichi AWS OIDC role ulangandan keyin qo'shiladi
+      # Faqat build (push yo'q) — tekshiruv; ECR'ga push va deploy — deploy.yml (main, OIDC)
       - uses: docker/build-push-action@v7
         with:
           context: ${{ matrix.context }}
@@ -242,6 +242,15 @@ jobs:
       - uses: actions/checkout@v7
       # hashicorp/terraform image orqali; AWS credential'lar ishlatilmaydi, plan/apply yo'q
       - run: ./infra/terraform/check.sh
+
+  deploy-script:
+    name: Deploy skripti (soxta aws, shellcheck)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - run: shellcheck -x infra/deploy/ecs-deploy.sh infra/deploy/ecs-deploy.test.sh
+      - run: infra/deploy/ecs-deploy.test.sh
 
   actionlint:
     name: actionlint

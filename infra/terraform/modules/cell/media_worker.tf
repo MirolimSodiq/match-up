@@ -176,7 +176,7 @@ resource "aws_vpc_security_group_ingress_rule" "cache_from_media_worker" {
 
 # --- ECS servislar (lane bo'yicha) ----------------------------------------------------------------
 locals {
-  media_worker_image = "${aws_ecr_repository.app["media-worker"].repository_url}:${var.media_worker_image_tag}"
+  media_worker_image = "${aws_ecr_repository.app["media-worker"].repository_url}:${local.image_tag["media-worker"]}"
 
   media_worker_lanes = {
     # Kliplar (≤ 60 s) — Spot, standart disk (20 GiB)

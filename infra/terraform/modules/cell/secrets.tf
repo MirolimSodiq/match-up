@@ -16,6 +16,8 @@ locals {
     "sentry"       = { api_dsn = "", admin_dsn = "" }
     # CloudFront signed URL private key (public qismi — var.media_signing_public_key_pem)
     "media-cdn" = { private_key = "" }
+    # Telegram bot: login (Login Widget) va host no-show ogohlantirishlari (OPS_TELEGRAM_CHAT_ID guruhiga)
+    "telegram" = { bot_token = "" }
   }
 }
 
