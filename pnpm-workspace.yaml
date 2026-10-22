@@ -1,3 +1,7 @@
 packages:
   - apps/*
   - packages/*
+
+# @sentry/cli postinstall'i shart emas: binary platforma paketidan keladi (@sentry/cli-darwin, -linux-x64)
+ignoredBuiltDependencies:
+  - '@sentry/cli'
