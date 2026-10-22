@@ -12,6 +12,7 @@ import { LocaleMiddleware, ProblemFilter, Public } from './common/http';
 import { DB, type Db } from './db/db';
 import { DbModule } from './db/db.module';
 import { AdminModule } from './admin/admin.module';
+import { AdminHostPayoutsModule } from './admin/host-payouts.module';
 import { BookingsModule } from './bookings/bookings.module';
 import { CatalogModule } from './catalog/catalog.controller';
 import { HostModule } from './host/host.module';
@@ -83,6 +84,7 @@ class HealthController {
     HostModule,
     MediaModule,
     AdminModule,
+    AdminHostPayoutsModule,
     NotificationsModule,
     PrivacyModule,
     RatingsModule,

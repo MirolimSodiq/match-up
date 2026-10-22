@@ -2682,6 +2682,140 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /v1/admin/host-payouts:
+    get:
+      tags: [Admin]
+      operationId: adminListHostPayouts
+      summary: Haftalik host payout'lari
+      description: |
+        `HostPayouts` job'i har dushanba (`HOST_PAYOUT_CRON`, Asia/Tashkent) oldingi hafta bajarilgan tayinlovlardan
+        host + valyuta bo'yicha `pending` payout yaratadi. `status=pending` — navbat (eng eski hafta birinchi),
+        boshqa filtrlarda eng yangi hafta birinchi. `q` — host ismi, telefon (kamida 4 raqam), o'tkazma raqami yoki payout ID.
+      parameters:
+        - { name: status, in: query, description: 'Vergul bilan: pending, processing, paid, failed', schema: { type: string, examples: [pending] } }
+        - { name: host_id, in: query, schema: { type: string, format: uuid } }
+        - { name: period_from, in: query, description: "Davr shu sanagacha tugamagan (period_end >= period_from)", schema: { type: string, format: date } }
+        - { name: period_to, in: query, description: 'Davr shu sanadan keyin boshlanmagan (period_start <= period_to)', schema: { type: string, format: date } }
+        - { name: q, in: query, schema: { type: string, maxLength: 100 } }
+        - $ref: '#/components/parameters/AdminLimit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Payout'lar
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminHostPayoutList' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /v1/admin/host-payouts/export:
+    get:
+      tags: [Admin]
+      operationId: adminExportHostPayouts
+      summary: Bank o'tkazmasi uchun CSV
+      description: |
+        Ro'yxat filtrlari bilan, pagination'siz (ko'pi bilan 5000 qator, oshsa 422). UTF-8 BOM, `\r\n`, ustunlar:
+        `payout_id, host, phone, payout_method, payout_details_ref, amount, currency, period_start, period_end, assignments, status, provider_ref`.
+        `amount` — asosiy birlikda (`250000.00`). Karta raqami bazada yo'q — `payout_details_ref` vault havolasi.
+        `= + - @` bilan boshlangan matnli kataklarga `'` qo'shiladi (formula injection).
+      parameters:
+        - { name: status, in: query, schema: { type: string, examples: [pending] } }
+        - { name: host_id, in: query, schema: { type: string, format: uuid } }
+        - { name: period_from, in: query, schema: { type: string, format: date } }
+        - { name: period_to, in: query, schema: { type: string, format: date } }
+        - { name: q, in: query, schema: { type: string, maxLength: 100 } }
+      responses:
+        '200':
+          description: 'CSV fayl (`Content-Disposition: attachment; filename="host-payouts-YYYY-MM-DD.csv"`)'
+          content:
+            text/csv:
+              schema: { type: string }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /v1/admin/host-payouts/paid:
+    post:
+      tags: [Admin]
+      operationId: adminMarkHostPayoutsPaid
+      summary: Bir nechta payout'ni bitta o'tkazma raqami bilan "to'landi" deb belgilash
+      description: |
+        Hammasi `pending` bo'lishi shart: bittasi boshqa holatda bo'lsa — 409, topilmasa — 404, hech biri o'zgarmaydi.
+        Har payout: `status=paid`, `provider_ref`, `paid_at`, `paid_by`; `audit_logs` (`host_payout.paid`, `batch_size`)
+        va `HostPayoutPaid` (host'ga push) bitta tranzaksiyada.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids, provider_ref]
+              properties:
+                ids: { type: array, minItems: 1, maxItems: 200, items: { type: string, format: uuid } }
+                provider_ref: { type: string, minLength: 1, maxLength: 200, examples: [HUMO-BATCH-0042] }
+                note: { type: string, maxLength: 1000 }
+      responses:
+        '200':
+          description: Belgilangan payout'lar
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/AdminHostPayout' } }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /v1/admin/host-payouts/{payoutId}:
+    get:
+      tags: [Admin]
+      operationId: adminGetHostPayout
+      summary: Payout tafsiloti — unga kirgan tayinlovlar
+      parameters:
+        - $ref: '#/components/parameters/PayoutId'
+      responses:
+        '200':
+          description: Payout
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminHostPayoutDetail' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/admin/host-payouts/{payoutId}/paid:
+    post:
+      tags: [Admin]
+      operationId: adminMarkHostPayoutPaid
+      summary: Payout'ni "to'landi" deb belgilash (bank / karta o'tkazmasidan keyin)
+      description: |
+        Faqat `pending` (aks holda 409). `status=paid`, `provider_ref` (o'tkazma raqami), `paid_at`, `paid_by`;
+        `audit_logs` (`host_payout.paid`) va `HostPayoutPaid` (host'ga push) bitta tranzaksiyada.
+      parameters:
+        - $ref: '#/components/parameters/PayoutId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [provider_ref]
+              properties:
+                provider_ref: { type: string, minLength: 1, maxLength: 200, examples: [UZCARD-TR-0001] }
+                note: { type: string, maxLength: 1000 }
+      responses:
+        '200':
+          description: To'landi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminHostPayout' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   /v1/admin/dashboard:
     get:
       tags: [Admin]
@@ -2975,6 +3109,11 @@ components:
       schema: { type: string, pattern: '^[A-Za-z0-9_-]{48}$' }
     RefundId:
       name: refundId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    PayoutId:
+      name: payoutId
       in: path
       required: true
       schema: { type: string, format: uuid }
@@ -5074,6 +5213,74 @@ components:
         items: { type: array, items: { $ref: '#/components/schemas/AdminRefund' } }
         total: { type: integer }
         totals: { type: array, items: { $ref: '#/components/schemas/CurrencyTotal' } }
+
+    AdminHostPayout:
+      type: object
+      required: [id, host, period, amount, status, assignments_count, provider_ref, paid_at, paid_by, note, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        host:
+          type: object
+          required: [id, display_name, phone, payout_method, payout_details_ref]
+          properties:
+            id: { type: string, format: uuid }
+            display_name: { type: [string, 'null'] }
+            phone: { type: [string, 'null'] }
+            payout_method: { type: [string, 'null'], examples: [card_uzcard] }
+            payout_details_ref: { type: [string, 'null'], description: "Vault havolasi (karta raqami saqlanmaydi)" }
+        period:
+          type: object
+          required: [start, end]
+          description: Dushanba–yakshanba (Asia/Tashkent)
+          properties:
+            start: { type: string, format: date }
+            end: { type: string, format: date }
+        amount: { $ref: '#/components/schemas/Money' }
+        status: { type: string, enum: [pending, processing, paid, failed] }
+        assignments_count: { type: integer, minimum: 0 }
+        provider_ref: { type: [string, 'null'], description: "Bank / karta o'tkazmasi raqami" }
+        paid_at: { type: [string, 'null'], format: date-time }
+        paid_by:
+          oneOf:
+            - type: object
+              required: [id, display_name]
+              properties:
+                id: { type: string, format: uuid }
+                display_name: { type: [string, 'null'] }
+            - type: 'null'
+        note: { type: [string, 'null'] }
+        created_at: { type: string, format: date-time }
+    AdminHostPayoutList:
+      type: object
+      required: [items, total, totals]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/AdminHostPayout' } }
+        total: { type: integer }
+        totals: { type: array, items: { $ref: '#/components/schemas/CurrencyTotal' } }
+    AdminHostPayoutDetail:
+      allOf:
+        - $ref: '#/components/schemas/AdminHostPayout'
+        - type: object
+          required: [assignments]
+          properties:
+            assignments:
+              type: array
+              items:
+                type: object
+                required: [id, match, fee, completed_at]
+                properties:
+                  id: { type: string, format: uuid }
+                  match:
+                    type: object
+                    required: [id, public_code, title, starts_at, venue_name]
+                    properties:
+                      id: { type: string, format: uuid }
+                      public_code: { type: string }
+                      title: { type: string }
+                      starts_at: { type: string, format: date-time }
+                      venue_name: { type: string }
+                  fee: { $ref: '#/components/schemas/Money' }
+                  completed_at: { type: [string, 'null'], format: date-time }
 
     AdminDashboard:
       type: object
