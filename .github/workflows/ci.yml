@@ -39,12 +39,22 @@ jobs:
     name: OpenAPI lint
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    env:
+      LINT_CLI_VERSION: 1.34.5
+      # CLI har ishga tushishda Redocly'ga telemetriya yuboradi — CI tashqi servisni kutmasin
+      REDOCLY_TELEMETRY: "off"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
-      - run: npx --yes @redocly/cli@1.34.5 lint api/openapi.yaml
+      # npx har run'da CLI'ni (~140 MB, 100+ paket) registry'dan yuklardi: registry sekinlashganda yuklashning
+      # o'zi 5 daqiqadan oshib job bekor bo'lgan. Kesh (versiya bo'yicha) + --prefer-offline — tarmoqsiz, ~1 s.
+      - uses: actions/cache@v6
+        with:
+          path: ~/.npm
+          key: npm-redocly-${{ runner.os }}-${{ env.LINT_CLI_VERSION }}
+      - run: npm exec --prefer-offline --yes "@redocly/cli@${LINT_CLI_VERSION}" -- lint api/openapi.yaml
 
   api-e2e:
     name: API e2e (PostGIS + Valkey)
