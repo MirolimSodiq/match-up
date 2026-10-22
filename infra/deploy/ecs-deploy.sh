@@ -9,7 +9,8 @@
 #   2. migratsiya: yangi image bilan task definition revision -> run-task -> exit code 0 bo'lishi shart
 #      (expand -> contract: yangi sxema bilan eski kod ham ishlaydi, shuning uchun migratsiya kod'dan oldin)
 #   3. har servis: joriy task definition'dan faqat image almashgan revision -> update-service
-#   4. hammasi barqaror bo'lishini kutish; circuit breaker orqaga qaytargan bo'lsa — xato
+#   4. hammasi barqaror bo'lishini kutish; circuit breaker orqaga qaytargan bo'lsa — xato. `wait: false` servis
+#      (task protection'li yozuv worker'i) kutilmaydi: ishlayotgan job tugaguncha eski task qoladi (soatlab)
 #   5. joriy teglar -> SSM (/<cell>/image-tags/*): keyingi `terraform apply` shu versiyani saqlaydi
 #
 # Talab: aws CLI v2, jq. Credential: CI'da OIDC role, lokal — operator profili. AWS_REGION config'dan olinadi.
@@ -83,14 +84,18 @@ log "migratsiya tugadi"
 # --- 2. Servislar ----------------------------------------------------------------------------
 declare -A want
 services=()
-while IFS=$'\t' read -r service container repo; do
+while IFS=$'\t' read -r service container repo wait; do
   current=$(aws ecs describe-services --cluster "$CLUSTER" --services "$service" --query 'services[0].taskDefinition' --output text)
   [[ -n $current && $current != None ]] || fail "servis topilmadi: $service"
   want[$service]=$(register_with_image "$current" "$container" "$(image_of "$repo")")
   aws ecs update-service --cluster "$CLUSTER" --service "$service" --task-definition "${want[$service]}" >/dev/null
-  services+=("$service")
-  log "$service -> ${want[$service]}"
-done < <(jq -r '.services[] | [.service, .container, .repo] | @tsv' <<<"$CONFIG")
+  if [[ $wait == false ]]; then
+    log "$service -> ${want[$service]} (kutilmaydi: ishlayotgan job tugagach yangi versiyaga o'tadi)"
+  else
+    services+=("$service")
+    log "$service -> ${want[$service]}"
+  fi
+done < <(jq -r '.services[] | [.service, .container, .repo, (if .wait == false then "false" else "true" end)] | @tsv' <<<"$CONFIG")
 
 # --- 3. Barqarorlik --------------------------------------------------------------------------
 # Har servis: yangi deployment COMPLETED (circuit breaker qaytarsa — FAILED) va yagona deployment

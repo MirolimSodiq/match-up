@@ -69,13 +69,19 @@ resource "aws_ssm_parameter" "deploy_config" {
       subnets         = aws_subnet.private[*].id
       security_groups = [aws_security_group.api.id]
     }
-    # Tartib muhim emas — hammasi birga yangilanadi va birga barqarorlik kutiladi
+    # Tartib muhim emas — hammasi birga yangilanadi va birga barqarorlik kutiladi. `wait = false` — task
+    # protection'li servis: ishlayotgan job tugaguncha eski task qoladi (soatlab), deploy uni kutmaydi
     services = concat(
       [
-        { service = aws_ecs_service.api.name, container = "api", repo = "api" },
-        { service = aws_ecs_service.admin.name, container = "admin", repo = "admin" },
+        { service = aws_ecs_service.api.name, container = "api", repo = "api", wait = true },
+        { service = aws_ecs_service.admin.name, container = "admin", repo = "admin", wait = true },
       ],
-      [for lane, s in aws_ecs_service.media_worker : { service = s.name, container = "media-worker", repo = "media-worker" }],
+      [for lane, s in aws_ecs_service.media_worker : {
+        service   = s.name
+        container = "media-worker"
+        repo      = "media-worker"
+        wait      = !local.media_worker_lanes[lane].protection
+      }],
     )
   })
 }

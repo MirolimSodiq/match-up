@@ -132,6 +132,13 @@ data "aws_iam_policy_document" "media_worker_task" {
       values   = ["highlights/*", "recordings/*"]
     }
   }
+
+  # Uzoq job paytida task'ni scale-in va deploy'dan himoyalash (ECS agent endpoint, media_worker/protection.py)
+  statement {
+    sid       = "TaskProtection"
+    actions   = ["ecs:UpdateTaskProtection", "ecs:GetTaskProtection"]
+    resources = ["arn:${local.partition}:ecs:${local.region}:${local.account_id}:task/${aws_ecs_cluster.main.name}/*"]
+  }
 }
 
 resource "aws_iam_role" "media_worker_task" {
@@ -179,27 +186,34 @@ locals {
   media_worker_image = "${aws_ecr_repository.app["media-worker"].repository_url}:${local.image_tag["media-worker"]}"
 
   media_worker_lanes = {
-    # Kliplar (≤ 60 s) — Spot, standart disk (20 GiB)
+    # Kliplar (≤ 60 s) — Spot, standart disk (20 GiB). Job qisqa: himoya kerak emas (stopTimeout yetadi)
     default = {
-      service     = "media-worker"
-      stream      = "matchup:media-jobs"
-      cpu         = var.media_worker_cpu
-      memory      = var.media_worker_memory
-      storage_gib = null
-      spot        = true
-      min_count   = var.media_worker_min_count
-      max_count   = var.media_worker_max_count
+      service      = "media-worker"
+      stream       = "matchup:media-jobs"
+      cpu          = var.media_worker_cpu
+      memory       = var.media_worker_memory
+      storage_gib  = null
+      spot         = true
+      min_count    = var.media_worker_min_count
+      max_count    = var.media_worker_max_count
+      protection   = false
+      idle_minutes = 10
+      out_cooldown = 120
     }
-    # To'liq o'yin (90 daq 4K ~15 GB manba + HLS): katta disk; kodlash soatlab — Spot uzilishi butun ishni qaytaradi
+    # To'liq o'yin (90 daq 4K ~15 GB manba + HLS): katta disk; kodlash soatlab — Spot uzilishi butun ishni qaytaradi.
+    # Bo'sh paytda 0 task; job paytida task protection (scale-in va deploy to'xtatmaydi)
     recording = {
-      service     = "media-worker-recording"
-      stream      = "matchup:media-jobs:recording"
-      cpu         = var.media_recording_worker_cpu
-      memory      = var.media_recording_worker_memory
-      storage_gib = var.media_recording_worker_storage_gib
-      spot        = false
-      min_count   = var.media_recording_worker_min_count
-      max_count   = var.media_recording_worker_max_count
+      service      = "media-worker-recording"
+      stream       = "matchup:media-jobs:recording"
+      cpu          = var.media_recording_worker_cpu
+      memory       = var.media_recording_worker_memory
+      storage_gib  = var.media_recording_worker_storage_gib
+      spot         = false
+      min_count    = var.media_recording_worker_min_count
+      max_count    = var.media_recording_worker_max_count
+      protection   = true
+      idle_minutes = 15
+      out_cooldown = 300
     }
   }
 }
@@ -217,11 +231,6 @@ moved {
 moved {
   from = aws_appautoscaling_target.media_worker
   to   = aws_appautoscaling_target.media_worker["default"]
-}
-
-moved {
-  from = aws_appautoscaling_policy.media_worker_cpu
-  to   = aws_appautoscaling_policy.media_worker_cpu["default"]
 }
 
 resource "aws_ecs_task_definition" "media_worker" {
@@ -264,6 +273,9 @@ resource "aws_ecs_task_definition" "media_worker" {
       MEDIA_JOBS_STREAM = each.value.stream
       WORK_DIR          = "/tmp/media-worker"
       LOG_LEVEL         = "INFO"
+      # ECS_AGENT_URI ni ECS o'zi beradi
+      ECS_TASK_PROTECTION         = tostring(each.value.protection)
+      ECS_TASK_PROTECTION_MINUTES = "60"
     } : { name = k, value = v }]
     secrets = [
       { name = "REDIS_URL", valueFrom = local.secret.redis_url },
@@ -332,25 +344,133 @@ resource "aws_appautoscaling_target" "media_worker" {
   max_capacity       = each.value.max_count
 }
 
-# FFmpeg CPU'ni to'liq ishlatadi — CPU bo'yicha kengayish. Navbat uzunligi (XLEN/XPENDING) metrikasi — follow-up.
-resource "aws_appautoscaling_policy" "media_worker_cpu" {
+# --- Navbat bo'yicha kengayish ----------------------------------------------------------------------
+# Metrika — API chiqaradi (apps/api/src/jobs/media-queue-metrics.ts, har 60 s, CloudWatch EMF):
+#   MatchUp/MediaQueue Backlog {Cell, Lane} = guruhga hali yetkazilmagan + ACK qilinmagan (ishlanayotgan) xabarlar.
+# Worker bir vaqtda bitta job oladi, shuning uchun "ishlov beruvchisiz job'lar" = Backlog - RunningTaskCount:
+#   >= 1 — kengayish (step: +1 / +2 / +3), Backlog = 0 shuncha daqiqa — bittaga qisqarish (min_count gacha; yozuv — 0).
+# Ishlanayotgan job backlog'da qoladi, shuning uchun band task scale-in'da tanlanmaydi; yozuv task'i qo'shimcha
+# ravishda task protection bilan himoyalangan. API metrika yubormasa (missing) — hech narsa o'zgarmaydi.
+locals {
+  media_queue_namespace = "MatchUp/MediaQueue"
+}
+
+resource "aws_appautoscaling_policy" "media_worker_out" {
   for_each = local.media_worker_lanes
 
-  name               = "${var.name}-${each.value.service}-cpu"
-  policy_type        = "TargetTrackingScaling"
+  name               = "${var.name}-${each.value.service}-backlog-out"
+  policy_type        = "StepScaling"
   service_namespace  = aws_appautoscaling_target.media_worker[each.key].service_namespace
   resource_id        = aws_appautoscaling_target.media_worker[each.key].resource_id
   scalable_dimension = aws_appautoscaling_target.media_worker[each.key].scalable_dimension
 
-  target_tracking_scaling_policy_configuration {
-    target_value       = 70
-    scale_in_cooldown  = 300
-    scale_out_cooldown = 60
+  step_scaling_policy_configuration {
+    adjustment_type         = "ChangeInCapacity"
+    cooldown                = each.value.out_cooldown
+    metric_aggregation_type = "Maximum"
 
-    predefined_metric_specification {
-      predefined_metric_type = "ECSServiceAverageCPUUtilization"
+    # Chegara 1 ga nisbatan: 1–2 job -> +1, 3–5 -> +2, 6+ -> +3 (max_count gacha)
+    step_adjustment {
+      metric_interval_lower_bound = 0
+      metric_interval_upper_bound = 2
+      scaling_adjustment          = 1
+    }
+
+    step_adjustment {
+      metric_interval_lower_bound = 2
+      metric_interval_upper_bound = 5
+      scaling_adjustment          = 2
+    }
+
+    step_adjustment {
+      metric_interval_lower_bound = 5
+      scaling_adjustment          = 3
     }
   }
+}
+
+resource "aws_cloudwatch_metric_alarm" "media_worker_unserved" {
+  for_each = local.media_worker_lanes
+
+  alarm_name          = "${var.name}-${each.value.service}-unserved"
+  alarm_description   = "${each.value.stream}: worker'siz job'lar bor (Backlog - RunningTaskCount >= 1) -> kengayish"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  threshold           = 1
+  evaluation_periods  = 1
+  datapoints_to_alarm = 1
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_appautoscaling_policy.media_worker_out[each.key].arn]
+
+  metric_query {
+    id = "backlog"
+
+    metric {
+      namespace   = local.media_queue_namespace
+      metric_name = "Backlog"
+      period      = 60
+      stat        = "Maximum"
+      dimensions  = { Cell = var.name, Lane = each.key }
+    }
+  }
+
+  # 0 task'li servis uchun Container Insights datapoint bermaydi — FILL bilan 0
+  metric_query {
+    id = "running"
+
+    metric {
+      namespace   = "ECS/ContainerInsights"
+      metric_name = "RunningTaskCount"
+      period      = 60
+      stat        = "Average"
+      dimensions  = { ClusterName = aws_ecs_cluster.main.name, ServiceName = aws_ecs_service.media_worker[each.key].name }
+    }
+  }
+
+  metric_query {
+    id          = "unserved"
+    expression  = "FILL(backlog, 0) - FILL(running, 0)"
+    label       = "Worker'siz job'lar"
+    return_data = true
+  }
+}
+
+resource "aws_appautoscaling_policy" "media_worker_in" {
+  for_each = local.media_worker_lanes
+
+  name               = "${var.name}-${each.value.service}-idle-in"
+  policy_type        = "StepScaling"
+  service_namespace  = aws_appautoscaling_target.media_worker[each.key].service_namespace
+  resource_id        = aws_appautoscaling_target.media_worker[each.key].resource_id
+  scalable_dimension = aws_appautoscaling_target.media_worker[each.key].scalable_dimension
+
+  step_scaling_policy_configuration {
+    adjustment_type         = "ChangeInCapacity"
+    cooldown                = 300
+    metric_aggregation_type = "Maximum"
+
+    step_adjustment {
+      metric_interval_upper_bound = 0
+      scaling_adjustment          = -1
+    }
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "media_worker_idle" {
+  for_each = local.media_worker_lanes
+
+  alarm_name          = "${var.name}-${each.value.service}-idle"
+  alarm_description   = "${each.value.stream}: navbat ${each.value.idle_minutes} daqiqa bo'sh -> bittaga qisqarish (min ${each.value.min_count})"
+  namespace           = local.media_queue_namespace
+  metric_name         = "Backlog"
+  dimensions          = { Cell = var.name, Lane = each.key }
+  statistic           = "Maximum"
+  period              = 60
+  comparison_operator = "LessThanOrEqualToThreshold"
+  threshold           = 0
+  evaluation_periods  = each.value.idle_minutes
+  datapoints_to_alarm = each.value.idle_minutes
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [aws_appautoscaling_policy.media_worker_in[each.key].arn]
 }
 
 # --- Tashqi ALB worker endpointlarini ochmaydi --------------------------------------------------

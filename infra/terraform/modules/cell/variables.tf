@@ -310,8 +310,9 @@ variable "media_recording_worker_storage_gib" {
 }
 
 variable "media_recording_worker_min_count" {
-  type    = number
-  default = 1
+  description = "Bo'sh paytda yozuv worker'lari soni: 0 — navbat bo'sh bo'lsa task yo'q (backlog paydo bo'lsa ~2 daqiqada ko'tariladi)"
+  type        = number
+  default     = 0
 }
 
 variable "media_recording_worker_max_count" {
