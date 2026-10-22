@@ -9,7 +9,7 @@ Match Up qanday build qilinadi, tekshiriladi va AWS'ga chiqariladi. Region tanlo
 | Lokal staging | [docker-compose.staging.yml](../docker-compose.staging.yml), [infra/local/gen-staging-keys.sh](../infra/local/gen-staging-keys.sh) |
 | Terraform | [infra/terraform](../infra/terraform): `modules/cell` (bitta cell — to'liq stack), `envs/staging`, `bootstrap` (state bucket) |
 | Mobil build'lar | `apps/player/eas.json`, `apps/host/eas.json`, `app.config.ts` |
-| Kuzatuv | Sentry: `apps/api/src/instrument.ts`, `apps/admin/src/instrumentation*.ts`, `apps/{player,host}/src/lib/sentry.ts` |
+| Kuzatuv | Sentry: `apps/api/src/instrument.ts`, `apps/admin/src/instrumentation*.ts`, `apps/{player,host}/src/lib/sentry.ts`, `apps/{player,host}/metro.config.js` |
 
 ---
 
@@ -250,6 +250,7 @@ Migratsiyalar **har doim kod deploy'idan oldin** va **orqaga mos** (expand -> co
 - API'da kutilmagan xatolar: `ProblemFilter` ularni pino'ga `error` darajasida yozadi -> Sentry `pinoIntegration` event yaratadi (AppModule'ga tegilmagan).
 - **PII:** SDK `dataCollection` bilan user, cookie, body, query string, DB parametrlarini yig'maydi; qo'shimcha `beforeSend` pino `redact` bilan bir xil kalitlarni (authorization, cookie, phone, code, *token, IP) va telefon raqamlarini (`+998…`, URL-encoded `%2B998…`) tozalaydi. Mobil'da screenshot, view hierarchy va console breadcrumb'lar o'chiq, URL query'lari (koordinatalar) olib tashlanadi. Lokal soxta Sentry qabul qiluvchisi bilan tekshirilgan: telefon, token, cookie, device id, IP va PEM event'ga tushmaydi.
 - Tracing standart o'chiq (`SENTRY_TRACES_SAMPLE_RATE=0`).
+- **Mobil source map'lar:** `metro.config.js` — `getSentryExpoConfig`. Expo source map'ga `debugId` ni o'zi yozadi, Sentry serializer'i esa shu ID'ni bundle'ga ham qo'shadi (`_sentryDebugIds`) — SDK uni event'ga biriktiradi va Sentry yuklangan source map'ni topadi. Yuklashni EAS build'da Sentry plugin'i qiladi (`SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_AUTH_TOKEN`, §5). `sentry-cli` binary'si platforma paketidan keladi (`@sentry/cli-darwin`, `-linux-x64`), shuning uchun uning postinstall script'i `pnpm-workspace.yaml` da `ignoredBuiltDependencies`. Tekshirish: `npx expo export --platform ios --source-maps` — `.hbc` da `sentry-dbid-<id>`, `.map` da xuddi shu `debugId`.
 - Loglar: ECS -> CloudWatch `/ecs/<name>/{api,admin,migrate}` (KMS, retention), JSON (pino) — CloudWatch Logs Insights bilan qidiriladi.
 
 ## 9. Mobil build'lar (EAS)
@@ -276,4 +277,3 @@ cd apps/player && npx eas-cli build --profile preview --platform android
 - DB'da ilova uchun alohida cheklangan role yo'q — api va migratsiya bitta `matchup` foydalanuvchisi bilan ishlaydi.
 - Media worker (ikkala lane) CPU bo'yicha kengayadi; navbat uzunligi (`XLEN`/`XPENDING matchup:media-jobs[:recording]`) bo'yicha CloudWatch metrikasi va kengayish (yozuv lane'ini bo'sh paytda 0 ga tushirish) — keyingi qadam.
 - **Yozuv kodlashi `stopTimeout` (120 s) dan uzun:** deploy yoki scale-in paytida ishlayotgan `recording_v1` job to'xtaydi va boshqa task'da qaytadan boshlanadi (idempotent, lekin vaqt yo'qoladi). Yechim — ish paytida ECS task scale-in protection (`$ECS_AGENT_URI/task-protection/v1/state`) va deploy'ni yozuv navbati bo'shaganda qilish. Tashqi ALB `/internal/*` ni 404 bilan yopadi; worker API'ga service discovery (`api.<name>.internal`) orqali ulanadi.
-- Mobil source map'lar uchun `metro.config.js` da `getSentryExpoConfig` ulanmagan (parallel ishlar bilan to'qnashmaslik uchun) — production relizdan oldin qo'shilsin.

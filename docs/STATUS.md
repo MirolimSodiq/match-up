@@ -30,7 +30,7 @@ Loyiha ikki kishi o'rtasida bo'lingan. Har yo'nalish o'z papkalariga ega — bir
 | A2 | API (match bo'yicha: kamera, yuklash, belgilar, bib, player ko'rinishi — [`AI_CAM.md`](AI_CAM.md) §6, §12), worker `recording_v1` / `clip_v1`, Terraform yozuv lane'i | `apps/api/src/media/`, `services/media-worker`, `infra/terraform` | ✅ |
 | A3 | Host ilovasi: kamera rejimi (pozitsiya, 4K HEVC, landshaft qulf, `PUT .../cameras`), yozuv yuklash (Wi-Fi, kliplardan keyin, 16 MiB qismlar, URL partiyalari, `complete` `parts` siz), pult (Chap/O'ng darvoza, Kick-off, bekor qilish — oflayn navbat), roster'da bib | `apps/host/` | ✅ (haqiqiy telefonda 90 daqiqalik yozuv sinalmagan) |
 | A4 | Player ilovasi: match sahifasida "To'liq o'yin videosi" kartasi, to'liq ekran HLS player, kamera almashtirish (vaqt saqlanadi), lahzalarga sakrash, kesilgan klipni ochish, `recording.ready` push deep link'i `/match/{id}/recording` | `apps/player/` | ✅ |
-| A5 | Relizdan oldin: `metro.config.js` da Sentry (`getSentryExpoConfig`) | `apps/host`, `apps/player` | — |
+| A5 | Relizdan oldin: `metro.config.js` da Sentry (`getSentryExpoConfig`) | `apps/host`, `apps/player` | ✅ `feat/sentry-metro` |
 
 ### @MirolimProjects — admin panel, backend qoldiqlari va deploy
 
