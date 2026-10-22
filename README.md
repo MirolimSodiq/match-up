@@ -104,4 +104,4 @@ npx @redocly/cli@1.34.5 lint api/openapi.yaml
 
 1. `db/migrations/` ga yangi `NNNN_*.sql` fayl qo'shing (mavjud fayllarni o'zgartirmang).
 2. `cd apps/api && corepack pnpm db:migrate` — migratsiyani qo'llaydi.
-3. `corepack pnpm db:pull` — `src/db/schema.ts` (Drizzle) ni bazadan qayta generatsiya qiladi.
+3. `corepack pnpm db:pull` — `src/db/schema.ts` va `relations.ts` (Drizzle) ni bazadan qayta generatsiya qiladi. Chiqish nom bo'yicha saralanadi: bir xil migratsiyalardan doim bir xil fayl, CI'dagi drift job'i farqni ushlaydi.
