@@ -1876,6 +1876,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/highlights": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Highlight moderatsiyasi navbati
+         * @description Post-moderatsiya: klip worker tayyorlagan zahoti nashr qilinadi (`pending` ham ishtirokchilarga ko'rinadi), admin
+         *     shu yerda ko'rib chiqadi. Faqat nashr qilingan, o'chirilmagan, media `ready` kliplar. `pending` — eng eskisi
+         *     birinchi (FIFO); boshqalari — oxirgi qaror birinchi. `counts` — filtrsiz (tab'lar va menyu badge'i).
+         *
+         *     Ko'rish uchun `media.mp4_url` (9:16, markazdan qirqilgan; brauzer `<video>` CORS'siz) va `thumbnail_url` —
+         *     imzolangan, `MEDIA_PLAYBACK_TTL_SEC`. `hls_url` — to'liq kadr (ilovalar uchun).
+         */
+        get: operations["adminListHighlights"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/highlights/{highlightId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Klip (moderatsiya ko'rinishi) */
+        get: operations["adminGetHighlight"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/highlights/{highlightId}/moderate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Klipni tasdiqlash yoki rad etish
+         * @description `rejected` — klip feed'lardan, ulashish havolasidan (`/h/{token}`) va push'lardan yashiriladi; `reason` majburiy.
+         *     Qaror keyin o'zgartirilishi mumkin (masalan, shikoyatdan keyin `approved` -> `rejected`). Har qaror
+         *     `audit_logs` (`highlight.moderate`: from, to, reason, note) ga yoziladi.
+         */
+        post: operations["adminModerateHighlight"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -3887,6 +3951,81 @@ export interface components {
             };
             /** Format: date-time */
             created_at: string;
+        };
+        /**
+         * @description `inappropriate` — nojo'ya kontent, `violence` — zo'ravonlik / jarohat, `privacy` — roziliksiz odam yoki shaxsiy
+         *     ma'lumot, `not_match` — o'yinga aloqasi yo'q, `low_quality` — sifatsiz / bo'sh, `other` — boshqa (izohda)
+         * @enum {string}
+         */
+        HighlightRejectReason: "inappropriate" | "violence" | "privacy" | "not_match" | "low_quality" | "other";
+        AdminHighlight: {
+            /** Format: uuid */
+            id: string;
+            title: string | null;
+            /** @example host_manual */
+            source: string;
+            duration_ms: number | null;
+            match_offset_ms: number | null;
+            /** @example participants */
+            visibility: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            published_at: string;
+            moderation: {
+                /** @enum {string} */
+                status: "pending" | "approved" | "rejected";
+                reason: components["schemas"]["HighlightRejectReason"] | null;
+                note: string | null;
+                /** Format: date-time */
+                moderated_at: string | null;
+                moderated_by: {
+                    /** Format: uuid */
+                    id: string;
+                    display_name: string | null;
+                } | null;
+            };
+            creator: components["schemas"]["UserRef"];
+            match: {
+                /** Format: uuid */
+                id: string;
+                public_code: string;
+                sport: string;
+                /** Format: date-time */
+                starts_at: string;
+                timezone: string;
+                venue_name: string;
+            };
+            /** @description Barcha teglar (consent qaytarib olinganlari ham — maxfiylik shikoyatini tekshirish uchun) */
+            tags: {
+                /** Format: uuid */
+                user_id: string;
+                display_name: string;
+            }[];
+            likes_count: number;
+            shares_count: number;
+            views_count: number;
+            media: {
+                /** Format: uuid */
+                id: string;
+                width: number | null;
+                height: number | null;
+                thumbnail_url: string | null;
+                /** @description 9:16 vertikal MP4 (markazdan qirqilgan) */
+                mp4_url: string | null;
+                hls_url: string;
+                /** Format: date-time */
+                expires_at: string;
+            };
+        };
+        AdminHighlightList: {
+            items: components["schemas"]["AdminHighlight"][];
+            total: number;
+            counts: {
+                pending: number;
+                approved: number;
+                rejected: number;
+            };
         };
         ReconciliationRunDetail: components["schemas"]["ReconciliationRun"] & {
             items: components["schemas"]["ReconciliationItem"][];
@@ -7335,6 +7474,95 @@ export interface operations {
             };
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    adminListHighlights: {
+        parameters: {
+            query?: {
+                /** @description Vergul bilan; standart `pending` */
+                status?: string;
+                match_id?: string;
+                /** @description MU-kod, klip nomi, yuklagan host ismi yoki telefoni */
+                q?: string;
+                limit?: components["parameters"]["AdminLimit"];
+                /** @description Admin jadvallari offset pagination ishlatadi (javobda `total`) */
+                offset?: components["parameters"]["Offset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Kliplar */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminHighlightList"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    adminGetHighlight: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                highlightId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Klip */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminHighlight"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    adminModerateHighlight: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                highlightId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    status: "approved" | "rejected";
+                    reason?: components["schemas"]["HighlightRejectReason"];
+                    note?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Yangilangan klip */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminHighlight"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
         };
     };
 }

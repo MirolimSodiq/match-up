@@ -99,6 +99,8 @@ const STATUS_TONE: Record<string, Tone> = {
   arrived: 'success',
   declined: 'neutral',
   running: 'info',
+  approved: 'success',
+  rejected: 'danger',
   missing_at_provider: 'danger',
   missing_locally: 'danger',
   amount_mismatch: 'warning',

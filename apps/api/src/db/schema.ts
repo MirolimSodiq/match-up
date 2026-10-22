@@ -616,10 +616,15 @@ export const highlights = pgTable("highlights", {
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	deletedAt: timestamp("deleted_at", { withTimezone: true, mode: 'string' }),
 	recordingSessionId: uuid("recording_session_id"),
+	moderatedBy: uuid("moderated_by"),
+	moderatedAt: timestamp("moderated_at", { withTimezone: true, mode: 'string' }),
+	moderationReason: text("moderation_reason"),
+	moderationNote: text("moderation_note"),
 }, (table) => [
 	index("highlights_feed_idx").using("btree", table.publishedAt.desc().nullsFirst().op("timestamptz_ops")).where(sql`((visibility = 'public'::highlight_visibility) AND (moderation_status = 'approved'::moderation_status) AND (deleted_at IS NULL))`),
-	index("highlights_match_feed_idx").using("btree", table.matchId.asc().nullsLast().op("uuid_ops"), table.publishedAt.desc().nullsFirst().op("uuid_ops"), table.id.desc().nullsFirst().op("uuid_ops")).where(sql`((published_at IS NOT NULL) AND (deleted_at IS NULL))`),
+	index("highlights_match_feed_idx").using("btree", table.matchId.asc().nullsLast().op("uuid_ops"), table.publishedAt.desc().nullsFirst().op("uuid_ops"), table.id.desc().nullsFirst().op("timestamptz_ops")).where(sql`((published_at IS NOT NULL) AND (deleted_at IS NULL))`),
 	index("highlights_match_idx").using("btree", table.matchId.asc().nullsLast().op("uuid_ops")),
+	index("highlights_moderation_idx").using("btree", table.moderationStatus.asc().nullsLast().op("timestamptz_ops"), table.publishedAt.asc().nullsLast().op("enum_ops")).where(sql`((published_at IS NOT NULL) AND (deleted_at IS NULL))`),
 	foreignKey({
 			columns: [table.createdBy],
 			foreignColumns: [users.id],
@@ -634,6 +639,11 @@ export const highlights = pgTable("highlights", {
 			columns: [table.mediaAssetId],
 			foreignColumns: [mediaAssets.id],
 			name: "highlights_media_asset_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.moderatedBy],
+			foreignColumns: [users.id],
+			name: "highlights_moderated_by_fkey"
 		}),
 	foreignKey({
 			columns: [table.recordingSessionId],
