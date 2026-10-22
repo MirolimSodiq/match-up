@@ -3,8 +3,8 @@ import { type SQL, sql } from 'drizzle-orm';
 import { AppError } from '../common/errors';
 import type { Locale } from '../common/i18n';
 import { money } from '../common/money';
-import { emit } from '../common/outbox';
-import { DB, type Db, iso, one, rows } from '../db/db';
+import { DB, type Db, iso, one, rows, type Tx } from '../db/db';
+import { type PendingRefund, RefundSettlement } from '../payments/refund-settlement';
 import { type Actor, audit } from './audit';
 import { joinList } from './schemas';
 
@@ -23,6 +23,7 @@ export interface RefundFilter {
   status?: string[];
   destination?: string[];
   provider?: string[];
+  auto_status?: string[];
   q?: string;
   limit: number;
   offset: number;
@@ -72,6 +73,11 @@ interface RefundRow {
   note: string | null;
   created_at: string;
   completed_at: string | null;
+  auto_status: string | null;
+  auto_attempts: number;
+  auto_next_at: string | null;
+  auto_error: string | null;
+  manual_reason: string | null;
   initiated_by: string | null;
   processed_by: string | null;
   processed_by_name: string | null;
@@ -103,7 +109,8 @@ const PAYMENT_SELECT = sql`
 
 const REFUND_SELECT = sql`
   SELECT r.id, r.booking_id, r.payment_id, r.amount, r.currency, r.destination, r.status, r.reason, r.provider_refund_id,
-         r.note, r.created_at, r.completed_at, r.initiated_by, r.processed_by, pu.display_name AS processed_by_name,
+         r.note, r.created_at, r.completed_at, r.auto_status, r.auto_attempts, r.auto_next_at, r.auto_error, r.manual_reason,
+         r.initiated_by, r.processed_by, pu.display_name AS processed_by_name,
          u.id AS user_id, u.display_name, u.phone_e164 AS phone, m.id AS match_id, m.public_code, m.starts_at,
          pay.provider AS pay_provider, pay.amount AS pay_amount, pay.refunded_amount AS pay_refunded,
          pay.status AS pay_status, pay.provider_transaction_id AS pay_tx
@@ -130,7 +137,10 @@ function search(q: string, extra: SQL[] = []): SQL {
 
 @Injectable()
 export class AdminFinanceService {
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    private readonly settlement: RefundSettlement,
+  ) {}
 
   // -------------------------------------------------------------------------
   // To'lovlar
@@ -204,6 +214,13 @@ export class AdminFinanceService {
       note: r.note,
       created_at: iso(r.created_at),
       completed_at: iso(r.completed_at),
+      auto: {
+        status: r.auto_status,
+        attempts: r.auto_attempts,
+        next_attempt_at: iso(r.auto_next_at),
+        manual_reason: r.manual_reason,
+        error: r.auto_error,
+      },
       initiated_by: r.initiated_by,
       processed_by: r.processed_by ? { id: r.processed_by, display_name: r.processed_by_name } : null,
       user: { id: r.user_id, display_name: r.display_name, phone: r.phone },
@@ -226,6 +243,7 @@ export class AdminFinanceService {
     if (f.status?.length) conds.push(sql`r.status = ANY(string_to_array(${joinList(f.status)}, ',')::refund_status[])`);
     if (f.destination?.length) conds.push(sql`r.destination = ANY(string_to_array(${joinList(f.destination)}, ',')::refund_destination[])`);
     if (f.provider?.length) conds.push(sql`pay.provider = ANY(string_to_array(${joinList(f.provider)}, ',')::payment_provider[])`);
+    if (f.auto_status?.length) conds.push(sql`r.auto_status = ANY(string_to_array(${joinList(f.auto_status)}, ',')::refund_auto_status[])`);
     if (f.q) conds.push(search(f.q, [sql`r.id::text = ${f.q.toLowerCase()}`, sql`pay.provider_transaction_id = ${f.q}`]));
     const where = sql.join(conds, sql` AND `);
     // Navbat: eng eskisi birinchi (FIFO); yakunlanganlar — eng yangisi birinchi
@@ -252,24 +270,39 @@ export class AdminFinanceService {
     };
   }
 
+  /** Navbatdagi refund (lock bilan): faqat kutilayotgan `original_method`; provider'ga yuborilgani — 409. */
+  private async lockQueued(tx: Tx, refundId: string) {
+    const r = await one<PendingRefund & { status: string; destination: string; auto_status: string | null }>(
+      tx,
+      sql`SELECT r.id, r.booking_id, r.payment_id, r.amount, r.currency, r.status, r.destination, r.auto_status, b.user_id
+          FROM refunds r JOIN bookings b ON b.id = r.booking_id
+          WHERE r.id = ${refundId} FOR UPDATE OF r`,
+    );
+    if (!r) throw new AppError('NOT_FOUND');
+    // submitted — avto-refund provider javobini kutyapti: ikki marta qaytarmaslik uchun admin tegmaydi
+    if (r.status !== 'pending' || r.destination !== 'original_method' || !r.payment_id || r.auto_status === 'submitted') {
+      throw new AppError('INVALID_STATE');
+    }
+    return r;
+  }
+
+  private async presentById(refundId: string, locale: Locale) {
+    const r = await one<RefundRow>(this.db, sql`${REFUND_SELECT} WHERE r.id = ${refundId}`);
+    return this.presentRefund(r!, locale);
+  }
+
   /**
    * Qo'lda bajarilgan provider refund'ini yakunlash: refund -> succeeded (provider_refund_id, izoh),
    * payments.refunded_amount oshadi va status refunded / partially_refunded bo'ladi.
    */
   async completeRefund(actor: Actor, refundId: string, body: { provider_refund_id: string; note?: string }, locale: Locale) {
     await this.db.transaction(async (tx) => {
-      const r = await one<{ status: string; destination: string; payment_id: string | null; amount: number; booking_id: string }>(
-        tx,
-        sql`SELECT status, destination, payment_id, amount, booking_id FROM refunds WHERE id = ${refundId} FOR UPDATE`,
-      );
-      if (!r) throw new AppError('NOT_FOUND');
-      if (r.status !== 'pending' || r.destination !== 'original_method' || !r.payment_id) throw new AppError('INVALID_STATE');
-
+      const r = await this.lockQueued(tx, refundId);
       const pay = await one<{ amount: number; refunded_amount: number }>(
         tx,
         sql`SELECT amount, refunded_amount FROM payments WHERE id = ${r.payment_id} FOR UPDATE`,
       );
-      // CHECK (refunded_amount <= amount): hamyon qismi provider'dan qaytarilmaydi
+      // CHECK (refunded_amount <= amount)
       const refunded = Math.min(pay!.amount, pay!.refunded_amount + r.amount);
       await tx.execute(
         sql`UPDATE payments
@@ -277,19 +310,7 @@ export class AdminFinanceService {
                    status = ${refunded >= pay!.amount ? 'refunded' : 'partially_refunded'}::payment_status
              WHERE id = ${r.payment_id}`,
       );
-      await tx.execute(
-        sql`UPDATE refunds
-               SET status = 'succeeded', provider_refund_id = ${body.provider_refund_id}, note = ${body.note ?? null},
-                   processed_by = ${actor.id}, completed_at = now()
-             WHERE id = ${refundId}`,
-      );
-      await emit(tx, 'refund', refundId, 'RefundIssued', {
-        booking_id: r.booking_id,
-        payment_id: r.payment_id,
-        amount: r.amount,
-        destination: 'original_method',
-        provider_refund_id: body.provider_refund_id,
-      });
+      await this.settlement.complete(tx, r, body.provider_refund_id, { processedBy: actor.id, note: body.note });
       await audit(tx, actor, 'refund.complete', 'refund', refundId, {
         provider_refund_id: body.provider_refund_id,
         note: body.note ?? null,
@@ -297,8 +318,39 @@ export class AdminFinanceService {
         payment_refunded_amount: refunded,
       });
     });
-    const r = await one<RefundRow>(this.db, sql`${REFUND_SELECT} WHERE r.id = ${refundId}`);
-    return this.presentRefund(r!, locale);
+    return this.presentById(refundId, locale);
+  }
+
+  /**
+   * Kartaga qaytarib bo'lmaydigan refund'ni (qisman — provider faqat to'liq qaytaradi — yoki provider rad etgan)
+   * o'yinchi hamyoniga o'tkazish: refund -> wallet + succeeded, hamyon kreditlanadi, `RefundIssued` (push).
+   */
+  async refundToWallet(actor: Actor, refundId: string, body: { note?: string }, locale: Locale) {
+    await this.db.transaction(async (tx) => {
+      const r = await this.lockQueued(tx, refundId);
+      await this.settlement.toWallet(tx, r, actor.id, body.note ?? null);
+      await audit(tx, actor, 'refund.to_wallet', 'refund', refundId, {
+        amount: r.amount,
+        payment_id: r.payment_id,
+        note: body.note ?? null,
+      });
+    });
+    return this.presentById(refundId, locale);
+  }
+
+  /** Admin navbatidagi refund'ni avto-refund'ga qaytarish (masalan provider xatosi tuzatilgach yoki yoqilgach). */
+  async retryAutoRefund(actor: Actor, refundId: string, locale: Locale) {
+    await this.db.transaction(async (tx) => {
+      const r = await this.lockQueued(tx, refundId);
+      if (r.auto_status !== 'manual') throw new AppError('INVALID_STATE');
+      await tx.execute(
+        sql`UPDATE refunds
+               SET auto_status = 'queued', manual_reason = NULL, auto_error = NULL, auto_attempts = 0, auto_next_at = now()
+             WHERE id = ${refundId}`,
+      );
+      await audit(tx, actor, 'refund.auto_retry', 'refund', refundId, {});
+    });
+    return this.presentById(refundId, locale);
   }
 
   // -------------------------------------------------------------------------

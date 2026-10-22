@@ -23,8 +23,13 @@ const RefundList = z.object({
   status: csv(z.enum(['pending', 'succeeded', 'failed'])).default(['pending']),
   destination: csv(z.enum(['original_method', 'wallet'])).default(['original_method']),
   provider: csv(Provider).optional(),
+  auto_status: csv(z.enum(['queued', 'submitted', 'manual'])).optional(),
   q: z.string().trim().max(100).optional(),
   ...Page,
+});
+
+const RefundToWallet = z.object({
+  note: z.string().trim().max(1000).optional(),
 });
 
 const CompleteRefund = z.object({
@@ -70,6 +75,24 @@ export class AdminFinanceController {
     @ReqLocale() locale: Locale,
   ) {
     return this.finance.completeRefund(actor, id, body, locale);
+  }
+
+  @Post('refunds/:refundId/to-wallet')
+  @HttpCode(200)
+  toWallet(
+    @Param('refundId', ParseUUIDPipe) id: string,
+    @ZBody(RefundToWallet) body: z.infer<typeof RefundToWallet>,
+    @IdempotencyKey() _key: string,
+    @CurrentActor() actor: Actor,
+    @ReqLocale() locale: Locale,
+  ) {
+    return this.finance.refundToWallet(actor, id, body, locale);
+  }
+
+  @Post('refunds/:refundId/retry')
+  @HttpCode(200)
+  retry(@Param('refundId', ParseUUIDPipe) id: string, @CurrentActor() actor: Actor, @ReqLocale() locale: Locale) {
+    return this.finance.retryAutoRefund(actor, id, locale);
   }
 
   @Get('dashboard')

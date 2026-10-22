@@ -13,6 +13,7 @@ import { MatchesService } from '../matches/matches.service';
 import { type ClickRequest, ClickService } from './click.service';
 import { type PaymeRpc, PaymeService } from './payme.service';
 import { ReconciliationModule } from './reconciliation.module';
+import { RefundsModule } from './refunds.module';
 import { UzumService } from './uzum.service';
 
 const MethodsQuery = z.object({ match_id: z.uuid() });
@@ -86,7 +87,7 @@ export class PaymentsController {
 }
 
 @Module({
-  imports: [CommerceModule, MatchesModule, ReconciliationModule],
+  imports: [CommerceModule, MatchesModule, ReconciliationModule, RefundsModule],
   controllers: [PaymentsController],
   providers: [PaymeService, ClickService, UzumService],
 })

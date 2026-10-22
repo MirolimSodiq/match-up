@@ -67,6 +67,7 @@ export const processingJobType = pgEnum("processing_job_type", ['transcode', 'th
 export const reactionType = pgEnum("reaction_type", ['like', 'fire', 'clap'])
 export const reconciliationDiffKind = pgEnum("reconciliation_diff_kind", ['missing_at_provider', 'missing_locally', 'amount_mismatch', 'status_mismatch'])
 export const reconciliationRunStatus = pgEnum("reconciliation_run_status", ['running', 'completed', 'failed'])
+export const refundAutoStatus = pgEnum("refund_auto_status", ['queued', 'submitted', 'manual'])
 export const refundDestination = pgEnum("refund_destination", ['original_method', 'wallet'])
 export const refundStatus = pgEnum("refund_status", ['pending', 'succeeded', 'failed'])
 export const skillLevel = pgEnum("skill_level", ['beginner', 'intermediate', 'advanced', 'pro'])
@@ -1626,6 +1627,12 @@ export const refunds = pgTable("refunds", {
 	completedAt: timestamp("completed_at", { withTimezone: true, mode: 'string' }),
 	note: text(),
 	processedBy: uuid("processed_by"),
+	autoStatus: refundAutoStatus("auto_status"),
+	autoAttempts: smallint("auto_attempts").default(0).notNull(),
+	autoNextAt: timestamp("auto_next_at", { withTimezone: true, mode: 'string' }),
+	autoSubmittedAt: timestamp("auto_submitted_at", { withTimezone: true, mode: 'string' }),
+	autoError: text("auto_error"),
+	manualReason: text("manual_reason"),
 }, (table) => [
 	index("refunds_booking_idx").using("btree", table.bookingId.asc().nullsLast().op("uuid_ops")),
 	index("refunds_payment_idx").using("btree", table.paymentId.asc().nullsLast().op("uuid_ops")),
@@ -1656,6 +1663,9 @@ export const refunds = pgTable("refunds", {
 			name: "refunds_processed_by_fkey"
 		}),
 	check("refunds_amount_check", sql`amount > 0`),
+	check("refunds_auto_attempts_check", sql`auto_attempts >= 0`),
+	check("refunds_manual_has_reason", sql`(NOT (auto_status IS DISTINCT FROM 'manual'::refund_auto_status)) = (manual_reason IS NOT NULL)`),
+	check("refunds_manual_reason_check", sql`manual_reason = ANY (ARRAY['partial'::text, 'unsupported'::text, 'disabled'::text, 'rejected'::text, 'failed'::text, 'timeout'::text, 'legacy'::text])`),
 	check("refunds_original_needs_payment", sql`(destination = 'wallet'::refund_destination) OR (payment_id IS NOT NULL)`),
 ]);
 
