@@ -341,6 +341,6 @@ export class InternalMediaJobsController {
     RecordingsService,
     WorkerTokenGuard,
   ],
-  exports: [MediaService, HighlightsService, RecordingsService, ObjectStorage],
+  exports: [MediaService, HighlightsService, RecordingsService, ObjectStorage, MediaUrlSigner, MediaTokens],
 })
 export class MediaModule {}

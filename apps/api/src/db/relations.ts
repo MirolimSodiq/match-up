@@ -340,9 +340,15 @@ export const highlightsRelations = relations(highlights, ({one, many}) => ({
 		fields: [highlights.recordingSessionId],
 		references: [recordingSessions.id]
 	}),
-	user: one(users, {
+	user_createdBy: one(users, {
 		fields: [highlights.createdBy],
-		references: [users.id]
+		references: [users.id],
+		relationName: "highlights_createdBy_users_id"
+	}),
+	user_moderatedBy: one(users, {
+		fields: [highlights.moderatedBy],
+		references: [users.id],
+		relationName: "highlights_moderatedBy_users_id"
 	}),
 	highlightReactions: many(highlightReactions),
 	highlightShares: many(highlightShares),
@@ -888,7 +894,12 @@ export const usersRelations = relations(users, ({one, many}) => ({
 	highlightTags_userId: many(highlightTags, {
 		relationName: "highlightTags_userId_users_id"
 	}),
-	highlights: many(highlights),
+	highlights_createdBy: many(highlights, {
+		relationName: "highlights_createdBy_users_id"
+	}),
+	highlights_moderatedBy: many(highlights, {
+		relationName: "highlights_moderatedBy_users_id"
+	}),
 	hostProfiles_userId: many(hostProfiles, {
 		relationName: "hostProfiles_userId_users_id"
 	}),
