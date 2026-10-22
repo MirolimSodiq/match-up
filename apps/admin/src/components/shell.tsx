@@ -7,7 +7,7 @@ import { useState, type ReactNode } from 'react';
 import type { User } from '@matchup/contracts';
 import { api, authFetch, unwrap } from '@/lib/api';
 import { LANGS, useI18n, type Lang } from '@/lib/i18n';
-import { IconCalendar, IconCard, IconDashboard, IconLogout, IconPin, IconRefund, IconScale, IconUsers } from './icons';
+import { IconCalendar, IconCard, IconDashboard, IconLogout, IconPin, IconFilm, IconRefund, IconScale, IconUsers } from './icons';
 import { cx, Segmented } from './ui';
 
 export function Shell({ children }: { children: ReactNode }) {
@@ -22,6 +22,11 @@ export function Shell({ children }: { children: ReactNode }) {
     queryFn: () => unwrap(api.GET('/v1/admin/refunds', { params: { query: { limit: 1 } } })),
     refetchInterval: 60_000,
   });
+  const moderation = useQuery({
+    queryKey: ['highlights', 'badge'],
+    queryFn: () => unwrap(api.GET('/v1/admin/highlights', { params: { query: { limit: 1 } } })),
+    refetchInterval: 60_000,
+  });
 
   const nav = [
     { href: '/', label: m.nav.dashboard, icon: <IconDashboard />, exact: true },
@@ -31,6 +36,7 @@ export function Shell({ children }: { children: ReactNode }) {
     { href: '/payments', label: m.nav.payments, icon: <IconCard /> },
     { href: '/refunds', label: m.nav.refunds, icon: <IconRefund />, badge: queue.data?.total },
     { href: '/reconciliation', label: m.nav.reconciliation, icon: <IconScale /> },
+    { href: '/highlights', label: m.nav.highlights, icon: <IconFilm />, badge: moderation.data?.counts.pending },
   ];
 
   async function logout() {
