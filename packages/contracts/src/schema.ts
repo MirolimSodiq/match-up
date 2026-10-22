@@ -568,6 +568,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/matches/{matchId}/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * O'yin haqida feedback — baholash ekrani
+         * @description `match.rate` push'idan (`/match/{id}?rate=1`) ochiladi. Faqat o'yinga kelgan (`checked_in`) o'yinchi uchun:
+         *     host, baholanadigan boshqa o'yinchilar, muddat (`open_until` — yakunlangandan 7 kun) va avval qoldirilgan baholar.
+         *     Match yakunlanmagan bo'lsa — 409.
+         */
+        get: operations["getMatchFeedback"];
+        put?: never;
+        /**
+         * Host, o'yinchilar, o'yin va maydonni baholash (1–5)
+         * @description Bir so'rovda bir nechta baho. Qayta yuborish shu nishon uchun bahoni yangilaydi.
+         *
+         *     | `target` | `to_user_id` |
+         *     |---|---|
+         *     | `host` | ixtiyoriy (server o'yinni olib borgan host'ni oladi); host bo'lmagan o'yinda — 422 |
+         *     | `player` | majburiy — shu o'yinga kelgan boshqa o'yinchi |
+         *     | `match`, `venue` | berilmaydi |
+         *
+         *     Host baholari `host_profiles.rating_avg` ga yig'iladi (dispatch tartibi). Muddat o'tgan bo'lsa — 409 (`INVALID_STATE`).
+         */
+        post: operations["submitMatchFeedback"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/waivers/required": {
         parameters: {
             query?: never;
@@ -1949,6 +1983,37 @@ export interface components {
             birth_date?: string;
             /** @enum {string} */
             gender?: "male" | "female" | "other" | "undisclosed";
+        };
+        MatchFeedback: {
+            /** Format: uuid */
+            match_id: string;
+            /** @description Baho qoldirish mumkinmi */
+            open: boolean;
+            /** Format: date-time */
+            open_until: string;
+            host: {
+                /** Format: uuid */
+                user_id: string;
+                display_name: string;
+            } | null;
+            /** @description Baholanadigan boshqa o'yinchilar (o'yinga kelganlar) */
+            players: {
+                /** Format: uuid */
+                user_id: string;
+                display_name: string;
+                side_no: number | null;
+            }[];
+            given: {
+                /** @enum {string} */
+                target: "host" | "player" | "match" | "venue";
+                /** Format: uuid */
+                to_user_id: string | null;
+                rating: number;
+                tags: string[];
+                comment: string | null;
+                /** Format: date-time */
+                created_at: string;
+            }[];
         };
         SportProfile: {
             /** @example football */
@@ -5015,6 +5080,71 @@ export interface operations {
                 content?: never;
             };
             404: components["responses"]["NotFound"];
+        };
+    };
+    getMatchFeedback: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                matchId: components["parameters"]["MatchId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Baholash holati */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MatchFeedback"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    submitMatchFeedback: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                matchId: components["parameters"]["MatchId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    items: {
+                        /** @enum {string} */
+                        target: "host" | "player" | "match" | "venue";
+                        /** Format: uuid */
+                        to_user_id?: string;
+                        rating: number;
+                        tags?: string[];
+                        comment?: string;
+                    }[];
+                };
+            };
+        };
+        responses: {
+            /** @description Saqlandi — yangilangan holat */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MatchFeedback"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
         };
     };
     getRequiredWaiver: {

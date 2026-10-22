@@ -155,7 +155,8 @@ erDiagram
 | | `auth_identities` | uuid | UNIQUE (provider, provider_uid) | phone / google / apple / telegram |
 | | `user_sessions` | uuid | `refresh_token_hash` UNIQUE, `family_id` | rotation + reuse detection |
 | | `device_tokens` | uuid | `push_token` UNIQUE | push, locale |
-| Profile | `player_sport_profiles` | (user_id, sport_id) | → users, sports | self_level, Glicko `rating`, no_show_count |
+| Profile | `player_sport_profiles` | (user_id, sport_id) | → users, sports | self_level, Glicko-2 `rating` / `rating_deviation` / `rating_volatility`, no_show_count |
+| | `player_rating_changes` | (match_id, user_id) | → matches, users | har match bo'yicha reyting o'zgarishi: tarix + idempotentlik |
 | Catalog | `venues` | uuid | → cities; GiST(location) | stadion, partner kontakti |
 | | `amenities`, `venue_amenities` | id / (venue, amenity) | | filtr: parking, shower... |
 | | `pitches`, `pitch_sports` | uuid / (pitch, sport) | UNIQUE (venue_id, name) | maydon: sirt, indoor, o'lcham |
@@ -409,6 +410,7 @@ Onboarding: `otp/verify` → `is_new_user: true` → `PATCH /me` (ism, shahar) �
 | GET | `/v1/matches?lat&lng&radius_km&sport&date_from&date_to&min_slots&price_max&level&sort&cursor&limit` | [`discovery.sql`](../db/queries/discovery.sql) |
 | GET | `/v1/matches/{id}` | roster preview (faqat ism/avatar), waiver holati, `my_booking` |
 | POST / DELETE | `/v1/matches/{id}/waitlist` | to'la match uchun navbat |
+| GET / POST | `/v1/matches/{id}/feedback` | o'yindan keyin baholash (host, o'yinchilar, o'yin, maydon; 1–5): faqat kelgan o'yinchi, 7 kun ichida; host baholari → `host_profiles.rating_avg`; GDPR erasure'da izohlar (`comment`) o'chiriladi, baholar qoladi |
 | GET | `/v1/venues/{id}`, `/v1/sports`, `/v1/cities` | CDN keshlanadi |
 | WS | `match:{id}` → `slots.updated` | live bo'sh joylar |
 
@@ -751,9 +753,9 @@ export interface PaymentProvider {
 | **Host dispatch** | `MatchFull` darhol **yoki** T-12h da `confirmed ≥ min_players` | `dispatch_candidates.sql` → 1-to'lqin: eng yaqin 3 ta hostga parallel offer (10 daq), birinchi accept yutadi → javob bo'lmasa keyingi 5 ta → T-6h hali host yo'q → admin alert |
 | Eslatmalar | har 60 s: T-24h, T-2h | push: vaqt, manzil, xarita havolasi; har biri bir marta (`notifications.dedupe_key`) |
 | Push retry / receipt | har 30 s / 5 daq | `queued` xabarlar backoff bilan qayta yuboriladi (5 urinish); Expo receipt'lari, `DeviceNotRegistered` -> `device_tokens.disabled_at` |
-| Host no-show | kick-off - 15 daq, `arrived` yo'q | admin alert + zaxira host |
-| Post-match | `MatchCompleted` | Glicko reyting, feedback so'rovi, no-show statistikasi |
-| Host payout | haftalik | `host_assignments.completed` → `host_payouts` |
+| Host no-show | har 60 s (`host-no-show`): kick-off − `HOST_NO_SHOW_ALERT_MIN` (15) daq, `accepted`, `arrived` yo'q | Telegram ops guruhiga ogohlantirish (`OPS_TELEGRAM_CHAT_ID`; tayinlov uchun bir marta — `no_show_alerted_at`, Telegram xatosida keyingi daqiqada qayta), `audit_logs` ← `host.no_show_alert`. Matnda telefon yo'q — ism va admin havolasi. Avtomatik o'zgarish yo'q: admin host bilan bog'lanadi / boshqa host topadi |
+| Post-match | `MatchCompleted` | no-show statistikasi va `games_played` — yakunlash tranzaksiyasida; feedback so'rovi — `match.rate` push (`notifications`); **Glicko-2** — alohida `post-match` consumer group: kelgan va jamoaga taqsimlangan o'yinchilar, har boshqa jamoa (hisobi bor) — bitta o'yin, raqib — jamoa kompoziti (o'rtacha reyting, o'rtacha kvadratik RD), τ = 0.5; `player_rating_changes` orqali idempotent |
+| Host payout | haftalik (`HOST_PAYOUT_CRON`, standart dushanba 04:00 Asia/Tashkent) | oldingi dushanba–yakshanba oxirigacha bajarilgan, payout'ga kirmagan tayinlovlar (kechikkanlari ham) → host + valyuta bo'yicha `host_payouts` (`pending`) + `host_assignments.payout_id`; qayta ishga tushirish xavfsiz. To'lash va "to'landi" belgisi — admin panelda (B9) |
 | Reconciliation | har kecha (`RECONCILE_CRON`, Asia/Tashkent; `reconciliation` navbati) + admin qo'lda | provider ro'yxati (Payme `receipts.get_all`) ↔ `payments` → `reconciliation_items` + audit + outbox (§4.6) |
 | DSR eksport | har daqiqa (`dsr-exports`) | JSON fayl → `completed` + `DataExportReady`; muddati o'tgan fayllarni o'chirish |
 | Media housekeeping | har 30 s (`media-housekeeping`) | navbatga yozilmay qolgan transcode job'larini qayta yuborish; heartbeat'i 10 daq to'xtagan `running` job'ni qayta navbatga (5 urinishdan keyin `WORKER_TIMEOUT`); muddati o'tgan multipart yuklashlarni abort |

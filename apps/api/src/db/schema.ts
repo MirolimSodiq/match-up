@@ -1015,10 +1015,12 @@ export const hostAssignments = pgTable("host_assignments", {
 	payoutId: uuid("payout_id"),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	noShowAlertedAt: timestamp("no_show_alerted_at", { withTimezone: true, mode: 'string' }),
 }, (table) => [
-	index("host_assignments_host_idx").using("btree", table.hostUserId.asc().nullsLast().op("uuid_ops"), table.status.asc().nullsLast().op("uuid_ops")),
+	index("host_assignments_host_idx").using("btree", table.hostUserId.asc().nullsLast().op("uuid_ops"), table.status.asc().nullsLast().op("enum_ops")),
 	index("host_assignments_offers_idx").using("btree", table.offerExpiresAt.asc().nullsLast().op("timestamptz_ops")).where(sql`(status = 'offered'::host_assignment_status)`),
 	uniqueIndex("host_assignments_one_active_per_match").using("btree", table.matchId.asc().nullsLast().op("uuid_ops")).where(sql`(status = ANY (ARRAY['accepted'::host_assignment_status, 'arrived'::host_assignment_status, 'completed'::host_assignment_status]))`),
+	index("host_assignments_unpaid_idx").using("btree", table.hostUserId.asc().nullsLast().op("timestamptz_ops"), table.completedAt.asc().nullsLast().op("timestamptz_ops")).where(sql`((status = 'completed'::host_assignment_status) AND (payout_id IS NULL))`),
 	foreignKey({
 			columns: [table.matchId],
 			foreignColumns: [matches.id],
@@ -1092,6 +1094,7 @@ export const matchFeedback = pgTable("match_feedback", {
 	comment: text(),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
+	index("match_feedback_to_user_idx").using("btree", table.toUserId.asc().nullsLast().op("uuid_ops"), table.target.asc().nullsLast().op("enum_ops")).where(sql`(to_user_id IS NOT NULL)`),
 	foreignKey({
 			columns: [table.matchId],
 			foreignColumns: [matches.id],
@@ -1900,6 +1903,7 @@ export const playerSportProfiles = pgTable("player_sport_profiles", {
 	noShowCount: integer("no_show_count").default(0).notNull(),
 	preferredPosition: text("preferred_position"),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	ratingVolatility: numeric("rating_volatility", { precision: 8, scale:  6 }).default('0.06').notNull(),
 }, (table) => [
 	foreignKey({
 			columns: [table.userId],
@@ -1914,6 +1918,41 @@ export const playerSportProfiles = pgTable("player_sport_profiles", {
 	primaryKey({ columns: [table.sportId, table.userId], name: "player_sport_profiles_pkey"}),
 	check("player_sport_profiles_games_played_check", sql`games_played >= 0`),
 	check("player_sport_profiles_no_show_count_check", sql`no_show_count >= 0`),
+	check("player_sport_profiles_rating_volatility_check", sql`rating_volatility > (0)::numeric`),
+]);
+
+export const playerRatingChanges = pgTable("player_rating_changes", {
+	matchId: uuid("match_id").notNull(),
+	userId: uuid("user_id").notNull(),
+	sportId: smallint("sport_id").notNull(),
+	sideNo: smallint("side_no").notNull(),
+	score: numeric({ precision: 3, scale:  2 }).notNull(),
+	ratingBefore: numeric("rating_before", { precision: 7, scale:  2 }).notNull(),
+	rdBefore: numeric("rd_before", { precision: 6, scale:  2 }).notNull(),
+	volBefore: numeric("vol_before", { precision: 8, scale:  6 }).notNull(),
+	ratingAfter: numeric("rating_after", { precision: 7, scale:  2 }).notNull(),
+	rdAfter: numeric("rd_after", { precision: 6, scale:  2 }).notNull(),
+	volAfter: numeric("vol_after", { precision: 8, scale:  6 }).notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	index("player_rating_changes_user_idx").using("btree", table.userId.asc().nullsLast().op("int2_ops"), table.sportId.asc().nullsLast().op("int2_ops"), table.createdAt.desc().nullsFirst().op("int2_ops")),
+	foreignKey({
+			columns: [table.matchId],
+			foreignColumns: [matches.id],
+			name: "player_rating_changes_match_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.userId],
+			foreignColumns: [users.id],
+			name: "player_rating_changes_user_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.sportId],
+			foreignColumns: [sports.id],
+			name: "player_rating_changes_sport_id_fkey"
+		}),
+	primaryKey({ columns: [table.matchId, table.userId], name: "player_rating_changes_pkey"}),
+	check("player_rating_changes_score_check", sql`(score >= (0)::numeric) AND (score <= (1)::numeric)`),
 ]);
 export const userCurrentConsents = pgView("user_current_consents", {	userId: uuid("user_id"),
 	purpose: consentPurpose(),

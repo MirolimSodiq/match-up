@@ -10,6 +10,8 @@ import { SeatsService } from '../commerce/seats.service';
 import { EVENTS_STREAM } from '../common/outbox';
 import { DB, type Db, rows } from '../db/db';
 import { HostModule } from '../host/host.module';
+import { HostOpsModule } from '../host/host-ops.module';
+import { HostNoShowAlerts, HostPayouts } from '../host/host-ops.service';
 import { MediaModule } from '../media/media.module';
 import { MediaService } from '../media/media.service';
 import { DispatchService } from '../host/host.service';
@@ -56,7 +58,8 @@ export class OutboxRelay {
 /**
  * BullMQ job scheduler: hold expiry, host dispatch, minimum o'yinchi tekshiruvi, outbox relay,
  * eslatmalar (T-24h/T-2h), kutish ro'yxati takliflari muddati, push retry va receipt'lar, GDPR so'rovlari,
- * media navbati housekeeping'i (yuborilmay qolgan / to'xtab qolgan job'lar, muddati o'tgan yuklashlar).
+ * media navbati housekeeping'i (yuborilmay qolgan / to'xtab qolgan job'lar, muddati o'tgan yuklashlar),
+ * host no-show ogohlantirishi (Telegram ops guruhi) va haftalik host payout (cron, Asia/Tashkent).
  */
 @Injectable()
 export class JobsService implements OnModuleInit, OnModuleDestroy {
@@ -75,6 +78,8 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     private readonly dataExports: DataExportService,
     private readonly erasures: ErasureService,
     private readonly media: MediaService,
+    private readonly hostNoShow: HostNoShowAlerts,
+    private readonly hostPayouts: HostPayouts,
   ) {}
 
   async onModuleInit() {
@@ -93,10 +98,16 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       'dsr-exports': 60_000,
       'dsr-erasures': 3_600_000,
       'media-housekeeping': 30_000,
+      'host-no-show': 60_000,
     };
     for (const [name, ms] of Object.entries(every)) {
       await this.queue.upsertJobScheduler(name, { every: ms }, { name, opts: { removeOnComplete: 100, removeOnFail: 500 } });
     }
+    await this.queue.upsertJobScheduler(
+      'host-payouts',
+      { pattern: this.env.HOST_PAYOUT_CRON, tz: 'Asia/Tashkent' },
+      { name: 'host-payouts', opts: { removeOnComplete: 20, removeOnFail: 50 } },
+    );
     this.worker = new Worker('maintenance', (job) => this.process(job.name), { connection: this.connection, concurrency: 1 });
     this.worker.on('failed', (job, err) => this.log.error(`${job?.name} xato: ${err.message}`));
     this.log.log('Background job\'lar ishga tushdi');
@@ -126,6 +137,10 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
         return this.media.housekeeping();
       case 'dsr-erasures':
         return this.erasures.run();
+      case 'host-no-show':
+        return this.hostNoShow.run();
+      case 'host-payouts':
+        return this.hostPayouts.run();
       default:
         throw new Error(`Noma'lum job: ${name}`);
     }
@@ -139,7 +154,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
 }
 
 @Module({
-  imports: [CommerceModule, HostModule, AdminModule, NotificationsModule, PrivacyModule, MediaModule],
+  imports: [CommerceModule, HostModule, HostOpsModule, AdminModule, NotificationsModule, PrivacyModule, MediaModule],
   providers: [JobsService, OutboxRelay],
   exports: [JobsService, OutboxRelay],
 })

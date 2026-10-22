@@ -206,6 +206,8 @@ export class ErasureService {
       user_sessions: await count(sql`DELETE FROM user_sessions WHERE user_id = ${userId}`),
       device_tokens: await count(sql`DELETE FROM device_tokens WHERE user_id = ${userId}`),
       highlight_tags: await count(sql`DELETE FROM highlight_tags WHERE user_id = ${userId}`),
+      // O'yin haqidagi baholar (raqamlar) reytinglar uchun qoladi, erkin matnli izohlar — yo'q
+      feedback_comments: await count(sql`UPDATE match_feedback SET comment = NULL WHERE from_user_id = ${userId} AND comment IS NOT NULL`),
     };
     await tx.execute(
       sql`UPDATE match_waitlist SET status = 'cancelled' WHERE user_id = ${userId} AND status IN ('waiting', 'notified')`,
