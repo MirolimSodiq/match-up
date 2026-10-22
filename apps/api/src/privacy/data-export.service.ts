@@ -6,13 +6,15 @@ import { ENV, type Env } from '../config/env';
 import { AppError } from '../common/errors';
 import { emit } from '../common/outbox';
 import { DB, type Db, type Executor, iso, one, rows } from '../db/db';
+import { MediaExport } from './media-export';
 import { FILE_STORAGE, type FileStorage } from './storage';
 
 export const EXPORT_FORMAT = 'matchup.personal-data-export';
-export const EXPORT_VERSION = 1;
+export const EXPORT_VERSION = 2;
 
 /**
- * GDPR Art. 15/20: foydalanuvchining barcha shaxsiy ma'lumotlari bitta JSON faylda.
+ * GDPR Art. 15/20: foydalanuvchining barcha shaxsiy ma'lumotlari bitta JSON faylda; videolar (`media`) —
+ * fayl bilan birga tugaydigan imzolangan havolalar (MediaExport). Versiya 2 — `media` bo'limi qo'shildi.
  * To'lovlardan faqat summa, provider, holat va sanalar — provider_state, checkout URL va tranzaksiya
  * identifikatorlari chiqarilmaydi (karta ma'lumotlari Match Up'da umuman saqlanmaydi).
  */
@@ -24,6 +26,7 @@ export class DataExportService {
     @Inject(DB) private readonly db: Db,
     @Inject(ENV) private readonly env: Env,
     @Inject(FILE_STORAGE) private readonly storage: FileStorage,
+    private readonly media: MediaExport,
   ) {}
 
   /** Navbatdagi eksport so'rovlari + muddati o'tgan fayllarni tozalash (BullMQ `dsr-exports`). */
@@ -66,7 +69,9 @@ export class DataExportService {
         );
         return false;
       }
-      const doc = await this.build(tx, r.user_id, r.id);
+      // Fayl muddati oldindan: media havolalari aynan shu vaqtgacha imzolanadi
+      const expiresAt = new Date(Date.now() + this.env.DATA_EXPORT_TTL_HOURS * 3_600_000);
+      const doc = await this.build(tx, r.user_id, r.id, expiresAt);
       const body = Buffer.from(JSON.stringify(doc, null, 2));
       const key = `exports/${r.user_id}/${r.id}.json`;
       await this.storage.put(key, body);
@@ -75,7 +80,7 @@ export class DataExportService {
         sql`UPDATE data_subject_requests
                SET status = 'completed', completed_at = now(), export_path = ${key},
                    export_sha256 = ${createHash('sha256').update(body).digest()}, export_size_bytes = ${body.length},
-                   export_expires_at = now() + make_interval(hours => ${this.env.DATA_EXPORT_TTL_HOURS})
+                   export_expires_at = ${expiresAt.toISOString()}::timestamptz
              WHERE id = ${r.id}
              RETURNING export_expires_at`,
       );
@@ -133,7 +138,7 @@ export class DataExportService {
     return r?.v ?? null;
   }
 
-  async build(ex: Executor, userId: string, requestId: string): Promise<Record<string, unknown>> {
+  async build(ex: Executor, userId: string, requestId: string, expiresAt: Date): Promise<Record<string, unknown>> {
     const id = userId;
     const hostProfile = await this.object(
       ex,
@@ -257,6 +262,7 @@ export class DataExportService {
             FROM match_feedback f JOIN matches m ON m.id = f.match_id WHERE f.from_user_id = ${id}`,
         sql`x.created_at`,
       ),
+      media: await this.media.section(ex, id, expiresAt),
       highlight_tags: await this.list(
         ex,
         sql`SELECT t.highlight_id, m.public_code AS match_code, t.created_at

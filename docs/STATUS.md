@@ -42,7 +42,7 @@ Loyiha ikki kishi o'rtasida bo'lingan. Har yo'nalish o'z papkalariga ega — bir
 | B4 | Admin'da highlight moderatsiyasi | `apps/api/src/admin`, `apps/admin` | — |
 | B5 | Deploy workflow: GitHub OIDC role (ECR push + ECS/Terraform) va `deploy` job ([`DEPLOYMENT.md`](DEPLOYMENT.md) §6) | `.github/workflows`, `infra/terraform` | — |
 | B6 | Media worker autoscaling — navbat uzunligi (`XLEN`/`XPENDING matchup:media-jobs[:recording]`) bo'yicha CloudWatch metrikasi; yozuv lane'ini bo'sh paytda 0 ga tushirish va uzun job paytida ECS task scale-in protection (`DEPLOYMENT.md` cheklovlari) | `infra/terraform` | — |
-| B7 | GDPR eksportiga media fayllar (highlight'lar va to'liq o'yin yozuvlari) — `media/` ga tegadi; A2 merge bo'lgan, boshlash mumkin | `apps/api/src/privacy` | — |
+| B7 | GDPR eksportiga media fayllar (highlight'lar va to'liq o'yin yozuvlari) — `media/` ga tegadi; A2 merge bo'lgan, boshlash mumkin | `apps/api/src/privacy` | ✅ `feat/gdpr-media-export` (format v2, muddatli havolalar) |
 | B8 | Provider refund'larni avtomatlashtirish — avval Payme/Click/Uzum refund API imkoniyatlarini aniqlash; hozir admin navbatida qo'lda | `apps/api/src/payments` | — |
 | B9 | Admin'da host payout'lari: haftalik ro'yxat (`host_payouts`), "to'landi" belgisi (`provider_ref`, `paid_at`), audit | `apps/api/src/admin`, `apps/admin` | — |
 | B10 | Player ilovasida baholash ekrani (`/match/{id}?rate=1` → `GET/POST /v1/matches/{id}/feedback`) — `apps/player` @MirolimSodiq yo'nalishi, kim qilishi kelishiladi | `apps/player` | — |

@@ -3174,12 +3174,12 @@ components:
     PersonalDataExport:
       type: object
       description: |
-        Eksport fayli (format versiyasi 1). Vaqtlar UTC ISO 8601, summalar minor units'da. Har bo'lim — massiv
-        (bo'sh bo'lishi mumkin); `host` — foydalanuvchi host bo'lmasa `null`.
+        Eksport fayli (format versiyasi 2: `media` bo'limi qo'shildi). Vaqtlar UTC ISO 8601, summalar minor units'da.
+        Har bo'lim — massiv (bo'sh bo'lishi mumkin); `host` — foydalanuvchi host bo'lmasa `null`.
       required: [format, version, generated_at, request_id, profile]
       properties:
         format: { type: string, const: matchup.personal-data-export }
-        version: { type: integer, const: 1 }
+        version: { type: integer, const: 2 }
         generated_at: { type: string, format: date-time }
         request_id: { type: string, format: uuid }
         notes: { type: array, items: { type: string } }
@@ -3213,8 +3213,64 @@ components:
         devices: { type: array, items: { type: object, additionalProperties: true } }
         feedback_given: { type: array, items: { type: object, additionalProperties: true } }
         highlight_tags: { type: array, items: { type: object, additionalProperties: true } }
+        media: { $ref: '#/components/schemas/PersonalDataExportMedia' }
         host: { type: [object, 'null'], additionalProperties: true }
         data_requests: { type: array, items: { type: object, additionalProperties: true } }
+    PersonalDataExportMedia:
+      type: object
+      description: |
+        Foydalanuvchiga bevosita tegishli videolar: teglangan highlight'lar (`relation: tagged`), o'zi yuklagan kliplar
+        (`uploaded`, host) va o'zi yozgan to'liq o'yin kameralari. Boshqa o'yinchilarning videolari kirmaydi.
+        Fayllar nusxalanmaydi — `links_expire_at` gacha (eksport fayli muddati, S3 presigned uchun ko'pi bilan
+        7 kun) ishlaydigan imzolangan havolalar. `hls` — ijro mumkin bo'lsa (nashr qilingan, rad etilmagan);
+        `original` — asl yuklangan fayl saqlanish muddati ichida bo'lsa (attachment). O'chirilgan kliplar kirmaydi.
+      required: [links_expire_at, notes, highlights, recordings]
+      properties:
+        links_expire_at: { type: string, format: date-time }
+        notes: { type: array, items: { type: string } }
+        highlights:
+          type: array
+          items:
+            type: object
+            required: [highlight_id, match_code, relation, title, source, duration_ms, created_at, published_at, moderation_status, status, files]
+            properties:
+              highlight_id: { type: string, format: uuid }
+              match_code: { type: string }
+              relation: { type: array, items: { type: string, enum: [tagged, uploaded] } }
+              title: { type: [string, 'null'] }
+              source: { type: string }
+              duration_ms: { type: [integer, 'null'] }
+              created_at: { type: string, format: date-time }
+              published_at: { type: [string, 'null'], format: date-time }
+              moderation_status: { type: string, enum: [pending, approved, rejected] }
+              status: { type: string, description: 'media holati: ready, processing, failed, ...' }
+              files:
+                type: object
+                required: [video_mp4, thumbnail, hls, original]
+                properties:
+                  video_mp4: { type: [string, 'null'], description: '9:16 MP4' }
+                  thumbnail: { type: [string, 'null'] }
+                  hls: { type: [string, 'null'], description: 'Master playlist (`ffmpeg -i <hls> -c copy video.mp4`)' }
+                  original: { type: [string, 'null'] }
+        recordings:
+          type: array
+          items:
+            type: object
+            required: [camera_id, match_code, position, status, started_at, stopped_at, duration_ms, files]
+            properties:
+              camera_id: { type: string, format: uuid }
+              match_code: { type: string }
+              position: { type: string, enum: [left, right, wide] }
+              status: { type: string }
+              started_at: { type: string, format: date-time }
+              stopped_at: { type: [string, 'null'], format: date-time }
+              duration_ms: { type: [integer, 'null'] }
+              files:
+                type: object
+                required: [hls, original]
+                properties:
+                  hls: { type: [string, 'null'] }
+                  original: { type: [string, 'null'] }
     AuthIdentity:
       type: object
       required: [provider, label]

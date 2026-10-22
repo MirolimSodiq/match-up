@@ -1,3 +1,4 @@
+import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { io, type Socket } from 'socket.io-client';
@@ -145,7 +146,7 @@ describe('GDPR: eksport va erasure job\'lari', () => {
     expect(file.headers['cache-control']).toBe('no-store');
     const doc = JSON.parse(file.body as string);
 
-    expect(doc).toMatchObject({ format: 'matchup.personal-data-export', version: 1, request_id: r.body.id });
+    expect(doc).toMatchObject({ format: 'matchup.personal-data-export', version: 2, request_id: r.body.id });
     expect(doc.profile).toMatchObject({ id: s.userId, phone: '+998935558001', display_name: 'Eksport Test', first_name: 'Eldor', birth_date: '1995-04-12' });
     expect(doc.roles).toEqual([expect.objectContaining({ role: 'player' })]);
     expect(doc.identities).toEqual([expect.objectContaining({ provider: 'phone', provider_uid: '+998935558001' })]);
@@ -169,6 +170,111 @@ describe('GDPR: eksport va erasure job\'lari', () => {
     expect(doc.sessions.length).toBeGreaterThanOrEqual(1);
     expect(doc.host).toBeNull();
     expect(doc.data_requests).toEqual([expect.objectContaining({ id: r.body.id, type: 'export' })]);
+  });
+
+  it("eksport: media — teglangan va o'zi yuklagan kliplar, o'zi yozgan kameralar; muddatli havolalar; boshqalarniki yo'q", async () => {
+    const s = await login(ctx, '+998935558005');
+    const RAW = process.env.MEDIA_RAW_BUCKET!;
+    const OUT = process.env.MEDIA_BUCKET!;
+    const hostId = (await q(ctx, "SELECT id FROM users WHERE phone_e164 = '+998901110002'"))[0]!.id;
+    async function media(opts: { raw: boolean; ready?: boolean }) {
+      const key = `highlights/${matchId}/${uuid()}`;
+      if (opts.raw) {
+        const s3 = new S3Client({
+          endpoint: process.env.S3_ENDPOINT,
+          region: 'us-east-1',
+          forcePathStyle: true,
+          credentials: { accessKeyId: process.env.S3_ACCESS_KEY_ID!, secretAccessKey: process.env.S3_SECRET_ACCESS_KEY! },
+        });
+        await s3.send(new PutObjectCommand({ Bucket: RAW, Key: `${key}/source.mp4`, Body: Buffer.from('raw-video'), ContentType: 'video/mp4' }));
+      }
+      const [m] = await q(
+        ctx,
+        `INSERT INTO media_assets (owner_user_id, kind, status, storage_region, bucket, object_key, content_type,
+                                   output_bucket, thumbnail_key, vertical_key, renditions)
+         VALUES ($1, 'video', $2, 'uz-1', $3, $4, 'video/mp4', $5, $6, $7,
+                 '[{"name": "720p", "width": 1280, "height": 720, "bandwidth": 3000000, "playlist_key": "x/720p/index.m3u8"}]')
+         RETURNING id`,
+        [hostId, opts.ready === false ? 'processing' : 'ready', RAW, `${key}/source.mp4`, OUT, `${key}/thumb.jpg`, `${key}/vertical.mp4`],
+      );
+      return m!.id as string;
+    }
+    async function highlight(createdBy: string, mediaId: string, title: string, moderation = 'pending') {
+      const [h] = await q(
+        ctx,
+        `INSERT INTO highlights (match_id, media_asset_id, created_by, source, title, published_at, moderation_status)
+         VALUES ($1, $2, $3, 'host_manual', $4, now(), $5) RETURNING id`,
+        [matchId, mediaId, createdBy, title, moderation],
+      );
+      return h!.id as string;
+    }
+    // 1) host yuklagan, foydalanuvchi teglangan (asl fayl saqlanish muddati o'tgan)
+    const tagged = await highlight(hostId, await media({ raw: false }), 'Gol');
+    await q(ctx, 'INSERT INTO highlight_tags (highlight_id, user_id, tagged_by) VALUES ($1, $2, $3)', [tagged, s.userId, hostId]);
+    // 2) foydalanuvchi o'zi yuklagan, rad etilgan (asl fayl bor)
+    const own = await highlight(s.userId, await media({ raw: true }), "O'zim", 'rejected');
+    // 3) shu match'dagi boshqa klip — teg yo'q: eksportga kirmaydi; o'chirilgani ham
+    await highlight(hostId, await media({ raw: false }), 'Begona');
+    const deleted = await highlight(s.userId, await media({ raw: false }), "O'chirilgan");
+    await q(ctx, 'UPDATE highlights SET deleted_at = now() WHERE id = $1', [deleted]);
+    // 4) foydalanuvchi yozgan to'liq o'yin kamerasi
+    const [session] = await q(ctx, "INSERT INTO recording_sessions (match_id, host_user_id, status) VALUES ($1, $2, 'ready') RETURNING id", [matchId, hostId]);
+    const recMedia = await media({ raw: false });
+    const [camera] = await q(
+      ctx,
+      `INSERT INTO recording_cameras (session_id, client_camera_id, position, recorded_by, status, started_at, stopped_at, duration_ms, media_asset_id)
+       VALUES ($1, $2, 'left', $3, 'ready', now() - interval '2 hours', now() - interval '30 minutes', 5400000, $4) RETURNING id`,
+      [session!.id, uuid(), s.userId, recMedia],
+    );
+
+    const r = await ctx.http().post('/v1/me/data-export').set(s.auth).expect(202);
+    await exportsJob.run();
+    const [dsr] = await q(ctx, 'SELECT export_path, export_expires_at FROM data_subject_requests WHERE id = $1', [r.body.id]);
+    const { readFileSync } = await import('node:fs');
+    const doc = JSON.parse(readFileSync(join(storageDir, dsr!.export_path), 'utf8'));
+    const m = doc.media;
+
+    // Havolalar fayl bilan birga tugaydi
+    expect(new Date(m.links_expire_at).getTime()).toBeLessThanOrEqual(new Date(dsr!.export_expires_at).getTime());
+    expect(new Date(m.links_expire_at).getTime()).toBeGreaterThan(Date.now() + 6 * 86_400_000);
+    expect(m.highlights.map((h: { highlight_id: string }) => h.highlight_id)).toEqual([tagged, own]);
+
+    const [t, o] = m.highlights;
+    expect(t).toMatchObject({ relation: ['tagged'], title: 'Gol', status: 'ready', moderation_status: 'pending' });
+    expect(t.files.video_mp4).toContain('vertical.mp4');
+    expect(t.files.thumbnail).toContain('thumb.jpg');
+    expect(t.files.hls).toMatch(/\/v1\/playback\/[\w-]+\/master\.m3u8$/);
+    expect(t.files.original).toBeNull();
+    const expires = Number(new URL(t.files.video_mp4).searchParams.get('X-Amz-Expires'));
+    expect(expires).toBeGreaterThan(6 * 86_400);
+    expect(expires).toBeLessThanOrEqual(7 * 86_400);
+
+    // O'zi yuklagan, rad etilgan: ijro (HLS) yo'q, lekin fayllar va asl fayl — bor (attachment)
+    expect(o).toMatchObject({ relation: ['uploaded'], moderation_status: 'rejected' });
+    expect(o.files.hls).toBeNull();
+    expect(o.files.video_mp4).toContain('vertical.mp4');
+    expect(o.files.original).toContain('source.mp4');
+    expect(decodeURIComponent(o.files.original)).toContain(`attachment; filename="matchup-`);
+    const orig = await fetch(o.files.original);
+    expect(orig.status).toBe(200);
+    expect(await orig.text()).toBe('raw-video');
+
+    expect(m.recordings).toEqual([
+      expect.objectContaining({
+        camera_id: camera!.id,
+        position: 'left',
+        status: 'ready',
+        duration_ms: 5400000,
+        files: { hls: expect.stringMatching(/master\.m3u8$/), original: null },
+      }),
+    ]);
+    // HLS havolasi haqiqatan ishlaydi (master playlist)
+    const master = await ctx.http().get(new URL(m.recordings[0].files.hls).pathname).expect(200);
+    expect(master.text).toContain('#EXTM3U');
+
+    // Umumiy e2e bazasi: recordings testi jadvalni bo'sh deb hisoblaydi
+    await q(ctx, 'DELETE FROM recording_cameras WHERE session_id = $1', [session!.id]);
+    await q(ctx, 'DELETE FROM recording_sessions WHERE id = $1', [session!.id]);
   });
 
   it("yuklab olish: faqat egasi; muddati o'tsa 410 va fayl tozalanadi", async () => {
