@@ -11,6 +11,7 @@ from . import WORKER_VERSION
 from .api import Api
 from .errors import JobError, JobGone
 from .pipeline import Pipeline
+from .protection import NoProtection, TaskProtection
 from .queue import Delivery, JobSource
 
 log = logging.getLogger("media_worker")
@@ -28,6 +29,7 @@ class Worker:
         max_deliveries: int = 5,
         heartbeat_file: Path | None = None,
         keepalive_s: float = 30.0,
+        protection: TaskProtection | None = None,
     ) -> None:
         self.source = source
         self.api = api
@@ -36,6 +38,8 @@ class Worker:
         self.heartbeat_file = heartbeat_file
         #: CLAIM_IDLE_MS (120 s) va API "boshqa worker ishlayapti" chegarasidan (2 daq) ancha kichik
         self.keepalive_s = keepalive_s
+        #: Uzoq job paytida ECS scale-in / deploy task'ni to'xtatmasin (yozuv lane'i)
+        self.protection = protection or NoProtection()
         self.stop = threading.Event()
 
     def beat(self) -> None:
@@ -94,6 +98,7 @@ class Worker:
             return "retry"
 
         state = {"stage": "probe"}
+        self.protection.enable()
 
         def progress(stage: str) -> None:
             state["stage"] = stage
@@ -111,6 +116,7 @@ class Worker:
                     self.source.extend(d)
                     self.api.progress(job_id, state["stage"])
                     self.beat()
+                    self.protection.keepalive()
                 except Exception:  # noqa: BLE001 — keyingi siklda qayta urinadi
                     log.debug("job %s: keepalive xatosi", job_id, exc_info=True)
 
@@ -144,6 +150,7 @@ class Worker:
             return "retry"
         finally:
             done.set()
+            self.protection.disable()
         self.source.ack(d)
         self.pipeline.cleanup(job_id)
         return "ok"

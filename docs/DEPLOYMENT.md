@@ -127,7 +127,7 @@ infra/terraform/
 |---|---|---|
 | VPC | 2 AZ, public + private subnet, 1 NAT | har AZ'da NAT |
 | ECS Fargate | api (1-2 task, FARGATE_SPOT), admin, migrate task def; ARM64 | api 2-6 task, FARGATE |
-| Media worker | `media-worker` — kliplar (`matchup:media-jobs`, 1 vCPU / 2 GB, Spot, 1-2 task); `media-worker-recording` — AI-Cam to'liq o'yin yozuvlari (`matchup:media-jobs:recording`, 4 vCPU / 8 GB / 120 GiB ephemeral, on-demand, 1-3 task) | bir xil image, lane `MEDIA_JOBS_STREAM` bilan |
+| Media worker | `media-worker` — kliplar (`matchup:media-jobs`, 1 vCPU / 2 GB, Spot, 1-2 task); `media-worker-recording` — AI-Cam to'liq o'yin yozuvlari (`matchup:media-jobs:recording`, 4 vCPU / 8 GB / 120 GiB ephemeral, on-demand, **0-3 task**, job paytida task protection). Kengayish — navbat bo'yicha (pastda) | bir xil image, lane `MEDIA_JOBS_STREAM` bilan |
 | ALB + ACM | HTTPS (TLS 1.3 siyosati), HTTP -> HTTPS, host bo'yicha marshrut | — |
 | RDS PostgreSQL 18 | db.t4g.medium, **Multi-AZ**, PITR 7 kun, KMS, `rds.force_ssl` | db.m7g.large, PITR 35 kun, deletion protection |
 | ElastiCache Valkey | 1 node, TLS + AUTH, `noeviction` (BullMQ) | 2 node, failover, Multi-AZ |
@@ -135,6 +135,16 @@ infra/terraform/
 | ECR | `matchup-staging/api`, `/admin` — immutable teglar, push'da skan | — |
 | Secrets Manager | §5 | — |
 | CloudWatch Logs | 30 kun, KMS | 90 kun |
+
+**Media worker autoscaling** (`media_worker.tf`):
+
+| | |
+|---|---|
+| Metrika | API (`media-queue-metrics` job'i, har 60 s) har lane uchun `MatchUp/MediaQueue` → `Backlog` (guruhga hali yetkazilmagan + ACK qilinmagan), `InFlight`, `OldestJobAgeSeconds`; o'lchamlar `Cell`, `Lane`. CloudWatch Embedded Metric Format — stdout'dagi JSON qator, awslogs metrikaga aylantiradi (IAM/SDK kerak emas). Metrikani API chiqaradi, chunki yozuv lane'ida task 0 bo'lishi mumkin |
+| Kengayish | `Backlog − RunningTaskCount ≥ 1` (worker bir vaqtda bitta job oladi) → step: 1–2 job +1, 3–5 +2, 6+ +3 (`max_count` gacha); cooldown kliplar 120 s, yozuv 300 s |
+| Qisqarish | `Backlog = 0` kliplar 10, yozuv 15 daqiqa → bittaga, `min_count` gacha (yozuv — 0). Ishlanayotgan job backlog'da qoladi — band task'ga scale-in tegmaydi |
+| Himoya | Yozuv worker'i job paytida ECS task scale-in protection'ni yoqadi (`ECS_TASK_PROTECTION`, 60 daq, har 15 daqiqada yangilanadi, job tugagach o'chiriladi): scale-in ham, deploy ham ishlayotgan kodlashni to'xtatmaydi. Deploy skripti bu servisni kutmaydi (`wait: false`) — eski task job tugagach almashtiriladi |
+| API metrika yubormasa | alarm'lar `notBreaching` — hech narsa o'zgarmaydi (kengaymaydi ham, qisqarmaydi ham) |
 
 Xavfsizlik bo'yicha:
 - **Eng kam huquq:** har task turi (api, migrate, admin) uchun alohida execution role — faqat o'z ECR repo'si, log group'i va secret'lari. API task role faqat media bucket obyektlariga. DB va Valkey'ga faqat API security group'idan kirish.
@@ -225,7 +235,7 @@ Migratsiyalar **har doim kod deploy'idan oldin** va **orqaga mos** (expand -> co
 `ecs-deploy.sh` (CI va operator uchun bir xil; nomlar `/<name>/deploy/config` SSM parametridan — Terraform yozadi):
 1. Migratsiya task definition'ining yangi revision'i (faqat image almashadi) -> `run-task` -> `exit 0` kutiladi. Xato bo'lsa — migratsiya logining oxiri chiqariladi, servislarga tegilmaydi.
 2. Har servis (api, admin, media-worker, media-worker-recording): joriy task definition'dan faqat image almashgan revision -> `update-service`.
-3. Hammasi barqaror bo'lishi kutiladi; ECS circuit breaker biror servisni orqaga qaytarsa — deploy xato bilan tugaydi.
+3. Hammasi barqaror bo'lishi kutiladi; ECS circuit breaker biror servisni orqaga qaytarsa — deploy xato bilan tugaydi. `media-worker-recording` kutilmaydi (`wait: false`): kodlayotgan task himoyalangan va job tugagach (soatlab) almashtiriladi.
 4. Joriy teglar SSM'ga (`/<name>/image-tags/{migrate,api,admin,media-worker}`).
 
 **Terraform va teglar:** task definition'lar image tegini shu SSM parametrlaridan oladi — operatorning keyingi `terraform apply` i deploy qilingan versiyani orqaga qaytarmaydi va `-var *_image_tag` berish shart emas. CI ro'yxatdan o'tkazgan revision'ni Terraform o'zinikiga almashtiradi (bir xil image) — shuning uchun deploy'dan keyingi birinchi `apply` servislarni bir marta qayta ishga tushiradi. `-var api_image_tag=...` berilsa SSM'dan ustun (favqulodda holat), keyingi CI deploy uni almashtiradi.
@@ -288,5 +298,6 @@ cd apps/player && npx eas-cli build --profile preview --platform android
 - API image'ning ~80 MB qismi `@sentry/nestjs` v11 olib keladigan bundler bog'liqliklari (webpack, babel) — SDK tuzilishi.
 - WAF (rate limit) va VPC flow log'lar hali yo'q; ARCHITECTURE §4.1 dagi "CDN + WAF" keyingi bosqichda.
 - DB'da ilova uchun alohida cheklangan role yo'q — api va migratsiya bitta `matchup` foydalanuvchisi bilan ishlaydi.
-- Media worker (ikkala lane) CPU bo'yicha kengayadi; navbat uzunligi (`XLEN`/`XPENDING matchup:media-jobs[:recording]`) bo'yicha CloudWatch metrikasi va kengayish (yozuv lane'ini bo'sh paytda 0 ga tushirish) — keyingi qadam.
-- **Yozuv kodlashi `stopTimeout` (120 s) dan uzun:** deploy yoki scale-in paytida ishlayotgan `recording_v1` job to'xtaydi va boshqa task'da qaytadan boshlanadi (idempotent, lekin vaqt yo'qoladi). Yechim — ish paytida ECS task scale-in protection (`$ECS_AGENT_URI/task-protection/v1/state`) va deploy'ni yozuv navbati bo'shaganda qilish. Tashqi ALB `/internal/*` ni 404 bilan yopadi; worker API'ga service discovery (`api.<name>.internal`) orqali ulanadi.
+- **Yozuv lane'i 0 dan ko'tariladi:** navbat bo'sh paytda yozuv worker'i yo'q; yangi job kelsa alarm (1 daq) + Fargate start (4 vCPU image, ~1–2 daq) — kodlash shuncha kech boshlanadi (soatlik job uchun ahamiyatsiz). Doim tayyor turishi kerak bo'lsa — `media_recording_worker_min_count = 1`.
+- **Job olinishi va himoya yoqilishi orasida** (`start` so'rovi, bir necha ms) task scale-in'ga tushsa, job boshqa task'da qaytadan boshlanadi (idempotent). Scale-in faqat navbat 15 daqiqa bo'sh tursa bo'ladi, shuning uchun amalda kam uchraydi.
+- Tashqi ALB `/internal/*` ni 404 bilan yopadi; worker API'ga service discovery (`api.<name>.internal`) orqali ulanadi.

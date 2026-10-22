@@ -42,6 +42,10 @@ class Settings:
     block_ms: int = 5_000
     ffmpeg_preset: str = "veryfast"
     ffmpeg_threads: int = 0
+    #: ECS task scale-in protection job paytida (yozuv lane'i; ECS_AGENT_URI ni ECS o'zi beradi)
+    task_protection: bool = False
+    task_protection_minutes: int = 60
+    ecs_agent_uri: str | None = None
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -65,4 +69,7 @@ class Settings:
             block_ms=_int("BLOCK_MS", cls.block_ms),
             ffmpeg_preset=e.get("FFMPEG_PRESET", cls.ffmpeg_preset),
             ffmpeg_threads=_int("FFMPEG_THREADS", cls.ffmpeg_threads),
+            task_protection=_bool(e.get("ECS_TASK_PROTECTION")),
+            task_protection_minutes=_int("ECS_TASK_PROTECTION_MINUTES", cls.task_protection_minutes),
+            ecs_agent_uri=e.get("ECS_AGENT_URI") or None,
         )
