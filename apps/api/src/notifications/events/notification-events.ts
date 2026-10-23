@@ -5,7 +5,7 @@ import { formatMoney } from '../../common/money';
 import { DB, type Db, type Executor, iso, one, rows } from '../../db/db';
 import { WaitlistService } from '../../matches/waitlist.service';
 import { type NotificationDraft, NotificationsService } from '../notifications.service';
-import { formatTime, formatWhen, type TemplateParams, type TextLocale } from '../templates';
+import { formatPeriod, formatTime, formatWhen, type TemplateParams, type TextLocale } from '../templates';
 import type { OutboxEvent } from './stream-consumer';
 
 interface MatchCtx {
@@ -105,6 +105,8 @@ export class NotificationEvents {
         return this.matchCompleted(e);
       case 'HostOffered':
         return this.hostOffered(e);
+      case 'HostPayoutPaid':
+        return this.hostPayoutPaid(e);
       case 'SlotsReleased':
         await this.offerWaitlist(e.aggregateId);
         return;
@@ -252,6 +254,25 @@ export class NotificationEvents {
         params: (l) => ({ ...matchParams(m, l), fee: formatMoney(a.fee_amount, a.currency, l) }),
         data: { url: `/?offer=${a.id}`, assignment_id: a.id, match_id: e.aggregateId },
         ttlSec: a.ttl,
+      },
+    ]);
+  }
+
+  /** Admin haftalik payout'ni "to'landi" deb belgiladi -> host'ga summa va davr. */
+  private async hostPayoutPaid(e: OutboxEvent) {
+    const p = await one<{ host_user_id: string; amount: number; currency: string; period_start: string; period_end: string; status: string }>(
+      this.db,
+      sql`SELECT host_user_id, amount, currency, period_start::text AS period_start, period_end::text AS period_end, status
+          FROM host_payouts WHERE id = ${e.aggregateId}`,
+    );
+    if (!p || p.status !== 'paid') return;
+    await this.notifications.notify([
+      {
+        userId: p.host_user_id,
+        type: 'host.payout_paid',
+        dedupeKey: this.key(e, p.host_user_id),
+        params: (l) => ({ amount: formatMoney(Number(p.amount), p.currency, l), period: formatPeriod(p.period_start, p.period_end, l) }),
+        data: { url: '/', payout_id: e.aggregateId },
       },
     ]);
   }

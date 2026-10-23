@@ -32,7 +32,8 @@ async function handle(req: NextRequest, ctx: { params: Promise<{ path: string[] 
     res = await send(s.access);
   }
   const out = new Headers();
-  for (const h of ['content-type', 'retry-after', 'x-request-id']) {
+  // content-disposition — fayl yuklab olish (masalan host payout'lari CSV'si)
+  for (const h of ['content-type', 'content-disposition', 'retry-after', 'x-request-id']) {
     const v = res.headers.get(h);
     if (v) out.set(h, v);
   }

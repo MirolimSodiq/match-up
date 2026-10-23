@@ -7,6 +7,7 @@ import { formatMoney } from '../common/money';
 import { emit } from '../common/outbox';
 import { SeatsService, type LockedBooking } from '../commerce/seats.service';
 import { DB, type Db, one, pgError, PG, type Tx } from '../db/db';
+import { RefundSettlement } from './refund-settlement';
 
 /**
  * Uzum Bank Merchant API (https://developer.uzumbank.uz/merchant): Uzum bizning endpointlarni chaqiradi —
@@ -154,6 +155,7 @@ export class UzumService {
     @Inject(DB) private readonly db: Db,
     @Inject(ENV) private readonly env: Env,
     private readonly seats: SeatsService,
+    private readonly refunds: RefundSettlement,
   ) {}
 
   /** `Authorization: Basic base64(login:parol)`; SHA-256 dan keyin solishtirish — uzunlik ham sizib chiqmaydi. */
@@ -451,19 +453,19 @@ export class UzumService {
         await this.saveState(tx, pay, next, 'cancelled');
         await this.seats.release(tx, pay.booking_id, 'cancelled', 'payment_cancelled', undefined, { onlyPending: true });
       } else {
-        // CONFIRMED -> refund. O'yin boshlangan bo'lsa xizmat ko'rsatilgan hisoblanadi.
-        const started = await one<{ started: boolean }>(
-          tx,
-          sql`SELECT m.starts_at <= now() AS started FROM bookings b JOIN matches m ON m.id = b.match_id WHERE b.id = ${pay.booking_id}`,
-        );
-        if (started?.started) return fail(UZUM_ERR.CANNOT_REVERSE);
+        // CONFIRMED -> refund. Admin Uzum kabinetidan bizning navbatdagi refund'ni bajargan bo'lsa — o'yin boshlangan
+        // bo'lsa ham; so'ralmagan bekor qilishda o'yin boshlangan bo'lsa xizmat ko'rsatilgan hisoblanadi.
+        const requested = (await this.refunds.pending(tx, pay.id)).length > 0;
+        if (!requested) {
+          const started = await one<{ started: boolean }>(
+            tx,
+            sql`SELECT m.starts_at <= now() AS started FROM bookings b JOIN matches m ON m.id = b.match_id WHERE b.id = ${pay.booking_id}`,
+          );
+          if (started?.started) return fail(UZUM_ERR.CANNOT_REVERSE);
+        }
         await this.seats.release(tx, pay.booking_id, 'cancelled', 'payment_refunded');
+        await this.refunds.providerReversed(tx, pay.id, transId);
         await this.saveState(tx, pay, next, 'refunded');
-        await tx.execute(
-          sql`INSERT INTO refunds (payment_id, booking_id, amount, currency, destination, status, reason, provider_refund_id, completed_at)
-              VALUES (${pay.id}, ${pay.booking_id}, ${pay.amount}, ${pay.currency}, 'original_method', 'succeeded',
-                      'provider_cancel', ${transId}, now())`,
-        );
       }
       return this.ok({
         serviceId,

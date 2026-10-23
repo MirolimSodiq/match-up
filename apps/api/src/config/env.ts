@@ -69,6 +69,16 @@ const EnvSchema = z.object({
   /** Kechki job vaqti (cron, Asia/Tashkent): oldingi kunni solishtiradi. */
   RECONCILE_CRON: z.string().default('30 3 * * *'),
 
+  // Avtomatik provider refund'lari (job `provider-refunds`): to'liq summali `original_method` refund'lari.
+  // Standart o'chiq (dev'da tashqi API'ga chiqmaslik uchun) — o'chiq provider refund'lari admin navbatida qoladi.
+  /** Payme: Subscribe API `receipts.cancel` / `receipts.check` (PAYME_API_URL, X-Auth — reconciliation kaliti). */
+  PAYME_REFUND_ENABLED: bool.default(false),
+  /** Click: Merchant API `DELETE payment/reversal` (Auth: merchant_user_id:sha1(timestamp + CLICK_SECRET_KEY):timestamp). */
+  CLICK_REFUND_ENABLED: bool.default(false),
+  CLICK_API_URL: z.url().default('https://api.click.uz/v2/merchant'),
+  /** Click merchant kabinetidagi API foydalanuvchisi (merchant_user_id) — CLICK_REFUND_ENABLED uchun majburiy. */
+  CLICK_MERCHANT_USER_ID: z.string().optional(),
+
   // Host operatsiyalari: no-show ogohlantirishi (Telegram ops guruhi) va haftalik payout
   /** Ops guruhi chat id (TELEGRAM_BOT_TOKEN boti guruhga qo'shilgan bo'lsin); bo'sh — ogohlantirish faqat logga. */
   OPS_TELEGRAM_CHAT_ID: z.string().optional(),
@@ -156,6 +166,7 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     throw new Error(`Env konfiguratsiyasi noto'g'ri:\n${issues}`);
   }
   const env = parsed.data;
+  if (env.CLICK_REFUND_ENABLED && !env.CLICK_MERCHANT_USER_ID) throw new Error('CLICK_REFUND_ENABLED uchun CLICK_MERCHANT_USER_ID kerak');
   if (env.NODE_ENV === 'production') {
     for (const key of ['JWT_PRIVATE_KEY_FILE', 'JWT_PUBLIC_KEY_FILE', 'TICKET_PRIVATE_KEY_FILE', 'TICKET_PUBLIC_KEY_FILE'] as const) {
       if (!env[key]) throw new Error(`${key} production'da majburiy`);

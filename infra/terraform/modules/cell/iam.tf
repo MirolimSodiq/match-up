@@ -10,7 +10,7 @@ locals {
       secrets = concat(
         [aws_secretsmanager_secret.database_url.arn, aws_secretsmanager_secret.redis_url.arn],
         [aws_secretsmanager_secret.media_worker_token.arn],
-        [for k in ["signing-keys", "payme", "click", "eskiz", "sentry", "media-cdn"] : aws_secretsmanager_secret.manual[k].arn],
+        [for k in ["signing-keys", "payme", "click", "eskiz", "sentry", "media-cdn", "telegram"] : aws_secretsmanager_secret.manual[k].arn],
       )
     }
     migrate = {

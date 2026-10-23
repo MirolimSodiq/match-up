@@ -16,6 +16,13 @@ module "cell" {
   admin_image_tag        = var.admin_image_tag
   migrate_image_tag      = var.migrate_image_tag
   media_worker_image_tag = var.media_worker_image_tag
+
+  # CI deploy: .github/workflows/deploy.yml, `environment: staging`
+  github_oidc_provider_arn = var.github_oidc_provider_arn
+  github_repository        = var.github_repository
+  github_environment       = "staging"
+  ops_telegram_chat_id     = var.ops_telegram_chat_id
+
   use_fargate_spot       = true
   enable_execute_command = true
   api_min_count          = 1

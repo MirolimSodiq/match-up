@@ -89,6 +89,7 @@ const STATUS_TONE: Record<string, Tone> = {
   succeeded: 'success',
   failed: 'danger',
   refunded: 'dark',
+  paid: 'success',
   partially_refunded: 'warning',
   applicant: 'warning',
   active: 'success',
@@ -99,6 +100,8 @@ const STATUS_TONE: Record<string, Tone> = {
   arrived: 'success',
   declined: 'neutral',
   running: 'info',
+  approved: 'success',
+  rejected: 'danger',
   missing_at_provider: 'danger',
   missing_locally: 'danger',
   amount_mismatch: 'warning',
@@ -174,7 +177,7 @@ export function Field({ label, hint, error, children, className }: { label: Reac
 
 export function Segmented<T extends string>({ options, value, onChange, size = 'md' }: { options: { value: T; label: ReactNode }[]; value: T; onChange: (v: T) => void; size?: 'sm' | 'md' }) {
   return (
-    <div className="inline-flex rounded-pill bg-surface-muted p-1" role="tablist">
+    <div className="inline-flex max-w-full overflow-x-auto rounded-pill bg-surface-muted p-1" role="tablist">
       {options.map((o) => (
         <button
           key={o.value}
@@ -183,7 +186,7 @@ export function Segmented<T extends string>({ options, value, onChange, size = '
           aria-selected={o.value === value}
           onClick={() => onChange(o.value)}
           className={cx(
-            'rounded-pill font-semibold transition',
+            'shrink-0 rounded-pill font-semibold whitespace-nowrap transition',
             size === 'sm' ? 'px-3 py-1 text-xs' : 'px-4 py-1.5 text-sm',
             o.value === value ? 'bg-surface text-text shadow-soft' : 'text-text-muted hover:text-text',
           )}

@@ -1736,6 +1736,111 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/host-payouts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Haftalik host payout'lari
+         * @description `HostPayouts` job'i har dushanba (`HOST_PAYOUT_CRON`, Asia/Tashkent) oldingi hafta bajarilgan tayinlovlardan
+         *     host + valyuta bo'yicha `pending` payout yaratadi. `status=pending` — navbat (eng eski hafta birinchi),
+         *     boshqa filtrlarda eng yangi hafta birinchi. `q` — host ismi, telefon (kamida 4 raqam), o'tkazma raqami yoki payout ID.
+         */
+        get: operations["adminListHostPayouts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/host-payouts/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Bank o'tkazmasi uchun CSV
+         * @description Ro'yxat filtrlari bilan, pagination'siz (ko'pi bilan 5000 qator, oshsa 422). UTF-8 BOM, `\r\n`, ustunlar:
+         *     `payout_id, host, phone, payout_method, payout_details_ref, amount, currency, period_start, period_end, assignments, status, provider_ref`.
+         *     `amount` — asosiy birlikda (`250000.00`). Karta raqami bazada yo'q — `payout_details_ref` vault havolasi.
+         *     `= + - @` bilan boshlangan matnli kataklarga `'` qo'shiladi (formula injection).
+         */
+        get: operations["adminExportHostPayouts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/host-payouts/paid": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bir nechta payout'ni bitta o'tkazma raqami bilan "to'landi" deb belgilash
+         * @description Hammasi `pending` bo'lishi shart: bittasi boshqa holatda bo'lsa — 409, topilmasa — 404, hech biri o'zgarmaydi.
+         *     Har payout: `status=paid`, `provider_ref`, `paid_at`, `paid_by`; `audit_logs` (`host_payout.paid`, `batch_size`)
+         *     va `HostPayoutPaid` (host'ga push) bitta tranzaksiyada.
+         */
+        post: operations["adminMarkHostPayoutsPaid"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/host-payouts/{payoutId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Payout tafsiloti — unga kirgan tayinlovlar */
+        get: operations["adminGetHostPayout"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/host-payouts/{payoutId}/paid": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Payout'ni "to'landi" deb belgilash (bank / karta o'tkazmasidan keyin)
+         * @description Faqat `pending` (aks holda 409). `status=paid`, `provider_ref` (o'tkazma raqami), `paid_at`, `paid_by`;
+         *     `audit_logs` (`host_payout.paid`) va `HostPayoutPaid` (host'ga push) bitta tranzaksiyada.
+         */
+        post: operations["adminMarkHostPayoutPaid"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/payments": {
         parameters: {
             query?: never;
@@ -1762,8 +1867,9 @@ export interface paths {
         };
         /**
          * Refund navbati
-         * @description Standart — qo'lda bajariladigan navbat: `status=pending`, `destination=original_method`, eng eskisi birinchi.
-         *     Boshqa filtrlarda yakunlanganlari eng yangisi birinchi.
+         * @description Standart — kartaga qaytariladigan navbat: `status=pending`, `destination=original_method`, eng eskisi birinchi.
+         *     Boshqa filtrlarda yakunlanganlari eng yangisi birinchi. Navbatdagi refund'larni avto-refund job'i provider
+         *     orqali qaytaradi (`auto`); admin aralashuvi kerak bo'lganlari — `auto_status=manual`.
          */
         get: operations["adminListRefunds"];
         put?: never;
@@ -1785,11 +1891,56 @@ export interface paths {
         put?: never;
         /**
          * Provider kabinetida bajarilgan refund'ni "bajarildi" deb belgilash
-         * @description Faqat `pending` + `original_method`. Refund -> `succeeded` (`provider_refund_id`, izoh, `processed_by`),
-         *     `payments.refunded_amount` oshadi (to'lov summasidan oshmaydi), to'lov status'i `refunded` yoki `partially_refunded`.
+         * @description Faqat `pending` + `original_method`; avto-refund provider javobini kutayotgan bo'lsa (`auto.status=submitted`) — 409.
+         *     Refund -> `succeeded` (`provider_refund_id`, izoh, `processed_by`), `payments.refunded_amount` oshadi
+         *     (to'lov summasidan oshmaydi), to'lov status'i `refunded` yoki `partially_refunded`.
          *     `RefundIssued` event va `audit_logs` yozuvi bilan bitta tranzaksiyada.
          */
         post: operations["adminCompleteRefund"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/refunds/{refundId}/to-wallet": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Kartaga qaytarib bo'lmaydigan refund'ni o'yinchi hamyoniga o'tkazish
+         * @description Masalan qisman refund (`auto.manual_reason=partial` — provider faqat to'liq summani qaytaradi) yoki provider
+         *     rad etgan refund. Faqat `pending` + `original_method`, `auto.status=submitted` bo'lsa — 409.
+         *     Refund -> `destination=wallet`, `succeeded`; hamyon kreditlanadi, to'lov o'zgarmaydi.
+         *     `RefundIssued` (o'yinchiga push) va `audit_logs` (`refund.to_wallet`) bilan bitta tranzaksiyada.
+         */
+        post: operations["adminRefundToWallet"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/refunds/{refundId}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Admin navbatidagi refund'ni avto-refund'ga qaytarish
+         * @description Faqat `auto.status=manual` (masalan provider xatosi tuzatilgach yoki avto-refund yoqilgach): `queued`, urinishlar
+         *     hisoblagichi nolga, job keyingi daqiqada qayta ko'radi. `audit_logs` — `refund.auto_retry`.
+         */
+        post: operations["adminRetryRefund"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1870,6 +2021,70 @@ export interface paths {
         get: operations["adminGetReconciliationRun"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/highlights": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Highlight moderatsiyasi navbati
+         * @description Post-moderatsiya: klip worker tayyorlagan zahoti nashr qilinadi (`pending` ham ishtirokchilarga ko'rinadi), admin
+         *     shu yerda ko'rib chiqadi. Faqat nashr qilingan, o'chirilmagan, media `ready` kliplar. `pending` — eng eskisi
+         *     birinchi (FIFO); boshqalari — oxirgi qaror birinchi. `counts` — filtrsiz (tab'lar va menyu badge'i).
+         *
+         *     Ko'rish uchun `media.mp4_url` (9:16, markazdan qirqilgan; brauzer `<video>` CORS'siz) va `thumbnail_url` —
+         *     imzolangan, `MEDIA_PLAYBACK_TTL_SEC`. `hls_url` — to'liq kadr (ilovalar uchun).
+         */
+        get: operations["adminListHighlights"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/highlights/{highlightId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Klip (moderatsiya ko'rinishi) */
+        get: operations["adminGetHighlight"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/highlights/{highlightId}/moderate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Klipni tasdiqlash yoki rad etish
+         * @description `rejected` — klip feed'lardan, ulashish havolasidan (`/h/{token}`) va push'lardan yashiriladi; `reason` majburiy.
+         *     Qaror keyin o'zgartirilishi mumkin (masalan, shikoyatdan keyin `approved` -> `rejected`). Har qaror
+         *     `audit_logs` (`highlight.moderate`: from, to, reason, note) ga yoziladi.
+         */
+        post: operations["adminModerateHighlight"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2094,14 +2309,14 @@ export interface components {
             status?: string;
         };
         /**
-         * @description Eksport fayli (format versiyasi 1). Vaqtlar UTC ISO 8601, summalar minor units'da. Har bo'lim — massiv
-         *     (bo'sh bo'lishi mumkin); `host` — foydalanuvchi host bo'lmasa `null`.
+         * @description Eksport fayli (format versiyasi 2: `media` bo'limi qo'shildi). Vaqtlar UTC ISO 8601, summalar minor units'da.
+         *     Har bo'lim — massiv (bo'sh bo'lishi mumkin); `host` — foydalanuvchi host bo'lmasa `null`.
          */
         PersonalDataExport: {
             /** @constant */
             format: "matchup.personal-data-export";
             /** @constant */
-            version: 1;
+            version: 2;
             /** Format: date-time */
             generated_at: string;
             /** Format: uuid */
@@ -2171,11 +2386,66 @@ export interface components {
             highlight_tags?: {
                 [key: string]: unknown;
             }[];
+            media?: components["schemas"]["PersonalDataExportMedia"];
             host?: {
                 [key: string]: unknown;
             } | null;
             data_requests?: {
                 [key: string]: unknown;
+            }[];
+        };
+        /**
+         * @description Foydalanuvchiga bevosita tegishli videolar: teglangan highlight'lar (`relation: tagged`), o'zi yuklagan kliplar
+         *     (`uploaded`, host) va o'zi yozgan to'liq o'yin kameralari. Boshqa o'yinchilarning videolari kirmaydi.
+         *     Fayllar nusxalanmaydi — `links_expire_at` gacha (eksport fayli muddati, S3 presigned uchun ko'pi bilan
+         *     7 kun) ishlaydigan imzolangan havolalar. `hls` — ijro mumkin bo'lsa (nashr qilingan, rad etilmagan);
+         *     `original` — asl yuklangan fayl saqlanish muddati ichida bo'lsa (attachment). O'chirilgan kliplar kirmaydi.
+         */
+        PersonalDataExportMedia: {
+            /** Format: date-time */
+            links_expire_at: string;
+            notes: string[];
+            highlights: {
+                /** Format: uuid */
+                highlight_id: string;
+                match_code: string;
+                relation: ("tagged" | "uploaded")[];
+                title: string | null;
+                source: string;
+                duration_ms: number | null;
+                /** Format: date-time */
+                created_at: string;
+                /** Format: date-time */
+                published_at: string | null;
+                /** @enum {string} */
+                moderation_status: "pending" | "approved" | "rejected";
+                /** @description media holati: ready, processing, failed, ... */
+                status: string;
+                files: {
+                    /** @description 9:16 MP4 */
+                    video_mp4: string | null;
+                    thumbnail: string | null;
+                    /** @description Master playlist (`ffmpeg -i <hls> -c copy video.mp4`) */
+                    hls: string | null;
+                    original: string | null;
+                };
+            }[];
+            recordings: {
+                /** Format: uuid */
+                camera_id: string;
+                match_code: string;
+                /** @enum {string} */
+                position: "left" | "right" | "wide";
+                status: string;
+                /** Format: date-time */
+                started_at: string;
+                /** Format: date-time */
+                stopped_at: string | null;
+                duration_ms: number | null;
+                files: {
+                    hls: string | null;
+                    original: string | null;
+                };
             }[];
         };
         AuthIdentity: {
@@ -3780,6 +4050,66 @@ export interface components {
             items: components["schemas"]["AdminHost"][];
             total: number;
         };
+        AdminHostPayout: {
+            /** Format: uuid */
+            id: string;
+            host: {
+                /** Format: uuid */
+                id: string;
+                display_name: string | null;
+                phone: string | null;
+                /** @example card_uzcard */
+                payout_method: string | null;
+                /** @description Vault havolasi (karta raqami saqlanmaydi) */
+                payout_details_ref: string | null;
+            };
+            /** @description Dushanba–yakshanba (Asia/Tashkent) */
+            period: {
+                /** Format: date */
+                start: string;
+                /** Format: date */
+                end: string;
+            };
+            amount: components["schemas"]["Money"];
+            /** @enum {string} */
+            status: "pending" | "processing" | "paid" | "failed";
+            assignments_count: number;
+            /** @description Bank / karta o'tkazmasi raqami */
+            provider_ref: string | null;
+            /** Format: date-time */
+            paid_at: string | null;
+            paid_by: {
+                /** Format: uuid */
+                id: string;
+                display_name: string | null;
+            } | null;
+            note: string | null;
+            /** Format: date-time */
+            created_at: string;
+        };
+        AdminHostPayoutList: {
+            items: components["schemas"]["AdminHostPayout"][];
+            total: number;
+            totals: components["schemas"]["CurrencyTotal"][];
+        };
+        AdminHostPayoutDetail: components["schemas"]["AdminHostPayout"] & {
+            assignments: {
+                /** Format: uuid */
+                id: string;
+                match: {
+                    /** Format: uuid */
+                    id: string;
+                    public_code: string;
+                    title: string;
+                    /** Format: date-time */
+                    starts_at: string;
+                    venue_name: string;
+                };
+                fee: components["schemas"]["Money"];
+                /** Format: date-time */
+                completed_at: string | null;
+            }[];
+        };
         AdminPayment: {
             /** Format: uuid */
             id: string;
@@ -3888,6 +4218,81 @@ export interface components {
             /** Format: date-time */
             created_at: string;
         };
+        /**
+         * @description `inappropriate` — nojo'ya kontent, `violence` — zo'ravonlik / jarohat, `privacy` — roziliksiz odam yoki shaxsiy
+         *     ma'lumot, `not_match` — o'yinga aloqasi yo'q, `low_quality` — sifatsiz / bo'sh, `other` — boshqa (izohda)
+         * @enum {string}
+         */
+        HighlightRejectReason: "inappropriate" | "violence" | "privacy" | "not_match" | "low_quality" | "other";
+        AdminHighlight: {
+            /** Format: uuid */
+            id: string;
+            title: string | null;
+            /** @example host_manual */
+            source: string;
+            duration_ms: number | null;
+            match_offset_ms: number | null;
+            /** @example participants */
+            visibility: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            published_at: string;
+            moderation: {
+                /** @enum {string} */
+                status: "pending" | "approved" | "rejected";
+                reason: components["schemas"]["HighlightRejectReason"] | null;
+                note: string | null;
+                /** Format: date-time */
+                moderated_at: string | null;
+                moderated_by: {
+                    /** Format: uuid */
+                    id: string;
+                    display_name: string | null;
+                } | null;
+            };
+            creator: components["schemas"]["UserRef"];
+            match: {
+                /** Format: uuid */
+                id: string;
+                public_code: string;
+                sport: string;
+                /** Format: date-time */
+                starts_at: string;
+                timezone: string;
+                venue_name: string;
+            };
+            /** @description Barcha teglar (consent qaytarib olinganlari ham — maxfiylik shikoyatini tekshirish uchun) */
+            tags: {
+                /** Format: uuid */
+                user_id: string;
+                display_name: string;
+            }[];
+            likes_count: number;
+            shares_count: number;
+            views_count: number;
+            media: {
+                /** Format: uuid */
+                id: string;
+                width: number | null;
+                height: number | null;
+                thumbnail_url: string | null;
+                /** @description 9:16 vertikal MP4 (markazdan qirqilgan) */
+                mp4_url: string | null;
+                hls_url: string;
+                /** Format: date-time */
+                expires_at: string;
+            };
+        };
+        AdminHighlightList: {
+            items: components["schemas"]["AdminHighlight"][];
+            total: number;
+            counts: {
+                pending: number;
+                approved: number;
+                rejected: number;
+            };
+        };
         ReconciliationRunDetail: components["schemas"]["ReconciliationRun"] & {
             items: components["schemas"]["ReconciliationItem"][];
         };
@@ -3909,6 +4314,7 @@ export interface components {
             created_at: string;
             /** Format: date-time */
             completed_at: string | null;
+            auto: components["schemas"]["AdminRefundAuto"];
             /** Format: uuid */
             initiated_by: string | null;
             processed_by: {
@@ -3933,6 +4339,27 @@ export interface components {
                 status: components["schemas"]["PaymentStatus"];
                 provider_transaction_id: string | null;
             } | null;
+        };
+        /**
+         * @description Avtomatik provider refund'i (Payme `receipts.cancel`, Click `payment/reversal`; Uzum'da API yo'q).
+         *     `status`: null — hali ko'rilmagan yoki tegishli emas; `queued` — `next_attempt_at` da (qayta) urinish;
+         *     `submitted` — provider javobi kutilmoqda; `manual` — admin hal qiladi (`manual_reason`).
+         */
+        AdminRefundAuto: {
+            /** @enum {string|null} */
+            status: "queued" | "submitted" | "manual" | null;
+            attempts: number;
+            /** Format: date-time */
+            next_attempt_at: string | null;
+            /**
+             * @description partial — provider faqat to'liq summani qaytaradi; unsupported — provider'da refund API yo'q (Uzum);
+             *     disabled — avto-refund o'chiq; rejected — provider rad etdi; failed — urinishlar tugadi;
+             *     timeout — provider natijani tasdiqlamadi; legacy — avto-refund'dan oldingi navbat.
+             * @enum {string|null}
+             */
+            manual_reason: "partial" | "unsupported" | "disabled" | "rejected" | "failed" | "timeout" | "legacy" | null;
+            /** @description Provider xatosi (oxirgi urinish) */
+            error: string | null;
         };
         AdminRefundList: {
             items: components["schemas"]["AdminRefund"][];
@@ -4113,6 +4540,7 @@ export interface components {
         JobId: string;
         ShareToken: string;
         RefundId: string;
+        PayoutId: string;
         AdminLimit: number;
         /** @description Admin jadvallari offset pagination ishlatadi (javobda `total`) */
         Offset: number;
@@ -7104,6 +7532,163 @@ export interface operations {
             422: components["responses"]["ValidationError"];
         };
     };
+    adminListHostPayouts: {
+        parameters: {
+            query?: {
+                /** @description Vergul bilan: pending, processing, paid, failed */
+                status?: string;
+                host_id?: string;
+                /** @description Davr shu sanagacha tugamagan (period_end >= period_from) */
+                period_from?: string;
+                /** @description Davr shu sanadan keyin boshlanmagan (period_start <= period_to) */
+                period_to?: string;
+                q?: string;
+                limit?: components["parameters"]["AdminLimit"];
+                /** @description Admin jadvallari offset pagination ishlatadi (javobda `total`) */
+                offset?: components["parameters"]["Offset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Payout'lar */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminHostPayoutList"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    adminExportHostPayouts: {
+        parameters: {
+            query?: {
+                status?: string;
+                host_id?: string;
+                period_from?: string;
+                period_to?: string;
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description CSV fayl (`Content-Disposition: attachment; filename="host-payouts-YYYY-MM-DD.csv"`) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    adminMarkHostPayoutsPaid: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    ids: string[];
+                    /** @example HUMO-BATCH-0042 */
+                    provider_ref: string;
+                    note?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Belgilangan payout'lar */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["AdminHostPayout"][];
+                    };
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    adminGetHostPayout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                payoutId: components["parameters"]["PayoutId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Payout */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminHostPayoutDetail"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    adminMarkHostPayoutPaid: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                payoutId: components["parameters"]["PayoutId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @example UZCARD-TR-0001 */
+                    provider_ref: string;
+                    note?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description To'landi */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminHostPayout"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
     adminListPayments: {
         parameters: {
             query?: {
@@ -7147,6 +7732,8 @@ export interface operations {
                 status?: string;
                 destination?: string;
                 provider?: string;
+                /** @description Vergul bilan: queued, submitted, manual */
+                auto_status?: string;
                 q?: string;
                 limit?: components["parameters"]["AdminLimit"];
                 /** @description Admin jadvallari offset pagination ishlatadi (javobda `total`) */
@@ -7203,6 +7790,63 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    adminRefundToWallet: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                refundId: components["parameters"]["RefundId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    note?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Hamyonga o'tkazildi */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminRefund"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    adminRetryRefund: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                refundId: components["parameters"]["RefundId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Navbatga qaytarildi */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminRefund"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     adminDashboard: {
@@ -7335,6 +7979,95 @@ export interface operations {
             };
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    adminListHighlights: {
+        parameters: {
+            query?: {
+                /** @description Vergul bilan; standart `pending` */
+                status?: string;
+                match_id?: string;
+                /** @description MU-kod, klip nomi, yuklagan host ismi yoki telefoni */
+                q?: string;
+                limit?: components["parameters"]["AdminLimit"];
+                /** @description Admin jadvallari offset pagination ishlatadi (javobda `total`) */
+                offset?: components["parameters"]["Offset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Kliplar */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminHighlightList"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    adminGetHighlight: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                highlightId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Klip */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminHighlight"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    adminModerateHighlight: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                highlightId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    status: "approved" | "rejected";
+                    reason?: components["schemas"]["HighlightRejectReason"];
+                    note?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Yangilangan klip */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminHighlight"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
         };
     };
 }

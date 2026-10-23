@@ -2604,6 +2604,140 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /v1/admin/host-payouts:
+    get:
+      tags: [Admin]
+      operationId: adminListHostPayouts
+      summary: Haftalik host payout'lari
+      description: |
+        `HostPayouts` job'i har dushanba (`HOST_PAYOUT_CRON`, Asia/Tashkent) oldingi hafta bajarilgan tayinlovlardan
+        host + valyuta bo'yicha `pending` payout yaratadi. `status=pending` — navbat (eng eski hafta birinchi),
+        boshqa filtrlarda eng yangi hafta birinchi. `q` — host ismi, telefon (kamida 4 raqam), o'tkazma raqami yoki payout ID.
+      parameters:
+        - { name: status, in: query, description: 'Vergul bilan: pending, processing, paid, failed', schema: { type: string, examples: [pending] } }
+        - { name: host_id, in: query, schema: { type: string, format: uuid } }
+        - { name: period_from, in: query, description: "Davr shu sanagacha tugamagan (period_end >= period_from)", schema: { type: string, format: date } }
+        - { name: period_to, in: query, description: 'Davr shu sanadan keyin boshlanmagan (period_start <= period_to)', schema: { type: string, format: date } }
+        - { name: q, in: query, schema: { type: string, maxLength: 100 } }
+        - $ref: '#/components/parameters/AdminLimit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Payout'lar
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminHostPayoutList' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /v1/admin/host-payouts/export:
+    get:
+      tags: [Admin]
+      operationId: adminExportHostPayouts
+      summary: Bank o'tkazmasi uchun CSV
+      description: |
+        Ro'yxat filtrlari bilan, pagination'siz (ko'pi bilan 5000 qator, oshsa 422). UTF-8 BOM, `\r\n`, ustunlar:
+        `payout_id, host, phone, payout_method, payout_details_ref, amount, currency, period_start, period_end, assignments, status, provider_ref`.
+        `amount` — asosiy birlikda (`250000.00`). Karta raqami bazada yo'q — `payout_details_ref` vault havolasi.
+        `= + - @` bilan boshlangan matnli kataklarga `'` qo'shiladi (formula injection).
+      parameters:
+        - { name: status, in: query, schema: { type: string, examples: [pending] } }
+        - { name: host_id, in: query, schema: { type: string, format: uuid } }
+        - { name: period_from, in: query, schema: { type: string, format: date } }
+        - { name: period_to, in: query, schema: { type: string, format: date } }
+        - { name: q, in: query, schema: { type: string, maxLength: 100 } }
+      responses:
+        '200':
+          description: 'CSV fayl (`Content-Disposition: attachment; filename="host-payouts-YYYY-MM-DD.csv"`)'
+          content:
+            text/csv:
+              schema: { type: string }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /v1/admin/host-payouts/paid:
+    post:
+      tags: [Admin]
+      operationId: adminMarkHostPayoutsPaid
+      summary: Bir nechta payout'ni bitta o'tkazma raqami bilan "to'landi" deb belgilash
+      description: |
+        Hammasi `pending` bo'lishi shart: bittasi boshqa holatda bo'lsa — 409, topilmasa — 404, hech biri o'zgarmaydi.
+        Har payout: `status=paid`, `provider_ref`, `paid_at`, `paid_by`; `audit_logs` (`host_payout.paid`, `batch_size`)
+        va `HostPayoutPaid` (host'ga push) bitta tranzaksiyada.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids, provider_ref]
+              properties:
+                ids: { type: array, minItems: 1, maxItems: 200, items: { type: string, format: uuid } }
+                provider_ref: { type: string, minLength: 1, maxLength: 200, examples: [HUMO-BATCH-0042] }
+                note: { type: string, maxLength: 1000 }
+      responses:
+        '200':
+          description: Belgilangan payout'lar
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/AdminHostPayout' } }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /v1/admin/host-payouts/{payoutId}:
+    get:
+      tags: [Admin]
+      operationId: adminGetHostPayout
+      summary: Payout tafsiloti — unga kirgan tayinlovlar
+      parameters:
+        - $ref: '#/components/parameters/PayoutId'
+      responses:
+        '200':
+          description: Payout
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminHostPayoutDetail' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/admin/host-payouts/{payoutId}/paid:
+    post:
+      tags: [Admin]
+      operationId: adminMarkHostPayoutPaid
+      summary: Payout'ni "to'landi" deb belgilash (bank / karta o'tkazmasidan keyin)
+      description: |
+        Faqat `pending` (aks holda 409). `status=paid`, `provider_ref` (o'tkazma raqami), `paid_at`, `paid_by`;
+        `audit_logs` (`host_payout.paid`) va `HostPayoutPaid` (host'ga push) bitta tranzaksiyada.
+      parameters:
+        - $ref: '#/components/parameters/PayoutId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [provider_ref]
+              properties:
+                provider_ref: { type: string, minLength: 1, maxLength: 200, examples: [UZCARD-TR-0001] }
+                note: { type: string, maxLength: 1000 }
+      responses:
+        '200':
+          description: To'landi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminHostPayout' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   /v1/admin/payments:
     get:
       tags: [Admin]
@@ -2633,12 +2767,14 @@ paths:
       operationId: adminListRefunds
       summary: Refund navbati
       description: |
-        Standart — qo'lda bajariladigan navbat: `status=pending`, `destination=original_method`, eng eskisi birinchi.
-        Boshqa filtrlarda yakunlanganlari eng yangisi birinchi.
+        Standart — kartaga qaytariladigan navbat: `status=pending`, `destination=original_method`, eng eskisi birinchi.
+        Boshqa filtrlarda yakunlanganlari eng yangisi birinchi. Navbatdagi refund'larni avto-refund job'i provider
+        orqali qaytaradi (`auto`); admin aralashuvi kerak bo'lganlari — `auto_status=manual`.
       parameters:
         - { name: status, in: query, schema: { type: string, default: pending, examples: ['succeeded'] } }
         - { name: destination, in: query, schema: { type: string, default: original_method, examples: ['original_method,wallet'] } }
         - { name: provider, in: query, schema: { type: string, examples: [payme] } }
+        - { name: auto_status, in: query, description: 'Vergul bilan: queued, submitted, manual', schema: { type: string, examples: [manual] } }
         - { name: q, in: query, schema: { type: string, maxLength: 100 } }
         - $ref: '#/components/parameters/AdminLimit'
         - $ref: '#/components/parameters/Offset'
@@ -2656,8 +2792,9 @@ paths:
       operationId: adminCompleteRefund
       summary: Provider kabinetida bajarilgan refund'ni "bajarildi" deb belgilash
       description: |
-        Faqat `pending` + `original_method`. Refund -> `succeeded` (`provider_refund_id`, izoh, `processed_by`),
-        `payments.refunded_amount` oshadi (to'lov summasidan oshmaydi), to'lov status'i `refunded` yoki `partially_refunded`.
+        Faqat `pending` + `original_method`; avto-refund provider javobini kutayotgan bo'lsa (`auto.status=submitted`) — 409.
+        Refund -> `succeeded` (`provider_refund_id`, izoh, `processed_by`), `payments.refunded_amount` oshadi
+        (to'lov summasidan oshmaydi), to'lov status'i `refunded` yoki `partially_refunded`.
         `RefundIssued` event va `audit_logs` yozuvi bilan bitta tranzaksiyada.
       parameters:
         - $ref: '#/components/parameters/RefundId'
@@ -2681,6 +2818,56 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
+
+  /v1/admin/refunds/{refundId}/to-wallet:
+    post:
+      tags: [Admin]
+      operationId: adminRefundToWallet
+      summary: Kartaga qaytarib bo'lmaydigan refund'ni o'yinchi hamyoniga o'tkazish
+      description: |
+        Masalan qisman refund (`auto.manual_reason=partial` — provider faqat to'liq summani qaytaradi) yoki provider
+        rad etgan refund. Faqat `pending` + `original_method`, `auto.status=submitted` bo'lsa — 409.
+        Refund -> `destination=wallet`, `succeeded`; hamyon kreditlanadi, to'lov o'zgarmaydi.
+        `RefundIssued` (o'yinchiga push) va `audit_logs` (`refund.to_wallet`) bilan bitta tranzaksiyada.
+      parameters:
+        - $ref: '#/components/parameters/RefundId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                note: { type: string, maxLength: 1000 }
+      responses:
+        '200':
+          description: Hamyonga o'tkazildi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminRefund' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /v1/admin/refunds/{refundId}/retry:
+    post:
+      tags: [Admin]
+      operationId: adminRetryRefund
+      summary: Admin navbatidagi refund'ni avto-refund'ga qaytarish
+      description: |
+        Faqat `auto.status=manual` (masalan provider xatosi tuzatilgach yoki avto-refund yoqilgach): `queued`, urinishlar
+        hisoblagichi nolga, job keyingi daqiqada qayta ko'radi. `audit_logs` — `refund.auto_retry`.
+      parameters:
+        - $ref: '#/components/parameters/RefundId'
+      responses:
+        '200':
+          description: Navbatga qaytarildi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminRefund' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
 
   /v1/admin/dashboard:
     get:
@@ -2794,6 +2981,81 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /v1/admin/highlights:
+    get:
+      tags: [Admin]
+      operationId: adminListHighlights
+      summary: Highlight moderatsiyasi navbati
+      description: |
+        Post-moderatsiya: klip worker tayyorlagan zahoti nashr qilinadi (`pending` ham ishtirokchilarga ko'rinadi), admin
+        shu yerda ko'rib chiqadi. Faqat nashr qilingan, o'chirilmagan, media `ready` kliplar. `pending` — eng eskisi
+        birinchi (FIFO); boshqalari — oxirgi qaror birinchi. `counts` — filtrsiz (tab'lar va menyu badge'i).
+
+        Ko'rish uchun `media.mp4_url` (9:16, markazdan qirqilgan; brauzer `<video>` CORS'siz) va `thumbnail_url` —
+        imzolangan, `MEDIA_PLAYBACK_TTL_SEC`. `hls_url` — to'liq kadr (ilovalar uchun).
+      parameters:
+        - { name: status, in: query, description: 'Vergul bilan; standart `pending`', schema: { type: string, examples: ['pending', 'approved,rejected'] } }
+        - { name: match_id, in: query, schema: { type: string, format: uuid } }
+        - { name: q, in: query, description: 'MU-kod, klip nomi, yuklagan host ismi yoki telefoni', schema: { type: string, maxLength: 100 } }
+        - $ref: '#/components/parameters/AdminLimit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Kliplar
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminHighlightList' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /v1/admin/highlights/{highlightId}:
+    get:
+      tags: [Admin]
+      operationId: adminGetHighlight
+      summary: Klip (moderatsiya ko'rinishi)
+      parameters:
+        - { name: highlightId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Klip
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminHighlight' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/admin/highlights/{highlightId}/moderate:
+    post:
+      tags: [Admin]
+      operationId: adminModerateHighlight
+      summary: Klipni tasdiqlash yoki rad etish
+      description: |
+        `rejected` — klip feed'lardan, ulashish havolasidan (`/h/{token}`) va push'lardan yashiriladi; `reason` majburiy.
+        Qaror keyin o'zgartirilishi mumkin (masalan, shikoyatdan keyin `approved` -> `rejected`). Har qaror
+        `audit_logs` (`highlight.moderate`: from, to, reason, note) ga yoziladi.
+      parameters:
+        - { name: highlightId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [approved, rejected] }
+                reason: { $ref: '#/components/schemas/HighlightRejectReason' }
+                note: { type: string, maxLength: 500 }
+      responses:
+        '200':
+          description: Yangilangan klip
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminHighlight' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
 # =============================================================================
 components:
   securitySchemes:
@@ -2900,6 +3162,11 @@ components:
       schema: { type: string, pattern: '^[A-Za-z0-9_-]{48}$' }
     RefundId:
       name: refundId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    PayoutId:
+      name: payoutId
       in: path
       required: true
       schema: { type: string, format: uuid }
@@ -3174,12 +3441,12 @@ components:
     PersonalDataExport:
       type: object
       description: |
-        Eksport fayli (format versiyasi 1). Vaqtlar UTC ISO 8601, summalar minor units'da. Har bo'lim — massiv
-        (bo'sh bo'lishi mumkin); `host` — foydalanuvchi host bo'lmasa `null`.
+        Eksport fayli (format versiyasi 2: `media` bo'limi qo'shildi). Vaqtlar UTC ISO 8601, summalar minor units'da.
+        Har bo'lim — massiv (bo'sh bo'lishi mumkin); `host` — foydalanuvchi host bo'lmasa `null`.
       required: [format, version, generated_at, request_id, profile]
       properties:
         format: { type: string, const: matchup.personal-data-export }
-        version: { type: integer, const: 1 }
+        version: { type: integer, const: 2 }
         generated_at: { type: string, format: date-time }
         request_id: { type: string, format: uuid }
         notes: { type: array, items: { type: string } }
@@ -3213,8 +3480,64 @@ components:
         devices: { type: array, items: { type: object, additionalProperties: true } }
         feedback_given: { type: array, items: { type: object, additionalProperties: true } }
         highlight_tags: { type: array, items: { type: object, additionalProperties: true } }
+        media: { $ref: '#/components/schemas/PersonalDataExportMedia' }
         host: { type: [object, 'null'], additionalProperties: true }
         data_requests: { type: array, items: { type: object, additionalProperties: true } }
+    PersonalDataExportMedia:
+      type: object
+      description: |
+        Foydalanuvchiga bevosita tegishli videolar: teglangan highlight'lar (`relation: tagged`), o'zi yuklagan kliplar
+        (`uploaded`, host) va o'zi yozgan to'liq o'yin kameralari. Boshqa o'yinchilarning videolari kirmaydi.
+        Fayllar nusxalanmaydi — `links_expire_at` gacha (eksport fayli muddati, S3 presigned uchun ko'pi bilan
+        7 kun) ishlaydigan imzolangan havolalar. `hls` — ijro mumkin bo'lsa (nashr qilingan, rad etilmagan);
+        `original` — asl yuklangan fayl saqlanish muddati ichida bo'lsa (attachment). O'chirilgan kliplar kirmaydi.
+      required: [links_expire_at, notes, highlights, recordings]
+      properties:
+        links_expire_at: { type: string, format: date-time }
+        notes: { type: array, items: { type: string } }
+        highlights:
+          type: array
+          items:
+            type: object
+            required: [highlight_id, match_code, relation, title, source, duration_ms, created_at, published_at, moderation_status, status, files]
+            properties:
+              highlight_id: { type: string, format: uuid }
+              match_code: { type: string }
+              relation: { type: array, items: { type: string, enum: [tagged, uploaded] } }
+              title: { type: [string, 'null'] }
+              source: { type: string }
+              duration_ms: { type: [integer, 'null'] }
+              created_at: { type: string, format: date-time }
+              published_at: { type: [string, 'null'], format: date-time }
+              moderation_status: { type: string, enum: [pending, approved, rejected] }
+              status: { type: string, description: 'media holati: ready, processing, failed, ...' }
+              files:
+                type: object
+                required: [video_mp4, thumbnail, hls, original]
+                properties:
+                  video_mp4: { type: [string, 'null'], description: '9:16 MP4' }
+                  thumbnail: { type: [string, 'null'] }
+                  hls: { type: [string, 'null'], description: 'Master playlist (`ffmpeg -i <hls> -c copy video.mp4`)' }
+                  original: { type: [string, 'null'] }
+        recordings:
+          type: array
+          items:
+            type: object
+            required: [camera_id, match_code, position, status, started_at, stopped_at, duration_ms, files]
+            properties:
+              camera_id: { type: string, format: uuid }
+              match_code: { type: string }
+              position: { type: string, enum: [left, right, wide] }
+              status: { type: string }
+              started_at: { type: string, format: date-time }
+              stopped_at: { type: [string, 'null'], format: date-time }
+              duration_ms: { type: [integer, 'null'] }
+              files:
+                type: object
+                required: [hls, original]
+                properties:
+                  hls: { type: [string, 'null'] }
+                  original: { type: [string, 'null'] }
     AuthIdentity:
       type: object
       required: [provider, label]
@@ -4706,6 +5029,74 @@ components:
         items: { type: array, items: { $ref: '#/components/schemas/AdminHost' } }
         total: { type: integer }
 
+    AdminHostPayout:
+      type: object
+      required: [id, host, period, amount, status, assignments_count, provider_ref, paid_at, paid_by, note, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        host:
+          type: object
+          required: [id, display_name, phone, payout_method, payout_details_ref]
+          properties:
+            id: { type: string, format: uuid }
+            display_name: { type: [string, 'null'] }
+            phone: { type: [string, 'null'] }
+            payout_method: { type: [string, 'null'], examples: [card_uzcard] }
+            payout_details_ref: { type: [string, 'null'], description: "Vault havolasi (karta raqami saqlanmaydi)" }
+        period:
+          type: object
+          required: [start, end]
+          description: Dushanba–yakshanba (Asia/Tashkent)
+          properties:
+            start: { type: string, format: date }
+            end: { type: string, format: date }
+        amount: { $ref: '#/components/schemas/Money' }
+        status: { type: string, enum: [pending, processing, paid, failed] }
+        assignments_count: { type: integer, minimum: 0 }
+        provider_ref: { type: [string, 'null'], description: "Bank / karta o'tkazmasi raqami" }
+        paid_at: { type: [string, 'null'], format: date-time }
+        paid_by:
+          oneOf:
+            - type: object
+              required: [id, display_name]
+              properties:
+                id: { type: string, format: uuid }
+                display_name: { type: [string, 'null'] }
+            - type: 'null'
+        note: { type: [string, 'null'] }
+        created_at: { type: string, format: date-time }
+    AdminHostPayoutList:
+      type: object
+      required: [items, total, totals]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/AdminHostPayout' } }
+        total: { type: integer }
+        totals: { type: array, items: { $ref: '#/components/schemas/CurrencyTotal' } }
+    AdminHostPayoutDetail:
+      allOf:
+        - $ref: '#/components/schemas/AdminHostPayout'
+        - type: object
+          required: [assignments]
+          properties:
+            assignments:
+              type: array
+              items:
+                type: object
+                required: [id, match, fee, completed_at]
+                properties:
+                  id: { type: string, format: uuid }
+                  match:
+                    type: object
+                    required: [id, public_code, title, starts_at, venue_name]
+                    properties:
+                      id: { type: string, format: uuid }
+                      public_code: { type: string }
+                      title: { type: string }
+                      starts_at: { type: string, format: date-time }
+                      venue_name: { type: string }
+                  fee: { $ref: '#/components/schemas/Money' }
+                  completed_at: { type: [string, 'null'], format: date-time }
+
     AdminPayment:
       type: object
       required: [id, booking_id, booking_status, provider, amount, refunded, status, provider_transaction_id, failure_code,
@@ -4804,6 +5195,86 @@ components:
         provider: { $ref: '#/components/schemas/ReconciliationSide' }
         details: { type: object, additionalProperties: true, description: Provider'ning xom holati (masalan Payme chek `state`) }
         created_at: { type: string, format: date-time }
+    HighlightRejectReason:
+      type: string
+      enum: [inappropriate, violence, privacy, not_match, low_quality, other]
+      description: |
+        `inappropriate` — nojo'ya kontent, `violence` — zo'ravonlik / jarohat, `privacy` — roziliksiz odam yoki shaxsiy
+        ma'lumot, `not_match` — o'yinga aloqasi yo'q, `low_quality` — sifatsiz / bo'sh, `other` — boshqa (izohda)
+    AdminHighlight:
+      type: object
+      required: [id, title, source, duration_ms, match_offset_ms, visibility, created_at, published_at, moderation, creator,
+                 match, tags, likes_count, shares_count, views_count, media]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: [string, 'null'] }
+        source: { type: string, examples: [host_manual] }
+        duration_ms: { type: [integer, 'null'] }
+        match_offset_ms: { type: [integer, 'null'] }
+        visibility: { type: string, examples: [participants] }
+        created_at: { type: string, format: date-time }
+        published_at: { type: string, format: date-time }
+        moderation:
+          type: object
+          required: [status, reason, note, moderated_at, moderated_by]
+          properties:
+            status: { type: string, enum: [pending, approved, rejected] }
+            reason: { oneOf: [{ $ref: '#/components/schemas/HighlightRejectReason' }, { type: 'null' }] }
+            note: { type: [string, 'null'] }
+            moderated_at: { type: [string, 'null'], format: date-time }
+            moderated_by:
+              type: [object, 'null']
+              required: [id, display_name]
+              properties:
+                id: { type: string, format: uuid }
+                display_name: { type: [string, 'null'] }
+        creator: { $ref: '#/components/schemas/UserRef' }
+        match:
+          type: object
+          required: [id, public_code, sport, starts_at, timezone, venue_name]
+          properties:
+            id: { type: string, format: uuid }
+            public_code: { type: string }
+            sport: { type: string }
+            starts_at: { type: string, format: date-time }
+            timezone: { type: string }
+            venue_name: { type: string }
+        tags:
+          type: array
+          description: Barcha teglar (consent qaytarib olinganlari ham — maxfiylik shikoyatini tekshirish uchun)
+          items:
+            type: object
+            required: [user_id, display_name]
+            properties:
+              user_id: { type: string, format: uuid }
+              display_name: { type: string }
+        likes_count: { type: integer }
+        shares_count: { type: integer }
+        views_count: { type: integer }
+        media:
+          type: object
+          required: [id, width, height, thumbnail_url, mp4_url, hls_url, expires_at]
+          properties:
+            id: { type: string, format: uuid }
+            width: { type: [integer, 'null'] }
+            height: { type: [integer, 'null'] }
+            thumbnail_url: { type: [string, 'null'] }
+            mp4_url: { type: [string, 'null'], description: '9:16 vertikal MP4 (markazdan qirqilgan)' }
+            hls_url: { type: string }
+            expires_at: { type: string, format: date-time }
+    AdminHighlightList:
+      type: object
+      required: [items, total, counts]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/AdminHighlight' } }
+        total: { type: integer }
+        counts:
+          type: object
+          required: [pending, approved, rejected]
+          properties:
+            pending: { type: integer }
+            approved: { type: integer }
+            rejected: { type: integer }
     ReconciliationRunDetail:
       allOf:
         - $ref: '#/components/schemas/ReconciliationRun'
@@ -4815,7 +5286,7 @@ components:
     AdminRefund:
       type: object
       required: [id, booking_id, amount, destination, status, reason, provider_refund_id, note, created_at, completed_at,
-                 initiated_by, processed_by, user, match, payment]
+                 auto, initiated_by, processed_by, user, match, payment]
       properties:
         id: { type: string, format: uuid }
         booking_id: { type: string, format: uuid }
@@ -4827,6 +5298,7 @@ components:
         note: { type: [string, 'null'] }
         created_at: { type: string, format: date-time }
         completed_at: { type: [string, 'null'], format: date-time }
+        auto: { $ref: '#/components/schemas/AdminRefundAuto' }
         initiated_by: { type: [string, 'null'], format: uuid }
         processed_by:
           oneOf:
@@ -4856,6 +5328,25 @@ components:
                 status: { $ref: '#/components/schemas/PaymentStatus' }
                 provider_transaction_id: { type: [string, 'null'] }
             - type: 'null'
+    AdminRefundAuto:
+      type: object
+      description: |
+        Avtomatik provider refund'i (Payme `receipts.cancel`, Click `payment/reversal`; Uzum'da API yo'q).
+        `status`: null — hali ko'rilmagan yoki tegishli emas; `queued` — `next_attempt_at` da (qayta) urinish;
+        `submitted` — provider javobi kutilmoqda; `manual` — admin hal qiladi (`manual_reason`).
+      required: [status, attempts, next_attempt_at, manual_reason, error]
+      properties:
+        status: { type: [string, 'null'], enum: [queued, submitted, manual, null] }
+        attempts: { type: integer, minimum: 0 }
+        next_attempt_at: { type: [string, 'null'], format: date-time }
+        manual_reason:
+          type: [string, 'null']
+          enum: [partial, unsupported, disabled, rejected, failed, timeout, legacy, null]
+          description: |
+            partial — provider faqat to'liq summani qaytaradi; unsupported — provider'da refund API yo'q (Uzum);
+            disabled — avto-refund o'chiq; rejected — provider rad etdi; failed — urinishlar tugadi;
+            timeout — provider natijani tasdiqlamadi; legacy — avto-refund'dan oldingi navbat.
+        error: { type: [string, 'null'], description: 'Provider xatosi (oxirgi urinish)' }
     AdminRefundList:
       type: object
       required: [items, total, totals]

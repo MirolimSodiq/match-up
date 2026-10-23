@@ -95,7 +95,7 @@ const PAYOUT_TZ = 'Asia/Tashkent';
 /**
  * Haftalik host payout: oldingi hafta oxirigacha bajarilgan va hali payout'ga kirmagan tayinlovlar
  * (kechikib yakunlangan oldingi haftalar ham) -> host + valyuta bo'yicha `host_payouts` (pending), tayinlovlarga
- * `payout_id`. To'lovning o'zi — admin panelda (keyingi PR). Qayta ishga tushirish xavfsiz: bog'langan
+ * `payout_id`. To'lovning o'zi — admin panelda (`/v1/admin/host-payouts`). Qayta ishga tushirish xavfsiz: bog'langan
  * tayinlovlar qayta olinmaydi, shu davrning hali to'lanmagan payout'iga qo'shiladi.
  */
 @Injectable()

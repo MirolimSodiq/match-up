@@ -4,9 +4,13 @@ import { CurrentUser, IdempotencyKey, ReqLocale, Roles, ZBody, ZQuery, type Auth
 import type { Locale } from '../common/i18n';
 import { CommerceModule } from '../commerce/commerce.module';
 import { MatchesModule } from '../matches/matches.controller';
+import { MediaModule } from '../media/media.module';
+import { RefundsModule } from '../payments/refunds.module';
 import { AdminService } from './admin.service';
 import { AdminFinanceController } from './finance.controller';
 import { AdminFinanceService } from './finance.service';
+import { AdminHighlightsController } from './highlights.controller';
+import { AdminHighlightsService } from './highlights.service';
 import { AdminHostsController } from './hosts.controller';
 import { AdminHostsService } from './hosts.service';
 import { AdminMatchesQuery } from './matches.query';
@@ -91,9 +95,9 @@ export class AdminController {
 }
 
 @Module({
-  imports: [CommerceModule, MatchesModule],
-  controllers: [AdminController, AdminVenuesController, AdminHostsController, AdminFinanceController],
-  providers: [AdminService, AdminMatchesQuery, AdminVenuesService, AdminHostsService, AdminFinanceService],
+  imports: [CommerceModule, MatchesModule, MediaModule, RefundsModule],
+  controllers: [AdminController, AdminVenuesController, AdminHostsController, AdminFinanceController, AdminHighlightsController],
+  providers: [AdminService, AdminMatchesQuery, AdminVenuesService, AdminHostsService, AdminFinanceService, AdminHighlightsService],
   exports: [AdminService],
 })
 export class AdminModule {}

@@ -18,6 +18,7 @@ export const IconPlus = (p: P) => <Icon {...p} paths={['M12 5v14', 'M5 12h14']} 
 export const IconPin = (p: P) => <Icon {...p} paths={['M12 22s7-6.2 7-12a7 7 0 0 0-14 0c0 5.8 7 12 7 12z', 'M12 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6z']} />;
 export const IconUsers = (p: P) => <Icon {...p} paths={['M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2', 'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z', 'M22 21v-2a4 4 0 0 0-3-3.9', 'M16 3.1a4 4 0 0 1 0 7.8']} />;
 export const IconCard = (p: P) => <Icon {...p} paths={['M3 5h18a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z', 'M2 10h20']} />;
+export const IconWallet = (p: P) => <Icon {...p} paths={['M19 7V5a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2', 'M3 6v12a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-3']} />;
 export const IconRefund = (p: P) => <Icon {...p} paths={['M3 12a9 9 0 1 0 3-6.7L3 8', 'M3 3v5h5']} />;
 export const IconLogout = (p: P) => <Icon {...p} paths={['M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4', 'M16 17l5-5-5-5', 'M21 12H9']} />;
 export const IconSearch = (p: P) => <Icon {...p} paths={['M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z', 'M21 21l-4.3-4.3']} />;
@@ -31,3 +32,5 @@ export const IconEdit = (p: P) => <Icon {...p} paths={['M12 20h9', 'M16.5 3.5a2.
 export const IconClock = (p: P) => <Icon {...p} paths={['M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z', 'M12 6v6l4 2']} />;
 export const IconBall = (p: P) => <Icon {...p} paths={['M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z', 'M12 7l4.5 3.3-1.7 5.2H9.2l-1.7-5.2z', 'M12 2v5', 'M21.5 9.5l-5 0.8', 'M2.5 9.5l5 0.8', 'M6 20l3.2-4.5', 'M18 20l-3.2-4.5']} />;
 export const IconScale = (p: P) => <Icon {...p} paths={['M12 3v18', 'M7 21h10', 'M3 7h18', 'M6 7l-3 7a3 3 0 0 0 6 0z', 'M18 7l-3 7a3 3 0 0 0 6 0z']} />;
+export const IconFilm = (p: P) => <Icon {...p} paths={['M4 4h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z', 'M7 4v16', 'M17 4v16', 'M3 9h4', 'M3 15h4', 'M17 9h4', 'M17 15h4']} />;
+export const IconPlay = (p: P) => <Icon {...p} paths="M7 4v16l13-8z" />;

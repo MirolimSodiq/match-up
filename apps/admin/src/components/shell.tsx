@@ -7,7 +7,7 @@ import { useState, type ReactNode } from 'react';
 import type { User } from '@matchup/contracts';
 import { api, authFetch, unwrap } from '@/lib/api';
 import { LANGS, useI18n, type Lang } from '@/lib/i18n';
-import { IconCalendar, IconCard, IconDashboard, IconLogout, IconPin, IconRefund, IconScale, IconUsers } from './icons';
+import { IconCalendar, IconCard, IconDashboard, IconFilm, IconLogout, IconPin, IconRefund, IconScale, IconUsers, IconWallet } from './icons';
 import { cx, Segmented } from './ui';
 
 export function Shell({ children }: { children: ReactNode }) {
@@ -17,9 +17,19 @@ export function Shell({ children }: { children: ReactNode }) {
   const [leaving, setLeaving] = useState(false);
 
   const me = useQuery({ queryKey: ['me'], queryFn: () => authFetch<User>('/api/auth/me'), staleTime: 5 * 60_000 });
+  const payouts = useQuery({
+    queryKey: ['payouts', 'badge'],
+    queryFn: () => unwrap(api.GET('/v1/admin/host-payouts', { params: { query: { status: 'pending', limit: 1 } } })),
+    refetchInterval: 300_000,
+  });
   const queue = useQuery({
     queryKey: ['refunds', 'badge'],
     queryFn: () => unwrap(api.GET('/v1/admin/refunds', { params: { query: { limit: 1 } } })),
+    refetchInterval: 60_000,
+  });
+  const moderation = useQuery({
+    queryKey: ['highlights', 'badge'],
+    queryFn: () => unwrap(api.GET('/v1/admin/highlights', { params: { query: { limit: 1 } } })),
     refetchInterval: 60_000,
   });
 
@@ -28,9 +38,11 @@ export function Shell({ children }: { children: ReactNode }) {
     { href: '/matches', label: m.nav.matches, icon: <IconCalendar /> },
     { href: '/venues', label: m.nav.venues, icon: <IconPin /> },
     { href: '/hosts', label: m.nav.hosts, icon: <IconUsers /> },
+    { href: '/payouts', label: m.nav.payouts, icon: <IconWallet />, badge: payouts.data?.total },
     { href: '/payments', label: m.nav.payments, icon: <IconCard /> },
     { href: '/refunds', label: m.nav.refunds, icon: <IconRefund />, badge: queue.data?.total },
     { href: '/reconciliation', label: m.nav.reconciliation, icon: <IconScale /> },
+    { href: '/highlights', label: m.nav.highlights, icon: <IconFilm />, badge: moderation.data?.counts.pending },
   ];
 
   async function logout() {

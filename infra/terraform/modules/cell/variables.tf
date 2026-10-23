@@ -113,18 +113,22 @@ variable "enable_execute_command" {
   default     = false
 }
 
+# Image teglari: odatda null — joriy teg SSM'dan (`/<name>/image-tags/*`, CI deploy yozadi; deploy.tf).
+# Berilsa SSM'dan ustun (birinchi o'rnatish yoki favqulodda qo'lda deploy); keyingi CI deploy uni almashtiradi.
 variable "api_image_tag" {
-  description = "ECR'dagi api image tegi (git SHA). Deploy = shu qiymatni o'zgartirib apply"
+  description = "ECR'dagi api image tegi (git SHA); null — SSM'dagi oxirgi deploy qilingan teg"
   type        = string
+  default     = null
 }
 
 variable "admin_image_tag" {
-  description = "ECR'dagi admin image tegi (git SHA)"
+  description = "ECR'dagi admin image tegi (git SHA); null — SSM'dagi oxirgi deploy qilingan teg"
   type        = string
+  default     = null
 }
 
 variable "migrate_image_tag" {
-  description = "Migratsiya task'i image tegi. Deploy'da avval shu yangilanadi va migratsiya ishga tushiriladi, keyin api_image_tag (null — api_image_tag)"
+  description = "Migratsiya task'i image tegi; null — SSM (CI deploy migratsiyadan oldin yangilaydi), u ham bo'lmasa api tegi"
   type        = string
   default     = null
 }
@@ -263,9 +267,9 @@ variable "media_signing_public_key_pem" {
 }
 
 variable "media_worker_image_tag" {
-  description = "services/media-worker image tegi (git SHA)"
+  description = "services/media-worker image tegi (git SHA); null — SSM'dagi oxirgi deploy qilingan teg"
   type        = string
-  default     = "initial"
+  default     = null
 }
 
 variable "media_worker_cpu" {
@@ -325,6 +329,30 @@ variable "media_worker_token_version" {
   description = "MEDIA_WORKER_TOKEN (write-only). Rotatsiya: qiymatni 1 ga oshirib apply, keyin api va media-worker'ni qayta deploy"
   type        = number
   default     = 1
+}
+
+variable "github_oidc_provider_arn" {
+  description = "bootstrap output `github_oidc_provider_arn`. null — CI deploy role yaratilmaydi"
+  type        = string
+  default     = null
+}
+
+variable "github_repository" {
+  description = "Deploy qila oladigan repo (`owner/name`); trust policy: faqat shu repo'ning `github_environment` environment'idagi job'lari"
+  type        = string
+  default     = null
+}
+
+variable "github_environment" {
+  description = "GitHub Environment nomi (workflow'dagi `environment:`); null — var.environment"
+  type        = string
+  default     = null
+}
+
+variable "ops_telegram_chat_id" {
+  description = "Host no-show ogohlantirishlari uchun Telegram ops guruhi (OPS_TELEGRAM_CHAT_ID); bot tokeni — `telegram` secret'ida"
+  type        = string
+  default     = null
 }
 
 variable "cache_auth_token_version" {

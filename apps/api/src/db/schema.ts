@@ -67,6 +67,7 @@ export const processingJobType = pgEnum("processing_job_type", ['transcode', 'th
 export const reactionType = pgEnum("reaction_type", ['like', 'fire', 'clap'])
 export const reconciliationDiffKind = pgEnum("reconciliation_diff_kind", ['missing_at_provider', 'missing_locally', 'amount_mismatch', 'status_mismatch'])
 export const reconciliationRunStatus = pgEnum("reconciliation_run_status", ['running', 'completed', 'failed'])
+export const refundAutoStatus = pgEnum("refund_auto_status", ['queued', 'submitted', 'manual'])
 export const refundDestination = pgEnum("refund_destination", ['original_method', 'wallet'])
 export const refundStatus = pgEnum("refund_status", ['pending', 'succeeded', 'failed'])
 export const skillLevel = pgEnum("skill_level", ['beginner', 'intermediate', 'advanced', 'pro'])
@@ -616,10 +617,15 @@ export const highlights = pgTable("highlights", {
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	deletedAt: timestamp("deleted_at", { withTimezone: true, mode: 'string' }),
 	recordingSessionId: uuid("recording_session_id"),
+	moderatedBy: uuid("moderated_by"),
+	moderatedAt: timestamp("moderated_at", { withTimezone: true, mode: 'string' }),
+	moderationReason: text("moderation_reason"),
+	moderationNote: text("moderation_note"),
 }, (table) => [
 	index("highlights_feed_idx").using("btree", table.publishedAt.desc().nullsFirst().op("timestamptz_ops")).where(sql`((visibility = 'public'::highlight_visibility) AND (moderation_status = 'approved'::moderation_status) AND (deleted_at IS NULL))`),
-	index("highlights_match_feed_idx").using("btree", table.matchId.asc().nullsLast().op("uuid_ops"), table.publishedAt.desc().nullsFirst().op("uuid_ops"), table.id.desc().nullsFirst().op("uuid_ops")).where(sql`((published_at IS NOT NULL) AND (deleted_at IS NULL))`),
+	index("highlights_match_feed_idx").using("btree", table.matchId.asc().nullsLast().op("uuid_ops"), table.publishedAt.desc().nullsFirst().op("uuid_ops"), table.id.desc().nullsFirst().op("timestamptz_ops")).where(sql`((published_at IS NOT NULL) AND (deleted_at IS NULL))`),
 	index("highlights_match_idx").using("btree", table.matchId.asc().nullsLast().op("uuid_ops")),
+	index("highlights_moderation_idx").using("btree", table.moderationStatus.asc().nullsLast().op("timestamptz_ops"), table.publishedAt.asc().nullsLast().op("enum_ops")).where(sql`((published_at IS NOT NULL) AND (deleted_at IS NULL))`),
 	foreignKey({
 			columns: [table.createdBy],
 			foreignColumns: [users.id],
@@ -634,6 +640,11 @@ export const highlights = pgTable("highlights", {
 			columns: [table.mediaAssetId],
 			foreignColumns: [mediaAssets.id],
 			name: "highlights_media_asset_id_fkey"
+		}),
+	foreignKey({
+			columns: [table.moderatedBy],
+			foreignColumns: [users.id],
+			name: "highlights_moderated_by_fkey"
 		}),
 	foreignKey({
 			columns: [table.recordingSessionId],
@@ -708,7 +719,10 @@ export const hostPayouts = pgTable("host_payouts", {
 	providerRef: text("provider_ref"),
 	paidAt: timestamp("paid_at", { withTimezone: true, mode: 'string' }),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	paidBy: uuid("paid_by"),
+	note: text(),
 }, (table) => [
+	index("host_payouts_status_period_idx").using("btree", table.status.asc().nullsLast().op("date_ops"), table.periodStart.desc().nullsFirst().op("date_ops")),
 	foreignKey({
 			columns: [table.currency],
 			foreignColumns: [currencies.code],
@@ -719,9 +733,15 @@ export const hostPayouts = pgTable("host_payouts", {
 			foreignColumns: [hostProfiles.userId],
 			name: "host_payouts_host_user_id_fkey"
 		}),
+	foreignKey({
+			columns: [table.paidBy],
+			foreignColumns: [users.id],
+			name: "host_payouts_paid_by_fkey"
+		}),
 	unique("host_payouts_host_user_id_period_start_period_end_key").on(table.hostUserId, table.periodEnd, table.periodStart),
 	check("host_payouts_amount_check", sql`amount >= 0`),
 	check("host_payouts_check", sql`period_end >= period_start`),
+	check("host_payouts_paid_complete", sql`(status <> 'paid'::payout_status) OR ((provider_ref IS NOT NULL) AND (paid_at IS NOT NULL) AND (paid_by IS NOT NULL))`),
 ]);
 
 export const hostProfiles = pgTable("host_profiles", {
@@ -1616,6 +1636,12 @@ export const refunds = pgTable("refunds", {
 	completedAt: timestamp("completed_at", { withTimezone: true, mode: 'string' }),
 	note: text(),
 	processedBy: uuid("processed_by"),
+	autoStatus: refundAutoStatus("auto_status"),
+	autoAttempts: smallint("auto_attempts").default(0).notNull(),
+	autoNextAt: timestamp("auto_next_at", { withTimezone: true, mode: 'string' }),
+	autoSubmittedAt: timestamp("auto_submitted_at", { withTimezone: true, mode: 'string' }),
+	autoError: text("auto_error"),
+	manualReason: text("manual_reason"),
 }, (table) => [
 	index("refunds_booking_idx").using("btree", table.bookingId.asc().nullsLast().op("uuid_ops")),
 	index("refunds_payment_idx").using("btree", table.paymentId.asc().nullsLast().op("uuid_ops")),
@@ -1646,6 +1672,9 @@ export const refunds = pgTable("refunds", {
 			name: "refunds_processed_by_fkey"
 		}),
 	check("refunds_amount_check", sql`amount > 0`),
+	check("refunds_auto_attempts_check", sql`auto_attempts >= 0`),
+	check("refunds_manual_has_reason", sql`(NOT (auto_status IS DISTINCT FROM 'manual'::refund_auto_status)) = (manual_reason IS NOT NULL)`),
+	check("refunds_manual_reason_check", sql`manual_reason = ANY (ARRAY['partial'::text, 'unsupported'::text, 'disabled'::text, 'rejected'::text, 'failed'::text, 'timeout'::text, 'legacy'::text])`),
 	check("refunds_original_needs_payment", sql`(destination = 'wallet'::refund_destination) OR (payment_id IS NOT NULL)`),
 ]);
 
