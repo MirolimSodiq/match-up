@@ -102,7 +102,7 @@ jobs:
   media-worker:
     name: Media worker (pytest + FFmpeg)
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: services/media-worker
@@ -111,13 +111,37 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      # Test videolari FFmpeg lavfi bilan generatsiya qilinadi (Ubuntu 24.04: FFmpeg 6.1)
-      - name: FFmpeg + uv
+      # Test videolari FFmpeg lavfi bilan generatsiya qilinadi (Ubuntu 24.04: FFmpeg 6.1).
+      # Bu qadam bir necha marta 15 daqiqa osilib job'ni bekor qilgan: apt sekin mirror'da cheksiz kutadi,
+      # man-db trigger'i esa har o'rnatishda man sahifalarini qayta indekslaydi. Shuning uchun: man-db
+      # indekslash o'chiq, apt'ga tarmoq timeout'lari, har urinish `timeout` bilan cheklangan (odatda ~1 daqiqa
+      # oladi), 3 urinish.
+      - name: FFmpeg
+        timeout-minutes: 12
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ffmpeg
-          pip install uv==0.13.4
+          echo 'man-db man-db/auto-update boolean false' | sudo debconf-set-selections
+          sudo rm -f /var/lib/man-db/auto-update
+          apt_opts=(-q -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=60)
+          for attempt in 1 2 3; do
+            # Oldingi urinish o'rnatish o'rtasida to'xtatilgan bo'lsa dpkg holati tiklanadi
+            sudo dpkg --configure -a
+            if timeout 90 sudo apt-get "${apt_opts[@]}" update \
+              && timeout 180 sudo apt-get "${apt_opts[@]}" install -y --no-install-recommends ffmpeg; then
+              break
+            fi
+            if [ "$attempt" = 3 ]; then
+              echo "::error::FFmpeg 3 urinishda o'rnatilmadi"
+              exit 1
+            fi
+            echo "::warning::apt urinish $attempt muvaffaqiyatsiz (timeout yoki tarmoq) — qayta"
+            sleep 15
+          done
           ffmpeg -version | head -1
+      - name: uv
+        timeout-minutes: 3
+        run: pip install uv==0.13.4
       - name: pytest
         run: |
           uv sync --frozen
