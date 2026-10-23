@@ -2767,12 +2767,14 @@ paths:
       operationId: adminListRefunds
       summary: Refund navbati
       description: |
-        Standart — qo'lda bajariladigan navbat: `status=pending`, `destination=original_method`, eng eskisi birinchi.
-        Boshqa filtrlarda yakunlanganlari eng yangisi birinchi.
+        Standart — kartaga qaytariladigan navbat: `status=pending`, `destination=original_method`, eng eskisi birinchi.
+        Boshqa filtrlarda yakunlanganlari eng yangisi birinchi. Navbatdagi refund'larni avto-refund job'i provider
+        orqali qaytaradi (`auto`); admin aralashuvi kerak bo'lganlari — `auto_status=manual`.
       parameters:
         - { name: status, in: query, schema: { type: string, default: pending, examples: ['succeeded'] } }
         - { name: destination, in: query, schema: { type: string, default: original_method, examples: ['original_method,wallet'] } }
         - { name: provider, in: query, schema: { type: string, examples: [payme] } }
+        - { name: auto_status, in: query, description: 'Vergul bilan: queued, submitted, manual', schema: { type: string, examples: [manual] } }
         - { name: q, in: query, schema: { type: string, maxLength: 100 } }
         - $ref: '#/components/parameters/AdminLimit'
         - $ref: '#/components/parameters/Offset'
@@ -2790,8 +2792,9 @@ paths:
       operationId: adminCompleteRefund
       summary: Provider kabinetida bajarilgan refund'ni "bajarildi" deb belgilash
       description: |
-        Faqat `pending` + `original_method`. Refund -> `succeeded` (`provider_refund_id`, izoh, `processed_by`),
-        `payments.refunded_amount` oshadi (to'lov summasidan oshmaydi), to'lov status'i `refunded` yoki `partially_refunded`.
+        Faqat `pending` + `original_method`; avto-refund provider javobini kutayotgan bo'lsa (`auto.status=submitted`) — 409.
+        Refund -> `succeeded` (`provider_refund_id`, izoh, `processed_by`), `payments.refunded_amount` oshadi
+        (to'lov summasidan oshmaydi), to'lov status'i `refunded` yoki `partially_refunded`.
         `RefundIssued` event va `audit_logs` yozuvi bilan bitta tranzaksiyada.
       parameters:
         - $ref: '#/components/parameters/RefundId'
@@ -2815,6 +2818,56 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
+
+  /v1/admin/refunds/{refundId}/to-wallet:
+    post:
+      tags: [Admin]
+      operationId: adminRefundToWallet
+      summary: Kartaga qaytarib bo'lmaydigan refund'ni o'yinchi hamyoniga o'tkazish
+      description: |
+        Masalan qisman refund (`auto.manual_reason=partial` — provider faqat to'liq summani qaytaradi) yoki provider
+        rad etgan refund. Faqat `pending` + `original_method`, `auto.status=submitted` bo'lsa — 409.
+        Refund -> `destination=wallet`, `succeeded`; hamyon kreditlanadi, to'lov o'zgarmaydi.
+        `RefundIssued` (o'yinchiga push) va `audit_logs` (`refund.to_wallet`) bilan bitta tranzaksiyada.
+      parameters:
+        - $ref: '#/components/parameters/RefundId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                note: { type: string, maxLength: 1000 }
+      responses:
+        '200':
+          description: Hamyonga o'tkazildi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminRefund' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /v1/admin/refunds/{refundId}/retry:
+    post:
+      tags: [Admin]
+      operationId: adminRetryRefund
+      summary: Admin navbatidagi refund'ni avto-refund'ga qaytarish
+      description: |
+        Faqat `auto.status=manual` (masalan provider xatosi tuzatilgach yoki avto-refund yoqilgach): `queued`, urinishlar
+        hisoblagichi nolga, job keyingi daqiqada qayta ko'radi. `audit_logs` — `refund.auto_retry`.
+      parameters:
+        - $ref: '#/components/parameters/RefundId'
+      responses:
+        '200':
+          description: Navbatga qaytarildi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminRefund' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
 
   /v1/admin/dashboard:
     get:
@@ -5233,7 +5286,7 @@ components:
     AdminRefund:
       type: object
       required: [id, booking_id, amount, destination, status, reason, provider_refund_id, note, created_at, completed_at,
-                 initiated_by, processed_by, user, match, payment]
+                 auto, initiated_by, processed_by, user, match, payment]
       properties:
         id: { type: string, format: uuid }
         booking_id: { type: string, format: uuid }
@@ -5245,6 +5298,7 @@ components:
         note: { type: [string, 'null'] }
         created_at: { type: string, format: date-time }
         completed_at: { type: [string, 'null'], format: date-time }
+        auto: { $ref: '#/components/schemas/AdminRefundAuto' }
         initiated_by: { type: [string, 'null'], format: uuid }
         processed_by:
           oneOf:
@@ -5274,6 +5328,25 @@ components:
                 status: { $ref: '#/components/schemas/PaymentStatus' }
                 provider_transaction_id: { type: [string, 'null'] }
             - type: 'null'
+    AdminRefundAuto:
+      type: object
+      description: |
+        Avtomatik provider refund'i (Payme `receipts.cancel`, Click `payment/reversal`; Uzum'da API yo'q).
+        `status`: null — hali ko'rilmagan yoki tegishli emas; `queued` — `next_attempt_at` da (qayta) urinish;
+        `submitted` — provider javobi kutilmoqda; `manual` — admin hal qiladi (`manual_reason`).
+      required: [status, attempts, next_attempt_at, manual_reason, error]
+      properties:
+        status: { type: [string, 'null'], enum: [queued, submitted, manual, null] }
+        attempts: { type: integer, minimum: 0 }
+        next_attempt_at: { type: [string, 'null'], format: date-time }
+        manual_reason:
+          type: [string, 'null']
+          enum: [partial, unsupported, disabled, rejected, failed, timeout, legacy, null]
+          description: |
+            partial — provider faqat to'liq summani qaytaradi; unsupported — provider'da refund API yo'q (Uzum);
+            disabled — avto-refund o'chiq; rejected — provider rad etdi; failed — urinishlar tugadi;
+            timeout — provider natijani tasdiqlamadi; legacy — avto-refund'dan oldingi navbat.
+        error: { type: [string, 'null'], description: 'Provider xatosi (oxirgi urinish)' }
     AdminRefundList:
       type: object
       required: [items, total, totals]

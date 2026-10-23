@@ -5,6 +5,7 @@ import { ENV, type Env } from '../config/env';
 import { emit } from '../common/outbox';
 import { SeatsService, type LockedBooking } from '../commerce/seats.service';
 import { DB, type Db, one, rows, type Tx } from '../db/db';
+import { RefundSettlement } from './refund-settlement';
 
 /**
  * Payme Merchant API (JSON-RPC 2.0). Payme bizning endpointni chaqiradi:
@@ -76,6 +77,7 @@ export class PaymeService {
     @Inject(DB) private readonly db: Db,
     @Inject(ENV) private readonly env: Env,
     private readonly seats: SeatsService,
+    private readonly refunds: RefundSettlement,
   ) {}
 
   /** `Authorization: Basic base64("Paycom:" + KEY)` */
@@ -295,21 +297,21 @@ export class PaymeService {
         return { transaction: pay.id, cancel_time: next.cancel_time, state: -1 };
       }
 
-      // state = 2: to'langan -> refund. O'yin boshlangan bo'lsa xizmat ko'rsatilgan hisoblanadi.
-      const started = await one<{ started: boolean; currency: string }>(
-        tx,
-        sql`SELECT m.starts_at <= now() AS started, b.currency
-            FROM bookings b JOIN matches m ON m.id = b.match_id WHERE b.id = ${pay.booking_id}`,
-      );
-      if (started?.started) throw E.CANNOT_CANCEL();
+      // state = 2: to'langan -> refund. Biz so'ragan refund (avto-refund `receipts.cancel` yoki admin Payme
+      // kabinetidan) — o'yin boshlangan bo'lsa ham; so'ralmagan bekor qilishda o'yin boshlangan bo'lsa xizmat
+      // ko'rsatilgan hisoblanadi.
+      const requested = (await this.refunds.pending(tx, pay.id)).length > 0;
+      if (!requested) {
+        const started = await one<{ started: boolean }>(
+          tx,
+          sql`SELECT m.starts_at <= now() AS started FROM bookings b JOIN matches m ON m.id = b.match_id WHERE b.id = ${pay.booking_id}`,
+        );
+        if (started?.started) throw E.CANNOT_CANCEL();
+      }
       await this.seats.release(tx, pay.booking_id, 'cancelled', 'payment_refunded');
+      await this.refunds.providerReversed(tx, pay.id, pay.provider_transaction_id);
       const next: PaymeState = { ...st, state: -2, cancel_time: Date.now(), reason };
       await this.saveState(tx, pay.id, next, 'refunded');
-      await tx.execute(
-        sql`INSERT INTO refunds (payment_id, booking_id, amount, currency, destination, status, reason, provider_refund_id, completed_at)
-            VALUES (${pay.id}, ${pay.booking_id}, ${pay.amount}, ${started!.currency}, 'original_method', 'succeeded',
-                    'provider_cancel', ${pay.provider_transaction_id}, now())`,
-      );
       return { transaction: pay.id, cancel_time: next.cancel_time, state: -2 };
     });
   }

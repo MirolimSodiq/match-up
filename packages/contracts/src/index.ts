@@ -105,6 +105,7 @@ export type AdminHostPayoutDetail = Schemas['AdminHostPayoutDetail'];
 export type AdminPayment = Schemas['AdminPayment'];
 export type AdminPaymentList = Schemas['AdminPaymentList'];
 export type AdminRefund = Schemas['AdminRefund'];
+export type AdminRefundAuto = Schemas['AdminRefundAuto'];
 export type AdminRefundList = Schemas['AdminRefundList'];
 export type AdminDashboard = Schemas['AdminDashboard'];
 export type AdminHighlight = Schemas['AdminHighlight'];

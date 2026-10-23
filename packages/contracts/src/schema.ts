@@ -1867,8 +1867,9 @@ export interface paths {
         };
         /**
          * Refund navbati
-         * @description Standart — qo'lda bajariladigan navbat: `status=pending`, `destination=original_method`, eng eskisi birinchi.
-         *     Boshqa filtrlarda yakunlanganlari eng yangisi birinchi.
+         * @description Standart — kartaga qaytariladigan navbat: `status=pending`, `destination=original_method`, eng eskisi birinchi.
+         *     Boshqa filtrlarda yakunlanganlari eng yangisi birinchi. Navbatdagi refund'larni avto-refund job'i provider
+         *     orqali qaytaradi (`auto`); admin aralashuvi kerak bo'lganlari — `auto_status=manual`.
          */
         get: operations["adminListRefunds"];
         put?: never;
@@ -1890,11 +1891,56 @@ export interface paths {
         put?: never;
         /**
          * Provider kabinetida bajarilgan refund'ni "bajarildi" deb belgilash
-         * @description Faqat `pending` + `original_method`. Refund -> `succeeded` (`provider_refund_id`, izoh, `processed_by`),
-         *     `payments.refunded_amount` oshadi (to'lov summasidan oshmaydi), to'lov status'i `refunded` yoki `partially_refunded`.
+         * @description Faqat `pending` + `original_method`; avto-refund provider javobini kutayotgan bo'lsa (`auto.status=submitted`) — 409.
+         *     Refund -> `succeeded` (`provider_refund_id`, izoh, `processed_by`), `payments.refunded_amount` oshadi
+         *     (to'lov summasidan oshmaydi), to'lov status'i `refunded` yoki `partially_refunded`.
          *     `RefundIssued` event va `audit_logs` yozuvi bilan bitta tranzaksiyada.
          */
         post: operations["adminCompleteRefund"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/refunds/{refundId}/to-wallet": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Kartaga qaytarib bo'lmaydigan refund'ni o'yinchi hamyoniga o'tkazish
+         * @description Masalan qisman refund (`auto.manual_reason=partial` — provider faqat to'liq summani qaytaradi) yoki provider
+         *     rad etgan refund. Faqat `pending` + `original_method`, `auto.status=submitted` bo'lsa — 409.
+         *     Refund -> `destination=wallet`, `succeeded`; hamyon kreditlanadi, to'lov o'zgarmaydi.
+         *     `RefundIssued` (o'yinchiga push) va `audit_logs` (`refund.to_wallet`) bilan bitta tranzaksiyada.
+         */
+        post: operations["adminRefundToWallet"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/refunds/{refundId}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Admin navbatidagi refund'ni avto-refund'ga qaytarish
+         * @description Faqat `auto.status=manual` (masalan provider xatosi tuzatilgach yoki avto-refund yoqilgach): `queued`, urinishlar
+         *     hisoblagichi nolga, job keyingi daqiqada qayta ko'radi. `audit_logs` — `refund.auto_retry`.
+         */
+        post: operations["adminRetryRefund"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4268,6 +4314,7 @@ export interface components {
             created_at: string;
             /** Format: date-time */
             completed_at: string | null;
+            auto: components["schemas"]["AdminRefundAuto"];
             /** Format: uuid */
             initiated_by: string | null;
             processed_by: {
@@ -4292,6 +4339,27 @@ export interface components {
                 status: components["schemas"]["PaymentStatus"];
                 provider_transaction_id: string | null;
             } | null;
+        };
+        /**
+         * @description Avtomatik provider refund'i (Payme `receipts.cancel`, Click `payment/reversal`; Uzum'da API yo'q).
+         *     `status`: null — hali ko'rilmagan yoki tegishli emas; `queued` — `next_attempt_at` da (qayta) urinish;
+         *     `submitted` — provider javobi kutilmoqda; `manual` — admin hal qiladi (`manual_reason`).
+         */
+        AdminRefundAuto: {
+            /** @enum {string|null} */
+            status: "queued" | "submitted" | "manual" | null;
+            attempts: number;
+            /** Format: date-time */
+            next_attempt_at: string | null;
+            /**
+             * @description partial — provider faqat to'liq summani qaytaradi; unsupported — provider'da refund API yo'q (Uzum);
+             *     disabled — avto-refund o'chiq; rejected — provider rad etdi; failed — urinishlar tugadi;
+             *     timeout — provider natijani tasdiqlamadi; legacy — avto-refund'dan oldingi navbat.
+             * @enum {string|null}
+             */
+            manual_reason: "partial" | "unsupported" | "disabled" | "rejected" | "failed" | "timeout" | "legacy" | null;
+            /** @description Provider xatosi (oxirgi urinish) */
+            error: string | null;
         };
         AdminRefundList: {
             items: components["schemas"]["AdminRefund"][];
@@ -7664,6 +7732,8 @@ export interface operations {
                 status?: string;
                 destination?: string;
                 provider?: string;
+                /** @description Vergul bilan: queued, submitted, manual */
+                auto_status?: string;
                 q?: string;
                 limit?: components["parameters"]["AdminLimit"];
                 /** @description Admin jadvallari offset pagination ishlatadi (javobda `total`) */
@@ -7720,6 +7790,63 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    adminRefundToWallet: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                refundId: components["parameters"]["RefundId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    note?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Hamyonga o'tkazildi */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminRefund"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    adminRetryRefund: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                refundId: components["parameters"]["RefundId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Navbatga qaytarildi */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminRefund"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     adminDashboard: {

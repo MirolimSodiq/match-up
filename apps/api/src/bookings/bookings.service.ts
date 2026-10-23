@@ -300,7 +300,7 @@ export class BookingsService {
         await this.wallet.credit(tx, { userId, currency: b.currency, amount, type: 'refund_credit', bookingId: b.id, refundId: refund!.id });
         await emit(tx, 'refund', refund!.id, 'RefundIssued', { booking_id: b.id, amount, destination });
       } else {
-        // Provider refund (Payme Subscribe API / Click) — RefundRequested consumer'i bajaradi
+        // Provider refund — avto-refund job'i (AutoRefunds) yoki admin navbati
         await emit(tx, 'refund', refund!.id, 'RefundRequested', { booking_id: b.id, payment_id: payment?.id, amount });
       }
       return {
