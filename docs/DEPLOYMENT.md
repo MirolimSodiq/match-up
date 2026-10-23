@@ -53,7 +53,7 @@ docker compose -f docker-compose.staging.yml down -v
 | `typecheck` | corepack + pnpm 10.12.1 (store keshi), `turbo run typecheck` (6 paket), host unit testlari (vitest) |
 | `openapi-lint` | `npm exec --prefer-offline @redocly/cli@1.34.5 -- lint api/openapi.yaml` (`~/.npm` versiya bo'yicha keshlanadi, telemetriya o'chiq) |
 | `api-e2e` | Service container'lar: `postgis/postgis:18-3.6` + `valkey/valkey:8-alpine` + MinIO (`bitnamilegacy/minio`, highlight upload testlari); `pnpm --filter @matchup/api test:e2e` |
-| `media-worker` | Python 3.12 + apt FFmpeg + `uv`: `services/media-worker` pytest (test videolari lavfi bilan generatsiya qilinadi) |
+| `media-worker` | `python:3.12-slim-trixie` konteynerida (production image bilan bir xil base) Debian FFmpeg + `uv`: `services/media-worker` pytest (test videolari lavfi bilan generatsiya qilinadi) |
 | `db-verify` | PGDG'dan PostgreSQL 18 `psql` + `pgbench`, `db/tests/verify.sh` ni `DATABASE_URL` rejimida |
 | `admin-build` | `turbo run build --filter=@matchup/admin` (`.next/cache` keshlanadi) |
 | `docker` | api, admin va media-worker image'larini build qiladi (push yo'q), GHA cache |

@@ -103,21 +103,27 @@ jobs:
     name: Media worker (pytest + FFmpeg)
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    # Production image (services/media-worker/Dockerfile) bilan bir xil base: testlar prod'dagi FFmpeg'da
+    # (Debian trixie, 7.1) o'tadi. Paketlar deb.debian.org (CDN) dan — runner'ning Ubuntu mirror'i vaqti-vaqti
+    # bilan sekinlashib (odatda ~20 s, ba'zan 5–15+ daqiqa) job'ni bekor qilgan.
+    container: python:3.12-slim-trixie
     defaults:
       run:
         working-directory: services/media-worker
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-      # Test videolari FFmpeg lavfi bilan generatsiya qilinadi (Ubuntu 24.04: FFmpeg 6.1)
-      - name: FFmpeg + uv
+      # Test videolari FFmpeg lavfi bilan generatsiya qilinadi
+      - name: FFmpeg
+        timeout-minutes: 8
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ffmpeg
-          pip install uv==0.13.4
+          apt-get -q -o Acquire::Retries=3 update
+          apt-get -q -o Acquire::Retries=3 install -y --no-install-recommends ffmpeg
           ffmpeg -version | head -1
+      - name: uv
+        timeout-minutes: 3
+        run: pip install uv==0.13.4
       - name: pytest
         run: |
           uv sync --frozen
