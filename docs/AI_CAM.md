@@ -125,6 +125,21 @@ rating = clamp(6.0 + Σ(weight[e] × confidence[e]) + team_result, 3.0, 10.0), 0
 
 **Overlay matnlari** lokalizatsiya qilinadi: "MUVAFFAQIYATLI DRIBLING" / "УСПЕШНЫЙ ДРИБЛИНГ" / "SUCCESSFUL DRIBBLE".
 
+### O'yinchi videosi (player reel) — Bosqich C
+
+Bitta o'yinchining match'dagi lahzalari bitta videoda (scouting videolari uslubida), ulashish uchun — 9:16 va 1:1:
+
+- **Manba:** shu o'yinchining `match_events` lari vaqt tartibida, har biri virtual kamera render'idan (§2, 8-bosqich) event atrofidagi oyna bilan. Davomiyligi ≤ 2–3 daqiqa: ko'p bo'lsa, og'irligi (§4 jadvali) yuqori event'lar tanlanadi.
+- **Overlay:**
+  - yuqori chapda — avatar (faqat o'yinchi o'zi yuklagan profil rasmi), ism, bib raqami va **jonli reyting**: 6.0 dan boshlanadi, har event'dan keyin `rating_breakdown` bo'yicha yangilanadi; rang — qizil (< 6), sariq (6–7), yashil (7–8), ko'k (≥ 8);
+  - o'yinchi ustida ▼ belgisi va ismi — tracking natijasi (pitch koordinatalari kamera kadriga qayta proyeksiya qilinadi, silliqlanadi);
+  - event yozuvi va `rating_delta` ("+GOL +1.2", "+MUVAFFAQIYATLI DRIBLING +0.2"); salbiy event'da ("−TO'P YO'QOTISH") qisqa qizil fon;
+  - pastda jamoalar (bib ranglari bilan), yuqori o'ngda venue/match;
+  - oxirgi kadr — yakuniy reyting kartochkasi (avatar, ism, reyting, Match Up brendi).
+- **Qachon yaratiladi:** reyting `published` bo'lgandan keyin (shadow rejimda yo'q); reyting `disputed` bo'lsa reel nashrdan olinadi va qayta render qilinadi.
+- **Sifat sharti:** reel'dagi eng ko'rinadigan xato — ▼ belgisining boshqa o'yinchida turishi. Shuning uchun reel faqat identity'si ishonchli (bib OCR ovozi chegaradan yuqori yoki review'da tasdiqlangan) track segmentlaridan yig'iladi.
+- **Maxfiylik (§8):** faqat `media_appearance` roziligi bor o'yinchi uchun; kadrdagi boshqa o'yinchilar nomlanmaydi va belgilanmaydi, roziligi yo'qlarning yuzi xiralashtiriladi (`face_blur`).
+
 ## 5. DB kengaytmasi (faqat additive)
 
 **Bosqich A — `0006_ai_cam.sql` (qo'llangan).** Raqam 0007/0008 dan oldin: toza bazada 0006 ulardan oldin ishlaydi, shuning uchun faqat 0001–0005 obyektlariga tayanadi. Holatlar `text + CHECK` — keyingi bosqichlar CHECK'ni almashtirib qiymat qo'shadi (enum `ADD VALUE` tranzaksiya muammosisiz).
@@ -142,11 +157,11 @@ rating = clamp(6.0 + Σ(weight[e] × confidence[e]) + team_result, 3.0, 10.0), 0
 | Jadval / o'zgarish | Asosiy ustunlar |
 |---|---|
 | `recording_sessions` | `review`, `rejected` holatlari (B–C), panorama_media_id |
-| `media_processing_jobs` | yangi enum qiymatlari: `ai_cam_sync`, `ai_cam_calibrate`, `ai_cam_track`, `ai_cam_events`, `ai_cam_rating`, `ai_cam_render` |
+| `media_processing_jobs` | yangi enum qiymatlari: `ai_cam_sync`, `ai_cam_calibrate`, `ai_cam_track`, `ai_cam_events`, `ai_cam_rating`, `ai_cam_render`, `ai_cam_player_reel` |
 | `match_events` + ustunlar | yangi `match_event_type` qiymatlari (§4); `pitch_x/y`, `end_x/y`, `track_id`, `model_version` |
 | `player_match_stats` (yangi) — so'ralgan `Player_Stats` | PK (match_id, participant_id), user_id, minutes_played, passes, passes_completed, progressive_passes, key_passes, dribbles_attempted/success, turnovers, shots, shots_on_target, goals, assists, distance_m, top_speed_kmh, sprints, **rating numeric(3,1)**, rating_breakdown jsonb, formula_version, model_version, status (`draft / published / disputed / withdrawn`), reviewed_by, published_at |
 | `rating_formulas` (yangi) | version, weights jsonb, active_from — o'zgarishlar audit qilinadi |
-| `highlights` + ustunlar — so'ralgan `Video_Clips` | clip_type (event turi), primary_participant_id, overlay jsonb (locale bo'yicha matn, badge). Yangi `highlight_renditions` (highlight_id, aspect `16:9` / `9:16`, media_asset_id, branded) — Reels/Telegram uchun tayyor vertikal MP4 |
+| `highlights` + ustunlar — so'ralgan `Video_Clips` | clip_type (event turi yoki `player_reel` — §4), primary_participant_id, overlay jsonb (locale bo'yicha matn, badge). Yangi `highlight_renditions` (highlight_id, aspect `16:9` / `9:16`, media_asset_id, branded) — Reels/Telegram uchun tayyor vertikal MP4 |
 
 `Video_Clips` uchun alohida jadval ochilmaydi: mavjud `highlights` jadvali (moderatsiya, visibility, like'lar, teglar) kengaytiriladi. Shunda qo'lda va AI yaratgan kliplar bitta feed'da yuradi.
 
@@ -174,7 +189,7 @@ Bosqich B–C (reja):
 
 | Method | Path | Kim | Vazifa |
 |---|---|---|---|
-| GET | **`/v1/matches/{id}/analytics`** | o'yinchi (participant) | match statistikasi, mening reytingim + breakdown, kliplarim (overlay, renditions, share havolasi), badge'lar, top o'yinchilar (faqat roziligi borlar) |
+| GET | **`/v1/matches/{id}/analytics`** | o'yinchi (participant) | match statistikasi, mening reytingim + breakdown, kliplarim (overlay, renditions, share havolasi), mening videom (player reel, §4), badge'lar, top o'yinchilar (faqat roziligi borlar) |
 | GET | `/v1/me/highlights` | o'yinchi | profil feed'i (cursor) |
 | POST | `/v1/highlights/{id}/share` | o'yinchi | imzolangan qisqa havola + `HighlightShared` event (Instagram Reels, Telegram) |
 | POST | `/v1/matches/{id}/analytics/disputes` | o'yinchi | "bu men emasman" / "reyting noto'g'ri" → review |
@@ -245,7 +260,7 @@ Natijalar API'ga ichki endpoint orqali yoziladi (servis token, faqat VPC ichida)
 |---|---|---|
 | **A — Yozish va ma'lumot yig'ish** | host app'da yozish rejimi va resumable upload, `recording_sessions`, bib biriktirish, to'liq o'yin videosi ishtirokchilarga, host qo'lda belgilagan highlight'lar | Dataset yig'iladi, rig operatsion jihatdan sinaladi. **Backend tayyor (§12)**; host va player UI — keyingi qadam |
 | **B — Avtomatik kliplar** | sinxronlash, kalibrovka, detection va tracking, gol va zarba event'lari, virtual kamera render, 9:16 ulashish | "AI beta" gol kliplari |
-| **C — O'yinchi statistikasi va reyting** | jamoa va bib identity, possession modeli, barcha event'lar, `player_match_stats`, formula v1, review navbati, `/analytics` | Reyting avval shadow rejimda, keyin nashr |
+| **C — O'yinchi statistikasi va reyting** | jamoa va bib identity, possession modeli, barcha event'lar, `player_match_stats`, formula v1, review navbati, `/analytics`, o'yinchi videosi (player reel, §4) | Reyting avval shadow rejimda, keyin nashr |
 | **D — Optimallashtirish** | qurilmada oldindan ishlov (upload hajmini kamaytirish), venue'larga doimiy kameralar, deyarli real-time | Narx va kechikish pasayadi |
 
 ## 11. Xatarlar va ochiq savollar
@@ -256,6 +271,7 @@ Natijalar API'ga ichki endpoint orqali yoziladi (servis token, faqat VPC ichida)
 | Telefon qizishi va batareya (yoz) | power bank, soya, 4K o'rniga 2.7K varianti, harorat logi |
 | Venue'larda Wi-Fi yo'q | resumable upload uydan ham davom etadi; Bosqich D'da qurilmada siqish |
 | Qafas/panjara, tungi yoritish | venue bo'yicha kalibrovka profili, test set'da alohida o'lchash |
+| Bib raqami uzoqdan o'qilmaydi (identity va player reel shunga bog'liq) | pilotda 4K kadrda maydonning narigi chetidagi raqam ko'z bilan o'qilishini tekshirish (ko'z o'qimasa, OCR ham o'qimaydi); katta, kontrastli, old va orqada raqamli bib; kamera balandligi 2–3 m |
 | Host'ga qo'shimcha ish (~10–15 daq rig) | host haqiga AI-Cam bonusi, rig bo'yicha qo'llanma |
 | "Biometrik ma'lumot" ta'rifi | yuz tanimaslik siyosati, yurist xulosasi (ARCHITECTURE §6, 1-band) |
 | Reyting adolati va nizolar | breakdown shaffofligi, nizo oqimi, shadow rejim |
