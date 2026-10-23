@@ -14,6 +14,7 @@ export type NotificationType =
   | 'match.reminder_2h'
   | 'waitlist.offer'
   | 'host.offer'
+  | 'host.payout_paid'
   | 'match.new'
   | 'highlight.tagged'
   | 'highlight.ready'
@@ -40,6 +41,8 @@ export interface TemplateParams {
   actor?: string;
   /** privacy.export_ready: yuklab olish muddati (foydalanuvchi shahri vaqt zonasida). */
   expires?: string;
+  /** host.payout_paid: to'lov davri ("13–19 oktabr"). */
+  period?: string;
 }
 
 type Render = (p: TemplateParams) => { title: string; body: string };
@@ -148,6 +151,15 @@ export const TEMPLATES: Record<NotificationType, Template> = {
       en: (p) => ({ title: 'New match offer', body: `${p.match} — ${p.when}, ${p.venue}. Fee: ${p.fee}. Reply within 10 minutes.` }),
     },
   },
+  'host.payout_paid': {
+    category: 'transactional',
+    priority: 'normal',
+    text: {
+      'uz-Latn': (p) => ({ title: "Haftalik to'lov o'tkazildi", body: `${p.amount} — ${p.period} kunlari o'tkazgan o'yinlaringiz uchun.` }),
+      ru: (p) => ({ title: 'Выплата отправлена', body: `${p.amount} — за игры, проведённые ${p.period}.` }),
+      en: (p) => ({ title: 'Payout sent', body: `${p.amount} for the games you hosted ${p.period}.` }),
+    },
+  },
   'match.new': {
     category: 'marketing',
     priority: 'normal',
@@ -230,6 +242,12 @@ export function formatWhen(at: Date, timeZone: string, locale: TextLocale | Loca
     minute: '2-digit',
     hourCycle: 'h23',
   }).format(at);
+}
+
+/** To'lov davri (sana, vaqt zonasisiz): "13–19-oktabr" | "13–19 октября" | "Oct 13 – 19". */
+export function formatPeriod(start: string, end: string, locale: TextLocale | Locale): string {
+  const f = new Intl.DateTimeFormat(INTL[textLocale(locale)], { timeZone: 'UTC', day: 'numeric', month: 'long' });
+  return f.formatRange(new Date(`${start}T00:00:00Z`), new Date(`${end}T00:00:00Z`));
 }
 
 /** "19:00" */

@@ -18,6 +18,7 @@ export type DomainEvent =
   | 'HostOffered'
   | 'HostAssigned'
   | 'HostArrived'
+  | 'HostPayoutPaid'
   | 'PlayerCheckedIn'
   | 'HighlightReady'
   | 'HighlightShared'

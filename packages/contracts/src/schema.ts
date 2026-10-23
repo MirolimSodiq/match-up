@@ -1736,6 +1736,111 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/host-payouts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Haftalik host payout'lari
+         * @description `HostPayouts` job'i har dushanba (`HOST_PAYOUT_CRON`, Asia/Tashkent) oldingi hafta bajarilgan tayinlovlardan
+         *     host + valyuta bo'yicha `pending` payout yaratadi. `status=pending` — navbat (eng eski hafta birinchi),
+         *     boshqa filtrlarda eng yangi hafta birinchi. `q` — host ismi, telefon (kamida 4 raqam), o'tkazma raqami yoki payout ID.
+         */
+        get: operations["adminListHostPayouts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/host-payouts/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Bank o'tkazmasi uchun CSV
+         * @description Ro'yxat filtrlari bilan, pagination'siz (ko'pi bilan 5000 qator, oshsa 422). UTF-8 BOM, `\r\n`, ustunlar:
+         *     `payout_id, host, phone, payout_method, payout_details_ref, amount, currency, period_start, period_end, assignments, status, provider_ref`.
+         *     `amount` — asosiy birlikda (`250000.00`). Karta raqami bazada yo'q — `payout_details_ref` vault havolasi.
+         *     `= + - @` bilan boshlangan matnli kataklarga `'` qo'shiladi (formula injection).
+         */
+        get: operations["adminExportHostPayouts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/host-payouts/paid": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bir nechta payout'ni bitta o'tkazma raqami bilan "to'landi" deb belgilash
+         * @description Hammasi `pending` bo'lishi shart: bittasi boshqa holatda bo'lsa — 409, topilmasa — 404, hech biri o'zgarmaydi.
+         *     Har payout: `status=paid`, `provider_ref`, `paid_at`, `paid_by`; `audit_logs` (`host_payout.paid`, `batch_size`)
+         *     va `HostPayoutPaid` (host'ga push) bitta tranzaksiyada.
+         */
+        post: operations["adminMarkHostPayoutsPaid"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/host-payouts/{payoutId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Payout tafsiloti — unga kirgan tayinlovlar */
+        get: operations["adminGetHostPayout"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/host-payouts/{payoutId}/paid": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Payout'ni "to'landi" deb belgilash (bank / karta o'tkazmasidan keyin)
+         * @description Faqat `pending` (aks holda 409). `status=paid`, `provider_ref` (o'tkazma raqami), `paid_at`, `paid_by`;
+         *     `audit_logs` (`host_payout.paid`) va `HostPayoutPaid` (host'ga push) bitta tranzaksiyada.
+         */
+        post: operations["adminMarkHostPayoutPaid"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/payments": {
         parameters: {
             query?: never;
@@ -3945,6 +4050,66 @@ export interface components {
             items: components["schemas"]["AdminHost"][];
             total: number;
         };
+        AdminHostPayout: {
+            /** Format: uuid */
+            id: string;
+            host: {
+                /** Format: uuid */
+                id: string;
+                display_name: string | null;
+                phone: string | null;
+                /** @example card_uzcard */
+                payout_method: string | null;
+                /** @description Vault havolasi (karta raqami saqlanmaydi) */
+                payout_details_ref: string | null;
+            };
+            /** @description Dushanba–yakshanba (Asia/Tashkent) */
+            period: {
+                /** Format: date */
+                start: string;
+                /** Format: date */
+                end: string;
+            };
+            amount: components["schemas"]["Money"];
+            /** @enum {string} */
+            status: "pending" | "processing" | "paid" | "failed";
+            assignments_count: number;
+            /** @description Bank / karta o'tkazmasi raqami */
+            provider_ref: string | null;
+            /** Format: date-time */
+            paid_at: string | null;
+            paid_by: {
+                /** Format: uuid */
+                id: string;
+                display_name: string | null;
+            } | null;
+            note: string | null;
+            /** Format: date-time */
+            created_at: string;
+        };
+        AdminHostPayoutList: {
+            items: components["schemas"]["AdminHostPayout"][];
+            total: number;
+            totals: components["schemas"]["CurrencyTotal"][];
+        };
+        AdminHostPayoutDetail: components["schemas"]["AdminHostPayout"] & {
+            assignments: {
+                /** Format: uuid */
+                id: string;
+                match: {
+                    /** Format: uuid */
+                    id: string;
+                    public_code: string;
+                    title: string;
+                    /** Format: date-time */
+                    starts_at: string;
+                    venue_name: string;
+                };
+                fee: components["schemas"]["Money"];
+                /** Format: date-time */
+                completed_at: string | null;
+            }[];
+        };
         AdminPayment: {
             /** Format: uuid */
             id: string;
@@ -4375,6 +4540,7 @@ export interface components {
         JobId: string;
         ShareToken: string;
         RefundId: string;
+        PayoutId: string;
         AdminLimit: number;
         /** @description Admin jadvallari offset pagination ishlatadi (javobda `total`) */
         Offset: number;
@@ -7359,6 +7525,163 @@ export interface operations {
                         /** @description Bekor qilingan offer/tayinlovlar soni */
                         cancelled_assignments: number;
                     };
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    adminListHostPayouts: {
+        parameters: {
+            query?: {
+                /** @description Vergul bilan: pending, processing, paid, failed */
+                status?: string;
+                host_id?: string;
+                /** @description Davr shu sanagacha tugamagan (period_end >= period_from) */
+                period_from?: string;
+                /** @description Davr shu sanadan keyin boshlanmagan (period_start <= period_to) */
+                period_to?: string;
+                q?: string;
+                limit?: components["parameters"]["AdminLimit"];
+                /** @description Admin jadvallari offset pagination ishlatadi (javobda `total`) */
+                offset?: components["parameters"]["Offset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Payout'lar */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminHostPayoutList"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    adminExportHostPayouts: {
+        parameters: {
+            query?: {
+                status?: string;
+                host_id?: string;
+                period_from?: string;
+                period_to?: string;
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description CSV fayl (`Content-Disposition: attachment; filename="host-payouts-YYYY-MM-DD.csv"`) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    adminMarkHostPayoutsPaid: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    ids: string[];
+                    /** @example HUMO-BATCH-0042 */
+                    provider_ref: string;
+                    note?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Belgilangan payout'lar */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["AdminHostPayout"][];
+                    };
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    adminGetHostPayout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                payoutId: components["parameters"]["PayoutId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Payout */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminHostPayoutDetail"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    adminMarkHostPayoutPaid: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                payoutId: components["parameters"]["PayoutId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @example UZCARD-TR-0001 */
+                    provider_ref: string;
+                    note?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description To'landi */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminHostPayout"];
                 };
             };
             404: components["responses"]["NotFound"];

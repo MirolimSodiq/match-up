@@ -89,6 +89,7 @@ const STATUS_TONE: Record<string, Tone> = {
   succeeded: 'success',
   failed: 'danger',
   refunded: 'dark',
+  paid: 'success',
   partially_refunded: 'warning',
   applicant: 'warning',
   active: 'success',

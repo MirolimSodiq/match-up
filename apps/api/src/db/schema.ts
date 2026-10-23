@@ -719,7 +719,10 @@ export const hostPayouts = pgTable("host_payouts", {
 	providerRef: text("provider_ref"),
 	paidAt: timestamp("paid_at", { withTimezone: true, mode: 'string' }),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	paidBy: uuid("paid_by"),
+	note: text(),
 }, (table) => [
+	index("host_payouts_status_period_idx").using("btree", table.status.asc().nullsLast().op("date_ops"), table.periodStart.desc().nullsFirst().op("date_ops")),
 	foreignKey({
 			columns: [table.currency],
 			foreignColumns: [currencies.code],
@@ -730,9 +733,15 @@ export const hostPayouts = pgTable("host_payouts", {
 			foreignColumns: [hostProfiles.userId],
 			name: "host_payouts_host_user_id_fkey"
 		}),
+	foreignKey({
+			columns: [table.paidBy],
+			foreignColumns: [users.id],
+			name: "host_payouts_paid_by_fkey"
+		}),
 	unique("host_payouts_host_user_id_period_start_period_end_key").on(table.hostUserId, table.periodEnd, table.periodStart),
 	check("host_payouts_amount_check", sql`amount >= 0`),
 	check("host_payouts_check", sql`period_end >= period_start`),
+	check("host_payouts_paid_complete", sql`(status <> 'paid'::payout_status) OR ((provider_ref IS NOT NULL) AND (paid_at IS NOT NULL) AND (paid_by IS NOT NULL))`),
 ]);
 
 export const hostProfiles = pgTable("host_profiles", {

@@ -386,6 +386,10 @@ export const hostPayoutsRelations = relations(hostPayouts, ({one, many}) => ({
 		fields: [hostPayouts.hostUserId],
 		references: [hostProfiles.userId]
 	}),
+	user: one(users, {
+		fields: [hostPayouts.paidBy],
+		references: [users.id]
+	}),
 	hostAssignments: many(hostAssignments),
 }));
 
@@ -900,6 +904,7 @@ export const usersRelations = relations(users, ({one, many}) => ({
 	highlights_moderatedBy: many(highlights, {
 		relationName: "highlights_moderatedBy_users_id"
 	}),
+	hostPayouts: many(hostPayouts),
 	hostProfiles_userId: many(hostProfiles, {
 		relationName: "hostProfiles_userId_users_id"
 	}),
