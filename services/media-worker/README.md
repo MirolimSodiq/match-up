@@ -32,6 +32,7 @@ Worker DB'ga yozmaydi — holatni API `media_processing_jobs` da yuritadi va `Hi
 | Validatsiya xatosi (`DURATION_TOO_LONG`, `NOT_A_VIDEO`, `UNSUPPORTED_FORMAT`, `CHECKSUM_MISMATCH` ...) | darhol `failed`, xabar ACK |
 | Vaqtinchalik xato (S3, API 5xx, FFmpeg signal/timeout) | ichki retry (backoff); bo'lmasa xabar ACK qilinmaydi va `CLAIM_IDLE_MS` dan keyin boshqa consumer oladi |
 | Worker o'ldi | xabar pending'da qoladi → `XPENDING IDLE` + `XCLAIM` bilan qayta olinadi (`deliveries + 1`) |
+| Scale-in / deploy (yozuv lane'i) | job paytida task himoyalangan — ECS uni to'xtatmaydi; himoya xatosi job'ni to'xtatmaydi (faqat ogohlantirish) |
 | `MAX_DELIVERIES` (5) dan oshdi | `matchup:media-jobs:dead` ga yoziladi, job `failed` (`MAX_RETRIES_EXCEEDED`) |
 | Job allaqachon tugagan / bekor qilingan (API 409/404) | ACK, ishlov yo'q |
 | Takroriy yetkazish | bosqichlar `.done-<stage>` belgilari bilan o'tkazib yuboriladi; boshqa worker `manifest.json` dan natijani qayta yuboradi (qayta kodlamasdan) |
@@ -76,6 +77,7 @@ To'liq o'yin yozuvlari (AI-Cam) uchun ikkinchi jarayon — xuddi shu buyruq `MED
 | `WORK_DIR` | `/tmp/media-worker` | ish papkasi va heartbeat |
 | `MAX_DELIVERIES`, `CLAIM_IDLE_MS` | `5`, `120000` | |
 | `FFMPEG_PRESET`, `FFMPEG_THREADS` | `veryfast`, `0` | |
+| `ECS_TASK_PROTECTION`, `ECS_TASK_PROTECTION_MINUTES` | `false`, `60` | job paytida ECS task scale-in protection (yozuv lane'i): `$ECS_AGENT_URI/task-protection/v1/state`, keepalive'da har 15 daqiqada yangilanadi, job tugagach o'chiriladi. `ECS_AGENT_URI` ni ECS beradi |
 
 ## Keyingi qadamlar (AI-Cam)
 

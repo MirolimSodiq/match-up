@@ -14,6 +14,7 @@ import redis
 from .api import HttpApi
 from .config import Settings
 from .pipeline import Pipeline
+from .protection import EcsTaskProtection, NoProtection, TaskProtection
 from .queue import RedisStreamSource
 from .storage import S3Storage
 from .worker import Worker
@@ -52,12 +53,19 @@ def main() -> int:
     )
     source.ensure_group()
     storage = S3Storage(settings.s3_endpoint, settings.s3_region, settings.s3_access_key_id, settings.s3_secret_access_key, settings.s3_force_path_style)
+    protection: TaskProtection = NoProtection()
+    if settings.task_protection:
+        if settings.ecs_agent_uri:
+            protection = EcsTaskProtection(settings.ecs_agent_uri, settings.task_protection_minutes)
+        else:
+            logging.getLogger("media_worker").warning("ECS_TASK_PROTECTION yoqilgan, lekin ECS_AGENT_URI yo'q — himoyasiz")
     worker = Worker(
         source,
         HttpApi(settings.api_url, settings.worker_token),
         Pipeline(storage, Path(settings.work_dir) / "jobs", settings.ffmpeg_preset, settings.ffmpeg_threads),
         settings.max_deliveries,
         Path(settings.work_dir) / "heartbeat",
+        protection=protection,
     )
 
     def shutdown(signum: int, _frame: object) -> None:

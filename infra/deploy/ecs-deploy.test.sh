@@ -82,7 +82,7 @@ CONFIG='{
   "services": [{"service": "api", "container": "api", "repo": "api"},
                {"service": "admin", "container": "admin", "repo": "admin"},
                {"service": "media-worker", "container": "media-worker", "repo": "media-worker"},
-               {"service": "media-worker-recording", "container": "media-worker", "repo": "media-worker"}]
+               {"service": "media-worker-recording", "container": "media-worker", "repo": "media-worker", "wait": false}]
 }'
 FIXTURES='{"containers": {"matchup-test-migrate": "migrate", "matchup-test-api": "api", "matchup-test-admin": "admin",
   "matchup-test-media-worker": "media-worker", "matchup-test-media-worker-recording": "media-worker"}}'
@@ -111,6 +111,7 @@ check "ok: 4 ta servis yangilandi" '[[ $(grep -c "ecs update-service" "$STATE/ca
 check "ok: recording worker image'i = media-worker:<teg>" '[[ $(jq -r ".containerDefinitions[] | select(.name==\"media-worker\") | .image" "$STATE"/td-matchup-test-media-worker-recording-*.json) == */matchup-test/media-worker:$TAG ]]'
 check "ok: boshqa konteyner, env, secret, role'lar o'zgarmagan" 'jq -e ".containerDefinitions[1].image == \"public/sidecar:1\" and .containerDefinitions[0].environment[0].value == \"production\" and .containerDefinitions[0].secrets[0].valueFrom == \"arn:secret\" and .executionRoleArn == \"arn:exec\"" "$STATE"/td-matchup-test-api-*.json >/dev/null'
 check "ok: read-only maydonlar olib tashlangan" 'jq -e "has(\"taskDefinitionArn\") or has(\"revision\") or has(\"status\") or has(\"registeredAt\") or has(\"requiresAttributes\") or has(\"compatibilities\") | not" "$STATE"/td-matchup-test-api-*.json >/dev/null'
+check "ok: wait=false servis barqarorlik kutishida yo'q" 'grep "ecs describe-services" "$STATE/calls.log" | grep -- "--output json" | grep -vq "media-worker-recording" && grep -q "media-worker-recording.*kutilmaydi" "$STATE/out.log"'
 check "ok: SSM teglari (migrate, api, admin, media-worker)" '[[ $(sort "$STATE/ssm.log" | tr "\n" " ") == "/matchup-test/image-tags/admin=$TAG /matchup-test/image-tags/api=$TAG /matchup-test/image-tags/media-worker=$TAG /matchup-test/image-tags/migrate=$TAG " ]]'
 
 # 2. Migratsiya xatosi — servislarga tegilmaydi, log ko'rsatiladi
