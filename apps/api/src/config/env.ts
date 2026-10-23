@@ -89,6 +89,8 @@ const EnvSchema = z.object({
   HOST_NO_SHOW_ALERT_MIN: z.coerce.number().int().min(1).max(120).default(15),
   /** Haftalik host payout (cron, Asia/Tashkent): oldingi dushanba–yakshanba. */
   HOST_PAYOUT_CRON: z.string().default('0 4 * * 1'),
+  /** Media navbati metrikasi (CloudWatch EMF, stdout) — cell nomi o'lcham sifatida; bo'sh — metrika chiqarilmaydi. */
+  CLOUDWATCH_METRICS_CELL: z.string().optional(),
 
   /** Expo Push API (push/send, push/getReceipts). Access token — Expo "enhanced security" yoqilgan bo'lsa. */
   EXPO_PUSH_URL: z.url().default('https://exp.host/--/api/v2/push'),

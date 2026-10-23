@@ -21,6 +21,7 @@ import { DataExportService } from '../privacy/data-export.service';
 import { ErasureService } from '../privacy/erasure.service';
 import { PrivacyModule } from '../privacy/privacy.module';
 import { REDIS } from '../redis/redis.module';
+import { MediaQueueMetrics } from './media-queue-metrics';
 
 export { EVENTS_STREAM } from '../common/outbox';
 
@@ -59,7 +60,8 @@ export class OutboxRelay {
  * BullMQ job scheduler: hold expiry, host dispatch, minimum o'yinchi tekshiruvi, outbox relay,
  * eslatmalar (T-24h/T-2h), kutish ro'yxati takliflari muddati, push retry va receipt'lar, GDPR so'rovlari,
  * media navbati housekeeping'i (yuborilmay qolgan / to'xtab qolgan job'lar, muddati o'tgan yuklashlar),
- * host no-show ogohlantirishi (Telegram ops guruhi) va haftalik host payout (cron, Asia/Tashkent).
+ * host no-show ogohlantirishi (Telegram ops guruhi), haftalik host payout (cron, Asia/Tashkent) va media navbati
+ * metrikasi (worker autoscaling uchun).
  */
 @Injectable()
 export class JobsService implements OnModuleInit, OnModuleDestroy {
@@ -80,6 +82,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     private readonly media: MediaService,
     private readonly hostNoShow: HostNoShowAlerts,
     private readonly hostPayouts: HostPayouts,
+    private readonly mediaQueue: MediaQueueMetrics,
   ) {}
 
   async onModuleInit() {
@@ -99,6 +102,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       'dsr-erasures': 3_600_000,
       'media-housekeeping': 30_000,
       'host-no-show': 60_000,
+      'media-queue-metrics': 60_000,
     };
     for (const [name, ms] of Object.entries(every)) {
       await this.queue.upsertJobScheduler(name, { every: ms }, { name, opts: { removeOnComplete: 100, removeOnFail: 500 } });
@@ -141,6 +145,8 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
         return this.hostNoShow.run();
       case 'host-payouts':
         return this.hostPayouts.run();
+      case 'media-queue-metrics':
+        return this.mediaQueue.run();
       default:
         throw new Error(`Noma'lum job: ${name}`);
     }
@@ -155,7 +161,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
 
 @Module({
   imports: [CommerceModule, HostModule, HostOpsModule, AdminModule, NotificationsModule, PrivacyModule, MediaModule],
-  providers: [JobsService, OutboxRelay],
-  exports: [JobsService, OutboxRelay],
+  providers: [JobsService, OutboxRelay, MediaQueueMetrics],
+  exports: [JobsService, OutboxRelay, MediaQueueMetrics],
 })
 export class JobsModule {}

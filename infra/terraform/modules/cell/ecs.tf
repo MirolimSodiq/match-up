@@ -81,6 +81,8 @@ locals {
       S3_REGION          = local.region
       # Ops ogohlantirishlaridagi havola (host no-show)
       ADMIN_PUBLIC_URL = "https://${var.admin_domain}"
+      # Media navbati metrikasi (CloudWatch EMF) — worker autoscaling'i (media_worker.tf)
+      CLOUDWATCH_METRICS_CELL = var.name
     },
     var.ops_telegram_chat_id == null ? {} : { OPS_TELEGRAM_CHAT_ID = var.ops_telegram_chat_id },
     # CloudFront signed URL faqat key group ulanganda; aks holda API S3 presigned GET beradi
