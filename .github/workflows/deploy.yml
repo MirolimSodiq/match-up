@@ -1,0 +1,161 @@
+name: Deploy
+
+# Staging'ga deploy (docs/DEPLOYMENT.md §6): `main` dagi CI yashil bo'lsa — avtomatik; Actions'dan — qo'lda,
+# istalgan commit bilan (rollback ham shu: eski SHA). AWS bilan OIDC orqali — repo'da uzoq muddatli kalit yo'q;
+# role faqat shu repo'ning `staging` environment'idagi job'lariga ishonadi va faqat ECR push + ECS deploy
+# qila oladi (infra/terraform/modules/cell/deploy.tf). Infratuzilma o'zgarishlari — operator `terraform apply`.
+#
+# Sozlash (bir marta): repo variable STAGING_AWS_DEPLOY_ROLE_ARN = terraform output `cell.deploy_role_arn`.
+# U bo'lmaguncha job'lar o'tkazib yuboriladi (workflow qizarmaydi).
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit SHA yoki branch (rollback — oldingi SHA)
+        required: true
+        default: main
+
+permissions:
+  contents: read
+
+# Bir vaqtda bitta deploy; navbatda faqat eng oxirgisi qoladi
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+env:
+  CELL: matchup-staging
+  AWS_REGION: eu-central-1
+
+jobs:
+  prepare:
+    name: Commit va image'lar
+    if: >-
+      vars.STAGING_AWS_DEPLOY_ROLE_ARN != '' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: staging
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      platform: ${{ steps.images.outputs.platform }}
+      missing: ${{ steps.images.outputs.missing }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || inputs.ref }}
+      # Teg — to'liq SHA (ECR teglari o'zgarmas: qayta deploy / rollback qayta build qilmaydi)
+      - id: tag
+        run: echo "tag=$(git rev-parse HEAD)" >>"$GITHUB_OUTPUT"
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.STAGING_AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: deploy-${{ github.run_id }}
+      - id: images
+        name: ECR'da yo'q image'lar
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          cfg=$(aws ssm get-parameter --name "/$CELL/deploy/config" --query Parameter.Value --output text)
+          missing=()
+          for app in api admin media-worker; do
+            repo=$(jq -r --arg a "$app" '.ecr[$a] | split("/")[1:] | join("/")' <<<"$cfg")
+            aws ecr describe-images --repository-name "$repo" --image-ids "imageTag=$TAG" >/dev/null 2>&1 || missing+=("$app")
+          done
+          echo "platform=$(jq -r .platform <<<"$cfg")" >>"$GITHUB_OUTPUT"
+          echo "missing=$(jq -cn '$ARGS.positional' --args "${missing[@]}")" >>"$GITHUB_OUTPUT"
+          echo "Build qilinadi: ${missing[*]:-hech narsa}"
+
+  build:
+    name: Image (${{ matrix.app }})
+    needs: prepare
+    if: needs.prepare.outputs.missing != '[]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: staging
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: true
+      matrix:
+        app: ${{ fromJSON(needs.prepare.outputs.missing) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+      - id: app
+        env:
+          APP: ${{ matrix.app }}
+        run: |
+          case $APP in
+            api) echo "context=." >>"$GITHUB_OUTPUT"; echo "file=apps/api/Dockerfile" >>"$GITHUB_OUTPUT" ;;
+            admin) echo "context=." >>"$GITHUB_OUTPUT"; echo "file=apps/admin/Dockerfile" >>"$GITHUB_OUTPUT" ;;
+            media-worker) echo "context=services/media-worker" >>"$GITHUB_OUTPUT"; echo "file=services/media-worker/Dockerfile" >>"$GITHUB_OUTPUT" ;;
+          esac
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.STAGING_AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: build-${{ github.run_id }}
+      - id: ecr
+        name: ECR login
+        env:
+          APP: ${{ matrix.app }}
+        run: |
+          repo=$(aws ssm get-parameter --name "/$CELL/deploy/config" --query Parameter.Value --output text | jq -r --arg a "$APP" '.ecr[$a]')
+          aws ecr get-login-password | docker login --username AWS --password-stdin "${repo%%/*}"
+          echo "repo=$repo" >>"$GITHUB_OUTPUT"
+      # Fargate ARM64 (cpu_architecture) — x86 runner'da QEMU orqali
+      - uses: docker/setup-qemu-action@v4
+        if: needs.prepare.outputs.platform == 'linux/arm64'
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: ${{ steps.app.outputs.context }}
+          file: ${{ steps.app.outputs.file }}
+          platforms: ${{ needs.prepare.outputs.platform }}
+          push: true
+          provenance: false
+          tags: ${{ steps.ecr.outputs.repo }}:${{ needs.prepare.outputs.tag }}
+          # Brauzer Sentry DSN build vaqtida inline qilinadi (faqat admin; DSN ochiq qiymat)
+          build-args: |
+            NEXT_PUBLIC_SENTRY_DSN=${{ vars.STAGING_ADMIN_SENTRY_DSN }}
+            NEXT_PUBLIC_SENTRY_ENVIRONMENT=staging
+          cache-from: type=gha,scope=deploy-${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=deploy-${{ matrix.app }}
+
+  deploy:
+    name: Migratsiya va ECS
+    needs: [prepare, build]
+    # build o'tkazib yuborilsa ham (hamma image bor) — deploy davom etadi
+    if: always() && needs.prepare.result == 'success' && (needs.build.result == 'success' || needs.build.result == 'skipped')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: staging
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.STAGING_AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: deploy-${{ github.run_id }}
+      - name: Migratsiya -> servislar -> barqarorlik -> SSM teglari
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: infra/deploy/ecs-deploy.sh "$CELL" "$TAG"

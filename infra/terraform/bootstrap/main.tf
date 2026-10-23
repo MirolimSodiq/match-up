@@ -1,4 +1,6 @@
-# Terraform state uchun S3 bucket (bir marta, lokal state bilan): versiyalangan, shifrlangan, faqat TLS.
+# Hisob darajasidagi resurslar (bir marta, lokal state bilan):
+#   * Terraform state uchun S3 bucket: versiyalangan, shifrlangan, faqat TLS.
+#   * GitHub Actions OIDC provider — CI deploy role'lari (modules/cell/deploy.tf) shunga ishonadi.
 #   cd infra/terraform/bootstrap && terraform init && terraform apply
 terraform {
   required_version = ">= 1.11"
@@ -83,4 +85,16 @@ resource "aws_s3_bucket_policy" "state" {
 
 output "state_bucket" {
   value = aws_s3_bucket.state.bucket
+}
+
+# GitHub Actions OIDC: CI uzoq muddatli kalitsiz, har job uchun qisqa muddatli credential oladi.
+# Hisobda bitta bo'ladi; qaysi repo / environment qaysi role'ni ola olishi role'ning trust policy'sida.
+resource "aws_iam_openid_connect_provider" "github" {
+  url            = "https://token.actions.githubusercontent.com"
+  client_id_list = ["sts.amazonaws.com"]
+}
+
+output "github_oidc_provider_arn" {
+  description = "envs/<env>/terraform.tfvars -> github_oidc_provider_arn"
+  value       = aws_iam_openid_connect_provider.github.arn
 }

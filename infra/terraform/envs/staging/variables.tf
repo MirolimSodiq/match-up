@@ -20,23 +20,41 @@ variable "admin_allowed_cidrs" {
   default = []
 }
 
+# Image teglari odatda berilmaydi: CI deploy ularni SSM'ga yozadi, Terraform o'sha yerdan o'qiydi.
+# Birinchi o'rnatishda yoki favqulodda qo'lda deploy'da: -var api_image_tag=<git sha> (docs/DEPLOYMENT.md)
 variable "api_image_tag" {
-  description = "Deploy: -var api_image_tag=<git sha>"
-  type        = string
+  type    = string
+  default = null
 }
 
 variable "admin_image_tag" {
-  type = string
+  type    = string
+  default = null
 }
 
 variable "migrate_image_tag" {
-  description = "Deploy 1-qadami: -var migrate_image_tag=<yangi sha> (api hali eski tegda)"
+  type    = string
+  default = null
+}
+
+variable "media_worker_image_tag" {
+  type    = string
+  default = null
+}
+
+variable "github_oidc_provider_arn" {
+  description = "bootstrap output github_oidc_provider_arn; null — CI deploy role yaratilmaydi"
   type        = string
   default     = null
 }
 
-variable "media_worker_image_tag" {
-  description = "services/media-worker image tegi: -var media_worker_image_tag=<git sha>"
+variable "github_repository" {
+  type    = string
+  default = "MirolimSodiq/match-up"
+}
+
+variable "ops_telegram_chat_id" {
+  description = "Host no-show ogohlantirishlari uchun Telegram ops guruhi id'si (masalan -1001234567890)"
   type        = string
-  default     = "initial"
+  default     = null
 }

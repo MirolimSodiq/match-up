@@ -5,6 +5,7 @@ Match Up qanday build qilinadi, tekshiriladi va AWS'ga chiqariladi. Region tanlo
 | Qism | Fayl(lar) |
 |---|---|
 | CI | [.github/workflows/ci.yml](../.github/workflows/ci.yml), [.github/actions/setup-pnpm](../.github/actions/setup-pnpm/action.yml) |
+| Deploy | [.github/workflows/deploy.yml](../.github/workflows/deploy.yml), [infra/deploy/ecs-deploy.sh](../infra/deploy/ecs-deploy.sh) (+ `ecs-deploy.test.sh`), [modules/cell/deploy.tf](../infra/terraform/modules/cell/deploy.tf) |
 | Image'lar | [apps/api/Dockerfile](../apps/api/Dockerfile), [apps/admin/Dockerfile](../apps/admin/Dockerfile), [.dockerignore](../.dockerignore) |
 | Lokal staging | [docker-compose.staging.yml](../docker-compose.staging.yml), [infra/local/gen-staging-keys.sh](../infra/local/gen-staging-keys.sh) |
 | Terraform | [infra/terraform](../infra/terraform): `modules/cell` (bitta cell — to'liq stack), `envs/staging`, `bootstrap` (state bucket) |
@@ -57,9 +58,10 @@ docker compose -f docker-compose.staging.yml down -v
 | `admin-build` | `turbo run build --filter=@matchup/admin` (`.next/cache` keshlanadi) |
 | `docker` | api, admin va media-worker image'larini build qiladi (push yo'q), GHA cache |
 | `terraform` | `infra/terraform/check.sh`: `fmt -check` + `validate` (credential'siz) |
+| `deploy-script` | `shellcheck` + `infra/deploy/ecs-deploy.test.sh` — deploy skripti soxta `aws` CLI bilan (tartib, image almashtirish, migratsiya xatosi, circuit breaker rollback, yo'q image) |
 | `actionlint` | workflow'larni tekshiradi |
 
-Hozircha GitHub remote ulanmagan — workflow yozilgan va lokal tekshirilgan, lekin haqiqiy runner'da hali ishlamagan. Deploy job'i yo'q (§6 dagi qadamlar qo'lda; keyin GitHub OIDC role bilan avtomatlashtiriladi).
+Deploy — alohida workflow (`deploy.yml`, §6): `main` dagi CI muvaffaqiyatli tugagach avtomatik.
 
 Lokal tekshirish (CI bilan bir xil buyruqlar):
 
@@ -142,11 +144,11 @@ Xavfsizlik bo'yicha:
 
 ### Birinchi marta sozlash (operator, AWS credential bilan)
 
-1. State bucket:
+1. State bucket va GitHub Actions OIDC provider (hisob bo'yicha bitta; output'lar: `state_bucket`, `github_oidc_provider_arn`):
    ```bash
    cd infra/terraform/bootstrap && terraform init && terraform apply
    ```
-2. `envs/staging/terraform.tfvars` da `route53_zone_id`, `api_domain`, `admin_domain` ni haqiqiy qiymatlar bilan almashtiring (domen Route53'da bo'lishi kerak — ACM DNS validatsiyasi va alias yozuvlar avtomatik).
+2. `envs/staging/terraform.tfvars` da `route53_zone_id`, `api_domain`, `admin_domain` ni haqiqiy qiymatlar bilan almashtiring (domen Route53'da bo'lishi kerak — ACM DNS validatsiyasi va alias yozuvlar avtomatik). CI deploy uchun `github_oidc_provider_arn` (1-qadam output'i), host no-show ogohlantirishlari uchun `ops_telegram_chat_id` (bot guruhga qo'shilgan bo'lsin).
 3. Init (bucket nomi bootstrap output'idan):
    ```bash
    cd infra/terraform/envs/staging && terraform init -backend-config="bucket=matchup-terraform-state-<account_id>"
@@ -156,11 +158,16 @@ Xavfsizlik bo'yicha:
    terraform apply -target=module.cell.aws_ecr_repository.app
    ```
    Image'lar Fargate arxitekturasi uchun build qilinadi (standart ARM64): `docker buildx build --platform linux/arm64 -f apps/api/Dockerfile -t <ecr>/api:<sha> --push .`
-5. To'liq `terraform apply -var api_image_tag=<sha> -var admin_image_tag=<sha>`.
-6. Qo'lda to'ldiriladigan secret'larni kiriting (§5), so'ng migratsiya (§6) va servislarni qayta deploy qiling:
+   (`media-worker` — `-f services/media-worker/Dockerfile services/media-worker`.)
+5. To'liq apply — faqat birinchi marta teglar bilan (ular `/<name>/image-tags/*` SSM parametrlariga boshlang'ich qiymat bo'lib yoziladi; keyin teglarni CI boshqaradi):
    ```bash
-   aws ecs update-service --cluster matchup-staging --service api --force-new-deployment
+   terraform apply -var api_image_tag=<sha> -var admin_image_tag=<sha> -var media_worker_image_tag=<sha>
    ```
+6. Qo'lda to'ldiriladigan secret'larni kiriting (§5), so'ng birinchi deploy (migratsiya + servislar):
+   ```bash
+   infra/deploy/ecs-deploy.sh matchup-staging <sha>
+   ```
+7. CI deploy'ni yoqish: GitHub repo → Settings → Secrets and variables → Actions → **Variables**: `STAGING_AWS_DEPLOY_ROLE_ARN` = `terraform output -json cell | jq -r .deploy_role_arn`. Ixtiyoriy: `STAGING_ADMIN_SENTRY_DSN` (admin brauzer DSN'i). `staging` environment birinchi deploy'da avtomatik yaratiladi; xohlasangiz Settings → Environments → staging da "Required reviewers" yoqing (har deploy tasdiq bilan).
 
 ### Prod qo'shish
 
@@ -181,6 +188,7 @@ Barcha maxfiy qiymatlar Secrets Manager'da (`matchup-<env>/...`, cell KMS kaliti
 | `sentry` | `api_dsn` -> api `SENTRY_DSN`, `admin_dsn` -> admin `SENTRY_DSN` (bo'sh = o'chiq) | qo'lda |
 | `media-worker-token` | butun qiymat -> `MEDIA_WORKER_TOKEN` (api va media-worker; `/internal/media/*`) | Terraform (write-only, `media_worker_token_version`) |
 | `media-cdn` | `private_key` -> `MEDIA_CDN_PRIVATE_KEY` (entrypoint faylga yozadi). Faqat `media_signing_public_key_pem` berilganda ishlatiladi | qo'lda |
+| `telegram` | `bot_token` -> `TELEGRAM_BOT_TOKEN` (Telegram login va host no-show ogohlantirishlari; guruh — `ops_telegram_chat_id` o'zgaruvchisi). Bo'sh = ikkalasi ham o'chiq | qo'lda |
 
 Terraform qo'lda to'ldiriladigan secret'larga bir marta bo'sh JSON skeletini yozadi va keyin ularga tegmaydi. To'ldirish (kalitlar `pnpm keys:gen` dagi kabi Ed25519, PKCS#8 / SPKI PEM):
 
@@ -206,34 +214,38 @@ Mobil va lokal:
 
 Migratsiyalar **har doim kod deploy'idan oldin** va **orqaga mos** (expand -> contract) bo'lishi kerak: yangi sxema bilan eski kod ham ishlay olsin. Ustun/jadvalni o'chirish yoki nomini o'zgartirish — keyingi relizda, kod unga murojaat qilmay qo'ygandan keyin. Mavjud migratsiya fayllari o'zgartirilmaydi (README).
 
-1. Image'larni git SHA tegi bilan build va ECR'ga push qiling.
-2. Faqat migratsiya task'ini yangilang (api hali eski tegda):
-   ```bash
-   terraform apply -var migrate_image_tag=<yangi> -var api_image_tag=<joriy> -var admin_image_tag=<joriy>
-   ```
-3. Migratsiyani ishga tushiring va natijani kuting (subnet va SG — `terraform output cell` dagi `migrate_network`):
-   ```bash
-   aws ecs run-task --cluster matchup-staging --task-definition matchup-staging-migrate --launch-type FARGATE --network-configuration "awsvpcConfiguration={subnets=[subnet-aaa,subnet-bbb],securityGroups=[sg-api],assignPublicIp=DISABLED}"
-   ```
-   ```bash
-   aws ecs wait tasks-stopped --cluster matchup-staging --tasks <task-arn>
-   ```
-   ```bash
-   aws ecs describe-tasks --cluster matchup-staging --tasks <task-arn> --query "tasks[0].containers[0].exitCode"
-   ```
-   `0` bo'lmasa — to'xtang, `/ecs/matchup-staging/migrate` logini ko'ring. Runner har faylni o'z tranzaksiyasida qo'llaydi va `schema_migrations` da qayd etadi, qayta ishga tushirish xavfsiz.
-4. Kodni deploy qiling:
-   ```bash
-   terraform apply -var api_image_tag=<yangi> -var admin_image_tag=<yangi> -var migrate_image_tag=<yangi>
-   ```
-   ECS rolling deploy: yangi task'lar `/health` dan o'tmaguncha eski task'lar ishlaydi.
+**Avtomatik (staging):** `main` ga merge -> CI yashil -> `deploy.yml`. Actions → Deploy → **Run workflow** — istalgan commit/branch (rollback ham shu).
+
+| Job | Nima qiladi |
+|---|---|
+| `prepare` | commit -> teg (to'liq SHA); OIDC bilan AWS; ECR'da qaysi image'lar hali yo'qligini aniqlaydi (teglar o'zgarmas — qayta deploy va rollback qayta build qilmaydi) |
+| `build` (matritsa) | yo'q image'larni `linux/arm64` (Fargate ARM64; x86 runner'da QEMU) uchun build qilib ECR'ga push |
+| `deploy` | `infra/deploy/ecs-deploy.sh matchup-staging <sha>` |
+
+`ecs-deploy.sh` (CI va operator uchun bir xil; nomlar `/<name>/deploy/config` SSM parametridan — Terraform yozadi):
+1. Migratsiya task definition'ining yangi revision'i (faqat image almashadi) -> `run-task` -> `exit 0` kutiladi. Xato bo'lsa — migratsiya logining oxiri chiqariladi, servislarga tegilmaydi.
+2. Har servis (api, admin, media-worker, media-worker-recording): joriy task definition'dan faqat image almashgan revision -> `update-service`.
+3. Hammasi barqaror bo'lishi kutiladi; ECS circuit breaker biror servisni orqaga qaytarsa — deploy xato bilan tugaydi.
+4. Joriy teglar SSM'ga (`/<name>/image-tags/{migrate,api,admin,media-worker}`).
+
+**Terraform va teglar:** task definition'lar image tegini shu SSM parametrlaridan oladi — operatorning keyingi `terraform apply` i deploy qilingan versiyani orqaga qaytarmaydi va `-var *_image_tag` berish shart emas. CI ro'yxatdan o'tkazgan revision'ni Terraform o'zinikiga almashtiradi (bir xil image) — shuning uchun deploy'dan keyingi birinchi `apply` servislarni bir marta qayta ishga tushiradi. `-var api_image_tag=...` berilsa SSM'dan ustun (favqulodda holat), keyingi CI deploy uni almashtiradi.
+
+**CI role** (`<name>-github-deploy`) tor: faqat shu cell'ning ECR repo'lariga push, ECS servislarini yangilash, migratsiya task'i, shu cell role'larini ECS'ga berish (`iam:PassRole`), image-tag parametrlari va migratsiya logini o'qish. VPC, RDS, IAM, secret qiymatlariga huquq yo'q. Trust: faqat `repo:<github_repository>:environment:staging` — boshqa branch, PR yoki fork emas.
+
+**Qo'lda (operator):** image'larni build/push qilib (§4, 4-qadam), so'ng:
+
+```bash
+infra/deploy/ecs-deploy.sh matchup-staging <sha>
+```
+
+ECS rolling deploy: yangi task'lar `/health` dan o'tmaguncha eski task'lar ishlaydi.
 
 ## 7. Rollback
 
 | Holat | Harakat |
 |---|---|
 | Yangi task'lar sog'lom bo'lmadi | ECS deployment circuit breaker avtomatik oldingi task definition'ga qaytaradi |
-| Deploy o'tdi, lekin xato bor | Oldingi tegni qayta apply qiling: `terraform apply -var api_image_tag=<oldingi> -var admin_image_tag=<oldingi>` (ECR oxirgi 50 ta image'ni saqlaydi) |
+| Deploy o'tdi, lekin xato bor | Actions → Deploy → Run workflow → `ref` = oldingi SHA (image'lar ECR'da bor — qayta build yo'q, ECR oxirgi 50 tasini saqlaydi). Migratsiya qaytarilmaydi (expand -> contract tufayli eski kod yangi sxema bilan ishlaydi) |
 | Migratsiya xato qildi | Migratsiyalar forward-only: xatoni tuzatuvchi yangi migratsiya yozing. Expand -> contract qoidasi tufayli eski kod yangi sxema bilan ishlayveradi |
 | Ma'lumot buzildi | RDS PITR: retention oynasi ichidagi istalgan soniyaga **yangi** instance'ga tiklash (`aws rds restore-db-instance-to-point-in-time`), tekshirib, `database-url` secret'ini yangi endpoint'ga o'tkazish va servislarni qayta deploy qilish |
 | Secret noto'g'ri | Secrets Manager'da oldingi versiyaga qaytarish (`AWSPREVIOUS`), servisni `--force-new-deployment` |
@@ -271,7 +283,8 @@ cd apps/player && npx eas-cli build --profile preview --platform android
 
 ## Ma'lum cheklovlar va keyingi qadamlar
 
-- **Deploy avtomatlashtirilmagan:** GitHub remote ulangach — AWS OIDC role (faqat ECR push + ECS/Terraform uchun) va `deploy` workflow (§6 qadamlari).
+- **ARM64 image'lar QEMU'da build qilinadi** (x86 runner) — api va admin build'i sekinroq. GitHub arm64 runner'lari (`ubuntu-24.04-arm`) ishlatilsa tezlashadi.
+- **Prod deploy yo'q:** `envs/prod` va `production` environment (majburiy tasdiq bilan) — prod cell'i qo'shilganda `deploy.yml` ga alohida job.
 - API image'ning ~80 MB qismi `@sentry/nestjs` v11 olib keladigan bundler bog'liqliklari (webpack, babel) — SDK tuzilishi.
 - WAF (rate limit) va VPC flow log'lar hali yo'q; ARCHITECTURE §4.1 dagi "CDN + WAF" keyingi bosqichda.
 - DB'da ilova uchun alohida cheklangan role yo'q — api va migratsiya bitta `matchup` foydalanuvchisi bilan ishlaydi.
