@@ -2158,14 +2158,14 @@ export interface components {
             status?: string;
         };
         /**
-         * @description Eksport fayli (format versiyasi 1). Vaqtlar UTC ISO 8601, summalar minor units'da. Har bo'lim — massiv
-         *     (bo'sh bo'lishi mumkin); `host` — foydalanuvchi host bo'lmasa `null`.
+         * @description Eksport fayli (format versiyasi 2: `media` bo'limi qo'shildi). Vaqtlar UTC ISO 8601, summalar minor units'da.
+         *     Har bo'lim — massiv (bo'sh bo'lishi mumkin); `host` — foydalanuvchi host bo'lmasa `null`.
          */
         PersonalDataExport: {
             /** @constant */
             format: "matchup.personal-data-export";
             /** @constant */
-            version: 1;
+            version: 2;
             /** Format: date-time */
             generated_at: string;
             /** Format: uuid */
@@ -2235,11 +2235,66 @@ export interface components {
             highlight_tags?: {
                 [key: string]: unknown;
             }[];
+            media?: components["schemas"]["PersonalDataExportMedia"];
             host?: {
                 [key: string]: unknown;
             } | null;
             data_requests?: {
                 [key: string]: unknown;
+            }[];
+        };
+        /**
+         * @description Foydalanuvchiga bevosita tegishli videolar: teglangan highlight'lar (`relation: tagged`), o'zi yuklagan kliplar
+         *     (`uploaded`, host) va o'zi yozgan to'liq o'yin kameralari. Boshqa o'yinchilarning videolari kirmaydi.
+         *     Fayllar nusxalanmaydi — `links_expire_at` gacha (eksport fayli muddati, S3 presigned uchun ko'pi bilan
+         *     7 kun) ishlaydigan imzolangan havolalar. `hls` — ijro mumkin bo'lsa (nashr qilingan, rad etilmagan);
+         *     `original` — asl yuklangan fayl saqlanish muddati ichida bo'lsa (attachment). O'chirilgan kliplar kirmaydi.
+         */
+        PersonalDataExportMedia: {
+            /** Format: date-time */
+            links_expire_at: string;
+            notes: string[];
+            highlights: {
+                /** Format: uuid */
+                highlight_id: string;
+                match_code: string;
+                relation: ("tagged" | "uploaded")[];
+                title: string | null;
+                source: string;
+                duration_ms: number | null;
+                /** Format: date-time */
+                created_at: string;
+                /** Format: date-time */
+                published_at: string | null;
+                /** @enum {string} */
+                moderation_status: "pending" | "approved" | "rejected";
+                /** @description media holati: ready, processing, failed, ... */
+                status: string;
+                files: {
+                    /** @description 9:16 MP4 */
+                    video_mp4: string | null;
+                    thumbnail: string | null;
+                    /** @description Master playlist (`ffmpeg -i <hls> -c copy video.mp4`) */
+                    hls: string | null;
+                    original: string | null;
+                };
+            }[];
+            recordings: {
+                /** Format: uuid */
+                camera_id: string;
+                match_code: string;
+                /** @enum {string} */
+                position: "left" | "right" | "wide";
+                status: string;
+                /** Format: date-time */
+                started_at: string;
+                /** Format: date-time */
+                stopped_at: string | null;
+                duration_ms: number | null;
+                files: {
+                    hls: string | null;
+                    original: string | null;
+                };
             }[];
         };
         AuthIdentity: {
