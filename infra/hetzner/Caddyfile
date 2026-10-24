@@ -1,0 +1,44 @@
+# Match Up — tashqi kirish (docs/DEPLOYMENT.md §10). TLS sertifikatlari avtomatik (Let's Encrypt, zaxira — ZeroSSL),
+# caddy-data volume'ida saqlanadi. Domenlar .env dan (domen bo'lmasa — <ip>.sslip.io, bootstrap.sh qo'yadi).
+# deploy.sh bu faylni /opt/matchup/caddy/ ga nusxalaydi va o'zgargan bo'lsa `caddy reload` qiladi.
+{
+	email {$ACME_EMAIL}
+}
+
+(common) {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		-Server
+	}
+}
+
+{$API_DOMAIN} {
+	import common
+
+	# Worker -> API ichki endpointlari faqat Docker tarmog'idan (http://api:3000), tashqaridan yopiq
+	@internal path /internal /internal/*
+	respond @internal 404
+
+	# API qayta ishga tushayotganda (deploy) so'rovlar xato o'rniga yangi konteynerni kutadi
+	reverse_proxy api:3000 {
+		lb_try_duration 30s
+		lb_try_interval 250ms
+	}
+}
+
+{$ADMIN_DOMAIN} {
+	import common
+
+	# ADMIN_ALLOW_IPS (.env) — admin panelga faqat shu manzillardan; standart — hamma (admin o'z login'i bilan)
+	@blocked not remote_ip {$ADMIN_ALLOW_IPS}
+	respond @blocked 403
+
+	header X-Frame-Options DENY
+
+	reverse_proxy admin:3100 {
+		lb_try_duration 30s
+		lb_try_interval 250ms
+	}
+}

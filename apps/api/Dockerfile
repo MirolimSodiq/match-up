@@ -51,6 +51,8 @@ COPY --from=build /out/node_modules ./node_modules
 COPY --from=build /out/dist ./dist
 COPY db/migrations ./db/migrations
 COPY --chmod=755 apps/api/docker-entrypoint.sh /usr/local/bin/matchup-entrypoint
+# GDPR eksport fayllari (STORAGE_DIR, standart /app/storage) — yagona yoziladigan joy; volume ulansa egasi shundan olinadi
+RUN mkdir -p /app/storage && chown node:node /app/storage
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 \

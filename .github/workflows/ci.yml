@@ -260,13 +260,27 @@ jobs:
       - run: ./infra/terraform/check.sh
 
   deploy-script:
-    name: Deploy skripti (soxta aws, shellcheck)
+    name: Deploy skriptlari (soxta aws/docker, shellcheck, compose, Caddyfile)
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
       - run: shellcheck -x infra/deploy/ecs-deploy.sh infra/deploy/ecs-deploy.test.sh
       - run: infra/deploy/ecs-deploy.test.sh
+      # Hetzner (docs/DEPLOYMENT.md §10)
+      - run: shellcheck -x infra/hetzner/*.sh infra/hetzner/matchup
+      - run: infra/hetzner/deploy.test.sh
+      - name: compose.yml (env.example bilan)
+        run: docker compose -f infra/hetzner/compose.yml --env-file infra/hetzner/env.example config --quiet
+        env:
+          IMAGE_REGISTRY: ghcr.io/example/match-up
+          IMAGE_TAG: ci
+      - name: Caddyfile
+        run: >-
+          docker run --rm -v "$PWD/infra/hetzner/Caddyfile:/etc/caddy/Caddyfile:ro"
+          -e API_DOMAIN=api.example.com -e ADMIN_DOMAIN=admin.example.com -e ACME_EMAIL=ops@example.com
+          -e "ADMIN_ALLOW_IPS=0.0.0.0/0 ::/0"
+          caddy:2.11.7-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 
   actionlint:
     name: actionlint

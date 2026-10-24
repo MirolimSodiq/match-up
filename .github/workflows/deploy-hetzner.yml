@@ -1,0 +1,172 @@
+name: Deploy (Hetzner)
+
+# Production — bitta Hetzner server (docs/DEPLOYMENT.md §10): `main` dagi CI yashil bo'lsa — avtomatik; Actions'dan —
+# qo'lda, istalgan commit bilan (rollback ham shu: oldingi SHA — image'lar GHCR'da bor, qayta build qilinmaydi).
+# Image'lar GHCR'ga (ghcr.io/<owner>/<repo>/{api,admin,media-worker}:<sha>); server `deploy` foydalanuvchisi bilan SSH
+# orqali yangilanadi: infra/hetzner -> /opt/matchup/releases/<sha>, keyin deploy.sh (migratsiya -> servislar -> rollback).
+# Registry'dan o'qish uchun shu job'ning GITHUB_TOKEN'i (job tugashi bilan eskiradi) stdin orqali beriladi.
+#
+# Sozlash (bir marta; qiymatlarni bootstrap.sh oxirida chiqaradi): repo Variables HETZNER_HOST, HETZNER_KNOWN_HOSTS,
+# secret HETZNER_SSH_KEY. HETZNER_HOST bo'lmaguncha job'lar o'tkazib yuboriladi (workflow qizarmaydi).
+# Ixtiyoriy: HETZNER_SSH_USER (standart deploy), HETZNER_PLATFORM (standart linux/amd64; CAX serverlar — linux/arm64),
+# PRODUCTION_ADMIN_SENTRY_DSN (admin brauzer DSN'i).
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit SHA yoki branch (rollback — oldingi SHA)
+        required: true
+        default: main
+
+permissions:
+  contents: read
+
+# Bir vaqtda bitta deploy; navbatda faqat eng oxirgisi qoladi
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Commit va image'lar
+    if: >-
+      vars.HETZNER_HOST != '' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      registry: ${{ steps.images.outputs.registry }}
+      missing: ${{ steps.images.outputs.missing }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || inputs.ref }}
+      # Teg — to'liq SHA (bir xil commit qayta deploy qilinsa yoki rollback'da build qilinmaydi)
+      - id: tag
+        run: echo "tag=$(git rev-parse HEAD)" >>"$GITHUB_OUTPUT"
+      - id: images
+        name: GHCR'da yo'q image'lar
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          registry=ghcr.io/${GITHUB_REPOSITORY,,}
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin >/dev/null
+          missing=()
+          for app in api admin media-worker; do
+            docker manifest inspect "$registry/$app:$TAG" >/dev/null 2>&1 || missing+=("$app")
+          done
+          docker logout ghcr.io >/dev/null
+          echo "registry=$registry" >>"$GITHUB_OUTPUT"
+          echo "missing=$(jq -cn '$ARGS.positional' --args "${missing[@]}")" >>"$GITHUB_OUTPUT"
+          echo "Build qilinadi: ${missing[*]:-hech narsa}"
+
+  build:
+    name: Image (${{ matrix.app }})
+    needs: prepare
+    if: needs.prepare.outputs.missing != '[]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: true
+      matrix:
+        app: ${{ fromJSON(needs.prepare.outputs.missing) }}
+    env:
+      PLATFORM: ${{ vars.HETZNER_PLATFORM || 'linux/amd64' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+      - id: app
+        env:
+          APP: ${{ matrix.app }}
+        run: |
+          case $APP in
+            api) echo "context=." >>"$GITHUB_OUTPUT"; echo "file=apps/api/Dockerfile" >>"$GITHUB_OUTPUT" ;;
+            admin) echo "context=." >>"$GITHUB_OUTPUT"; echo "file=apps/admin/Dockerfile" >>"$GITHUB_OUTPUT" ;;
+            media-worker) echo "context=services/media-worker" >>"$GITHUB_OUTPUT"; echo "file=services/media-worker/Dockerfile" >>"$GITHUB_OUTPUT" ;;
+          esac
+      - name: GHCR login
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      # Hetzner CAX (ARM) serverlari uchun — x86 runner'da QEMU orqali
+      - uses: docker/setup-qemu-action@v4
+        if: env.PLATFORM == 'linux/arm64'
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: ${{ steps.app.outputs.context }}
+          file: ${{ steps.app.outputs.file }}
+          platforms: ${{ env.PLATFORM }}
+          push: true
+          provenance: false
+          tags: ${{ needs.prepare.outputs.registry }}/${{ matrix.app }}:${{ needs.prepare.outputs.tag }}
+          # Package repo'ga bog'lanadi (GITHUB_TOKEN bilan o'qish huquqi shundan)
+          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          # Brauzer Sentry DSN build vaqtida inline qilinadi (faqat admin; DSN ochiq qiymat)
+          build-args: |
+            NEXT_PUBLIC_SENTRY_DSN=${{ vars.PRODUCTION_ADMIN_SENTRY_DSN }}
+            NEXT_PUBLIC_SENTRY_ENVIRONMENT=production
+          # CI'dagi `docker` job keshidan ham o'qiydi (bir xil Dockerfile, amd64)
+          cache-from: |
+            type=gha,scope=${{ matrix.app }}
+            type=gha,scope=hetzner-${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=hetzner-${{ matrix.app }}
+
+  deploy:
+    name: Server (migratsiya va servislar)
+    needs: [prepare, build]
+    # build o'tkazib yuborilsa ham (hamma image bor) — deploy davom etadi
+    if: always() && needs.prepare.result == 'success' && (needs.build.result == 'success' || needs.build.result == 'skipped')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: production
+    permissions:
+      contents: read
+      packages: read
+    env:
+      TARGET: ${{ vars.HETZNER_SSH_USER || 'deploy' }}@${{ vars.HETZNER_HOST }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+      REGISTRY: ${{ needs.prepare.outputs.registry }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+      - name: SSH kalit va host kaliti
+        env:
+          SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+          KNOWN_HOSTS: ${{ vars.HETZNER_KNOWN_HOSTS }}
+        run: |
+          [[ -n $SSH_KEY ]] || { echo "::error::HETZNER_SSH_KEY secret'i yo'q"; exit 1; }
+          [[ -n $KNOWN_HOSTS ]] || { echo "::error::HETZNER_KNOWN_HOSTS variable'i yo'q (bootstrap.sh chiqaradi)"; exit 1; }
+          install -m 0700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" >~/.ssh/id_deploy
+          chmod 0600 ~/.ssh/id_deploy
+          printf '%s\n' "$KNOWN_HOSTS" >~/.ssh/known_hosts
+          printf 'Host *\n  IdentityFile ~/.ssh/id_deploy\n  IdentitiesOnly yes\n  BatchMode yes\n  StrictHostKeyChecking yes\n  ServerAliveInterval 30\n' >~/.ssh/config
+      - name: Release fayllari -> /opt/matchup/releases/<sha>
+        run: |
+          # shellcheck disable=SC2029 # TAG client tomonda qo'yiladi (commit SHA)
+          tar -C infra/hetzner -czf - . |
+            ssh "$TARGET" "set -e; d=/opt/matchup/releases/$TAG; rm -rf \"\$d.tmp\"; mkdir -p \"\$d.tmp\"; tar -xzf - -C \"\$d.tmp\"; rm -rf \"\$d\"; mv \"\$d.tmp\" \"\$d\""
+      - name: deploy.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # shellcheck disable=SC2029 # argumentlar client tomonda %q bilan qo'shtirnoqlanadi
+          printf '%s\n' "$GH_TOKEN" |
+            ssh "$TARGET" "$(printf '%q ' "/opt/matchup/releases/$TAG/deploy.sh" --login "$GITHUB_ACTOR" --registry "$REGISTRY" "$TAG")"
