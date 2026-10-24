@@ -85,8 +85,8 @@ Panorama (OpenCV: maydon chiziqlari bo'yicha moslash, ustma-ust qismda SIFT/ORB,
 | To'p (kichik obyekt) | Yuqori aniqlikdagi tile'lar (SAHI uslubi), to'pga alohida model, Kalman filtr + yo'qolgan kadrlarda interpolyatsiya | 4K'da to'p 10–20 px. Panjara (qafas maydonlar) va tungi yoritish asosiy xato manbalari. |
 | Tracking | **ByteTrack** (MIT) yoki BoT-SORT; har kamera alohida, keyin pitch koordinatalarida birlashtiriladi | DeepSORT'ning tashqi ko'rinish embedding'lari faqat ishlov paytida, keyin o'chiriladi (§8). |
 | Kalibrovka | Maydon chiziqlari va burchak keypoint modeli + RANSAC homography; kamera qimirlasa, har N soniyada qayta baholanadi | Maydon o'lchamlari `pitches.length_m/width_m` dan olinadi. |
-| Jamoa | Tors crop'laridagi rang bo'yicha K-means. Bib ranglari oldindan ma'lum (`match_sides.bib_color`) | Hakam yoki tomoshabin — 3-klaster yoki maydondan tashqarida. |
-| Identity | Bib raqami **OCR** (PARSeq/CRNN, bib raqamlariga fine-tune qilingan) + track bo'ylab ovoz berish → `match_participants.bib_number` | Aniqlanmagan track'lar review navbatiga tushadi va host/admin uni bir bosishda o'yinchiga bog'laydi. |
+| Jamoa | Tors crop'laridagi rang bo'yicha K-means. Bib ranglari oldindan ma'lum (`match_sides.bib_color`) | Hakam yoki tomoshabin — alohida klaster yoki maydondan tashqarida. 3–4 jamoali navbatli o'yinlar — §13. |
+| Identity | Bib raqami **OCR** (PARSeq/CRNN, bib raqamlariga fine-tune qilingan) + track bo'ylab ovoz berish → `match_participants.bib_number`. Raqam — odam, rang — jamoa; rang va raqam diapazoni mos kelmasa o'qish rad etiladi (§13.2) | Aniqlanmagan track'lar review navbatiga tushadi va host/admin uni bir bosishda o'yinchiga bog'laydi. |
 
 ## 4. Event'lar va reyting
 
@@ -260,7 +260,7 @@ Natijalar API'ga ichki endpoint orqali yoziladi (servis token, faqat VPC ichida)
 |---|---|---|
 | **A — Yozish va ma'lumot yig'ish** | host app'da yozish rejimi va resumable upload, `recording_sessions`, bib biriktirish, to'liq o'yin videosi ishtirokchilarga, host qo'lda belgilagan highlight'lar | Dataset yig'iladi, rig operatsion jihatdan sinaladi. **Backend tayyor (§12)**; host va player UI — keyingi qadam |
 | **B — Avtomatik kliplar** | sinxronlash, kalibrovka, detection va tracking, gol va zarba event'lari, virtual kamera render, 9:16 ulashish | "AI beta" gol kliplari |
-| **C — O'yinchi statistikasi va reyting** | jamoa va bib identity, possession modeli, barcha event'lar, `player_match_stats`, formula v1, review navbati, `/analytics`, o'yinchi videosi (player reel, §4) | Reyting avval shadow rejimda, keyin nashr |
+| **C — O'yinchi statistikasi va reyting** | jamoa va bib identity, possession modeli, barcha event'lar, `player_match_stats`, formula v1, review navbati, `/analytics`, o'yinchi videosi (player reel, §4), navbatli 3–4 jamoali o'yinlar (§13) | Reyting avval shadow rejimda, keyin nashr |
 | **D — Optimallashtirish** | qurilmada oldindan ishlov (upload hajmini kamaytirish), venue'larga doimiy kameralar, deyarli real-time | Narx va kechikish pasayadi |
 
 ## 11. Xatarlar va ochiq savollar
@@ -271,6 +271,7 @@ Natijalar API'ga ichki endpoint orqali yoziladi (servis token, faqat VPC ichida)
 | Telefon qizishi va batareya (yoz) | power bank, soya, 4K o'rniga 2.7K varianti, harorat logi |
 | Venue'larda Wi-Fi yo'q | resumable upload uydan ham davom etadi; Bosqich D'da qurilmada siqish |
 | Qafas/panjara, tungi yoritish | venue bo'yicha kalibrovka profili, test set'da alohida o'lchash |
+| Navbatli o'yinlar (3–4 jamoa), bir o'yinchi bir necha jamoada, jiletka almashishi | §13: raqam takrorlanmaydi va o'yinchida qoladi, jamoa segment bo'yicha; tizimda hali faqat 2 jamoa (§13.5) |
 | Bib raqami uzoqdan o'qilmaydi (identity va player reel shunga bog'liq) | pilotda 4K kadrda maydonning narigi chetidagi raqam ko'z bilan o'qilishini tekshirish (ko'z o'qimasa, OCR ham o'qimaydi); katta, kontrastli, old va orqada raqamli bib; kamera balandligi 2–3 m |
 | Host'ga qo'shimcha ish (~10–15 daq rig) | host haqiga AI-Cam bonusi, rig bo'yicha qo'llanma |
 | "Biometrik ma'lumot" ta'rifi | yuz tanimaslik siyosati, yurist xulosasi (ARCHITECTURE §6, 1-band) |
@@ -331,3 +332,53 @@ Yuklash dvigateli kliplar bilan umumiy: yozuvlar kliplardan keyin va standart bo
 
 **Ma'lum cheklovlar:** yozuv worker'i bo'sh paytda 0 task — yangi yozuv kodlashi ~2–3 daqiqa kech boshlanadi (job paytida task scale-in protection: deploy va scale-in kodlashni to'xtatmaydi, DEPLOYMENT.md §4); kick-off belgisi o'zgarsa klip'larning `match_offset_ms` i qayta hisoblanadi, lekin allaqachon yuborilgan push matni o'zgarmaydi; telefon soatlari NTP bo'yicha — server soat farqini tuzatmaydi (±0.5 s klip uchun yetarli); iOS JS ilova fonda to'xtaganda keyingi qism yuklanmaydi — 30 GB yuklash uchun ilova ochiq va quvvatga ulangan bo'lishi kerak; haqiqiy telefonda 90 daqiqalik 4K yozuv, qizish va fonda yuklash hali sinalmagan.
 
+## 13. Ko'p jamoali o'yinlar va jiletkalar
+
+Pickup o'yinlarda ko'pincha 2 dan ortiq jamoa navbat bilan o'ynaydi (masalan, 15 kishi, 5v5, 3 jamoa — gol yoki belgilangan daqiqadan keyin almashadi), odam yetishmasa bir o'yinchi boshqa jamoaga ham yordamga o'tadi. Identity va statistika shunga chidamli bo'lishi kerak.
+
+### 13.1 Asosiy qoida: raqam — odam, rang — jamoa
+
+- **Raqam o'yinchini aniqlaydi.** Bitta o'yin ichida raqam takrorlanmaydi (`match_participants_bib_unique`), shuning uchun #7 butun o'yin davomida bitta odam.
+- **Rang jamoani aniqlaydi.** Raqam kadrlarning ozgina qismida o'qiladi (o'yinchi orqasini o'girgan, uzoqda, harakatda), rang esa deyarli har kadrda ko'rinadi. Pas va to'p yo'qotishni ajratish (kim kimga sherik), ikki o'yinchi kesishganda track'larni adashtirmaslik, hakam/tomoshabinni ajratish — rang orqali. Faqat raqam bilan (hamma jiletka bir rangda) ham ishlaydi, lekin event'lar sifati pasayadi va har segmentni host pultdan belgilashi shart bo'ladi.
+- **O'yinchi butun o'yin davomida bitta jiletkada qoladi.** Boshqa jamoaga yordamga o'tganda ham jiletka almashtirilmaydi.
+
+### 13.2 Jiletka to'plami (har stadionda)
+
+| Talab | Qiymat |
+|---|---|
+| Hajm | 4 rang × 8 = 32 ta (jamoada eng ko'pi 7 kishi + 1 zaxira); 4 jamoagacha |
+| Raqamlash | o'nlik xona = rang: 1–8, 11–18, 21–28, 31–38. Host va o'yinchi raqamdan rangni biladi; AI rang bilan raqam diapazoni mos kelmasa (ko'k jiletkada "17", ko'k esa 21–28) o'qishni rad etadi. Raqam faqat o'yin ichida unikal — stadionlar bir xil to'plamdan foydalanadi |
+| Ranglar | keskin farqli: masalan, ko'k, qizil, neon sariq, pushti. Yashil (maydon), oq va qora (oddiy kiyim) emas; to'q sariq bilan qizil birga emas (chiroq ostida adashadi) |
+| Mato | yaxlit, to'r emas — ichidagi futbolka rangi ko'rinmasin |
+| Raqam | old va orqada, orqada ≥ 20 sm, fonga kontrast (sariqda qora, ko'k/qizilda oq) |
+| Darvozabon | shu to'plamdan raqamli jiletka kiyadi |
+| Saqlash | stadionda; yuvish va almashtirish uchun mas'ul; 1–2 zaxira jiletka |
+
+### 13.3 Navbatli o'yin (3–4 jamoa)
+
+- **Segment (kichik o'yin)** — qaysi ikki jamoa maydonda. Jiletkalar har xil rangda bo'lsa, AI maydondagi ranglardan aniqlaydi; host pultda **"Yangi o'yin: X–Y"** ni ham bosishi mumkin (hamma jiletka bir rangda bo'lsa — majburiy).
+- **Bir o'yinchi bir necha jamoada.** Host uni oldindan har ikki jamoaga kiritadi. Segmentda o'yinchi maydondagi o'z jamoasiga hisoblanadi; ikkala jamoasi bir-biriga qarshi o'ynasa — kam odamli jamoaga, kerak bo'lsa host pultda bir bosishda belgilaydi.
+- **Oldindan kiritilmagan yordamchi.** Maydonda segmentdagi ikki rangdan boshqa rang ko'rinsa, u o'yinchi kam odamli jamoaga hisoblanadi; host tasdiqlashi mumkin.
+- **Jiletka almashtirildi** (yirtildi, o'yinchilar jamoa rangini talab qildi) — zaxira jiletka ham unikal raqamli; host ilovada "#7 → #16" deb qayd etadi (vaqt bilan). Qayd etilmasa, yangi raqam review navbatiga tushadi.
+- **Statistika.** Maydondagi vaqt track'lar bo'yicha (chetda kutish hisoblanmaydi); `team_result` (§4) har segment natijasi bo'yicha; `minutes_played` bilan normallashtirish o'zgarmaydi.
+
+### 13.4 Shunga o'xshash holatlar
+
+| Holat | Yechim |
+|---|---|
+| Kech keldi, erta ketdi, joyida qo'shildi (walk-in) | check-in'da raqam beriladi; "ketdi" belgisi; maydondagi vaqt video bo'yicha |
+| Darvozabon boshqa kiyimda yoki jiletkasiz | to'plamdan raqamli jiletka; yoki host "darvozabon: #3" deb belgilaydi |
+| Jiletkasiz yoki teskari kiyilgan | track tanilmaydi → review navbati, host bir bosishda bog'laydi |
+| Navbat kutayotgan jamoa maydon chetida jiletkada | faqat maydon poligoni ichidagilar hisoblanadi; kutish joyi kameradan uzoqroqda belgilanadi |
+| O'xshash ranglar yoki futbolka jiletka rangida | 13.2 dagi ranglar; host ilovasi rangni to'plamdan tanlatadi |
+| Raqam ko'rinmaydi (burilgan, buklangan, yomg'ir) | track bo'ylab ovoz berish; raqam old va orqada katta |
+| Jamoalar maydon tomonini almashtirdi | pult belgilari kamera tomoni bo'yicha — ta'sir qilmaydi |
+
+### 13.5 Tizimdagi o'zgarishlar (hali yo'q)
+
+- **Jamoalar soni.** Admin hozir har o'yinga faqat 2 jamoa yaratadi (Oranges/Blues, `admin.service.ts`) → formatda 2–4 jamoa va almashish qoidasi (gol / daqiqa / yutgan qoladi), ranglar stadion to'plamidan.
+- **Bir o'yinchi — bir necha jamoa.** `match_participants.side_no` bitta qiymat → ishtirokchi ↔ jamoa bog'lanish jadvali; host "Jamoalar" ekranida ikkinchi jamoaga qo'shish.
+- **Jiletka tarixi.** `bib_number` bitta ustun → (ishtirokchi, rang, raqam, dan, gacha); BIB_TAKEN tekshiruvi vaqt oralig'i bo'yicha.
+- **Stadion to'plami.** Venue'ga jiletka to'plami (ranglar va raqam diapazonlari) — host faqat mavjud rang va raqamni tanlaydi.
+- **Pult.** `recording_markers.kind` ga `segment` (maydondagi jamoalar juftligi bilan) — "Yangi o'yin: X–Y".
+- **Bosqich C.** Segmentlar bo'yicha natija va daqiqalar; review navbatida noma'lum raqamni o'yinchiga bog'lash.
