@@ -22,7 +22,7 @@
 | 3 | **Video/AI — alohida Python servisi** birinchi kundan | FFmpeg/PyTorch ekotizimi Python'da; og'ir CPU/GPU ishi API latency'siga ta'sir qilmasligi kerak. |
 | 4 | **PostgreSQL + PostGIS** yagona haqiqat manbai | Pul va joylar uchun ACID; oversell, ikki marta ijara, ikki marta to'lov DB constraint'lari bilan imkonsiz. |
 | 5 | **Joy band qilish = atomik shartli UPDATE** (Redis lock emas) | 30 parallel so'rovda 14 joyga aniq 14 booking — test bilan isbotlangan. Bitta komponent kam = bitta nosozlik nuqtasi kam. |
-| 6 | **MVP — managed AWS (Frankfurt), dizayn — cell-based** | 2026-yil mart o'zgarishidan keyin UZ foydalanuvchilarining (biometrikdan tashqari) ma'lumotlarini adekvat davlatda saqlash mumkin; Germaniya ro'yxatda. Cell pattern boshqa davlatlarning lokalizatsiya talablari uchun saqlanadi (§4.3). |
+| 6 | **MVP — bitta Hetzner server (Docker Compose), o'sish — managed AWS (Frankfurt); dizayn — cell-based** | 2026-yil mart o'zgarishidan keyin UZ foydalanuvchilarining (biometrikdan tashqari) ma'lumotlarini adekvat davlatda saqlash mumkin; Finlyandiya va Germaniya ro'yxatda. Pilot uchun bitta server arzon va sodda; yuk o'sganda AWS (Terraform tayyor). Cell pattern boshqa davlatlarning lokalizatsiya talablari uchun saqlanadi (§4.3, [DEPLOYMENT.md](DEPLOYMENT.md) §10). |
 | 7 | **Payment adapter pattern** | Payme/Click/Uzum (merchant-API) va Stripe (async webhook) bitta ichki state machine'ga normalizatsiya. |
 | 8 | **Roster ≠ to'lov** (`match_participants` ≠ `bookings`) | Mehmonlar, admin taklifi, walk-in va Phase 2 jamoa roster'i — hammasi bitta check-in oqimidan o'tadi. |
 
@@ -67,7 +67,7 @@
 | Kesh / navbat / rate-limit | **Valkey (Redis-mos)** + **BullMQ** | OTP challenge'lar (TTL), rate limit, discovery keshi, delayed job'lar (hold expiry, dispatch timeout, eslatmalar). |
 | Real-time | **Socket.IO** (NestJS gateway + Redis adapter) | `match:{id}` → bo'sh joylar soni; `booking:{id}` → to'lov holati; host'ga offer'lar. |
 | Push / SMS / OTP | Expo Push (FCM/APNs), **Eskiz.uz** SMS, **Telegram Gateway API** | O'zbekistonda Telegram orqali OTP SMS'dan arzon va ishonchli; SMS — zaxira. |
-| Object storage | **AWS S3 + CloudFront** (Frankfurt); biometrik ma'lumot paydo bo'lsa — O'zbekiston ichidagi S3-mos storage | S3 API standart — kod o'zgarmasdan boshqa storage'ga ko'chiriladi. |
+| Object storage | **Hetzner Object Storage** (MVP, server bilan bir location) -> AWS S3 + CloudFront (o'sish); biometrik ma'lumot paydo bo'lsa — O'zbekiston ichidagi S3-mos storage | S3 API standart — kod o'zgarmasdan boshqa storage'ga ko'chiriladi. |
 | Qidiruv | PostGIS (MVP) → OpenSearch (faqat full-text/feed kerak bo'lganda) | MVP'da alohida qidiruv klasteri keraksiz. |
 | Observability | OpenTelemetry → Grafana (Prometheus, Loki, Tempo), Sentry, PostHog (EU Cloud) | Analytics ham shaxsiy ma'lumot — adekvat ro'yxatdagi davlatda (EU) saqlanadi. |
 
@@ -625,8 +625,8 @@ Bazalarni **davlat reyestrida ro'yxatdan o'tkazish** (ariza/xabardor qilish tart
 
 | Ma'lumot | Lokalizatsiya | Qayerda saqlanadi |
 |---|---|---|
-| Profil, telefon, booking, to'lov tarixi, roster, check-in, consent'lar | shart emas | **AWS eu-central-1 (Frankfurt)** — Germaniya ro'yxatda, shartsiz |
-| Highlight videolar (yuzni tanish ishlatilmasa) | odatda shart emas ⚠️ | S3 Frankfurt |
+| Profil, telefon, booking, to'lov tarixi, roster, check-in, consent'lar | shart emas | **Hetzner Cloud — Finlyandiya (Helsinki) yoki Germaniya**: ikkalasi ham ro'yxatda, shartsiz. AWS'ga o'tilsa — eu-central-1 (Frankfurt) |
+| Highlight videolar (yuzni tanish ishlatilmasa) | odatda shart emas ⚠️ | Hetzner Object Storage (server bilan bir location); AWS'da — S3 Frankfurt |
 | Yuz bo'yicha avtomatik teglash, Face ID login (Phase 2 AI) | **shart — biometrik** | O'zbekiston ichidagi alohida GPU worker + storage, yoki funksiyadan voz kechish |
 | Telekom abonent ma'lumotlari (IMSI, IMEI, sessiya) | biz telekom operatori emasmiz — yig'ilmaydi | — |
 
@@ -634,21 +634,21 @@ Bazalarni **davlat reyestrida ro'yxatdan o'tkazish** (ariza/xabardor qilish tart
 
 #### Arxitekturaga ta'siri
 
-| | MVP (UZ foydalanuvchilari) | Keyingi cell'lar |
+| | MVP — pilot (UZ foydalanuvchilari) | O'sish va keyingi cell'lar |
 |---|---|---|
-| Cell | `uz-1` → **AWS eu-central-1 (Frankfurt)** | `eu-1` (EU foydalanuvchilari, GDPR), boshqa davlatlar — o'sha davlat qonuniga qarab |
-| Compute | ECS Fargate (Kubernetes'siz — DevOps yuki minimal) | ECS / EKS |
-| PostgreSQL | RDS PostgreSQL 18 + PostGIS, Multi-AZ, PITR | o'sha |
-| Kesh | ElastiCache (Valkey) | o'sha |
-| Object storage | S3 + CloudFront | o'sha |
+| Cell | `uz-1` → **bitta Hetzner server** (Finlyandiya yoki Germaniya) | `uz-1` → AWS eu-central-1 (Frankfurt); `eu-1` (EU foydalanuvchilari, GDPR), boshqa davlatlar — o'sha davlat qonuniga qarab |
+| Compute | Docker Compose: api, admin, media worker'lar, Caddy (TLS) | ECS Fargate (Kubernetes'siz — DevOps yuki minimal) / EKS |
+| PostgreSQL | konteyner (PostgreSQL 18 + PostGIS), kunlik `pg_dump` -> Object Storage | RDS, Multi-AZ, PITR |
+| Kesh | Valkey konteyner (AOF) | ElastiCache (Valkey) |
+| Object storage | Hetzner Object Storage, presigned URL (CDN'siz) | S3 + CloudFront |
 | Biometrik (faqat Phase 2, agar kerak bo'lsa) | O'zbekistondagi kichik colocation: GPU worker + S3-mos storage (MinIO) | — |
-| IaC | Terraform, har cell uchun alohida workspace | o'sha |
+| IaC | `infra/hetzner` (bootstrap.sh + compose) | Terraform, har cell uchun alohida workspace |
 
-- **Nima o'zgardi:** avval MVP uchun O'zbekistondagi data-markaz va o'zimizning Kubernetes / CloudNativePG / MinIO stack'i tavsiya qilingan edi. 2026-yil mart o'zgarishidan keyin bu shart emas — managed AWS servislari bilan MVP tezroq va arzonroq quriladi, operatsion xatarlar kamayadi.
-- **Region tanlovi:** Frankfurt — Germaniya ro'yxatda shartsiz va GDPR yurisdiksiyasi (EU foydalanuvchilari uchun ham mos). AWS UAE (`me-central-1`) UZ foydalanuvchilari uchun **tanlanmaydi** — BAA ro'yxatda yo'q, SCC/BCR yo'lini talab qiladi. Toshkent–Frankfurt kechikishi booking ilovasi uchun yetarli bo'lishi kutiladi, lekin ishga tushirishdan oldin real o'lchash kerak; statik kontent va video CloudFront orqali beriladi.
+- **Nima o'zgardi:** avval MVP uchun O'zbekistondagi data-markaz va o'zimizning Kubernetes / CloudNativePG / MinIO stack'i tavsiya qilingan edi. 2026-yil mart o'zgarishidan keyin bu shart emas. 2026-yil oktabrda pilot uchun AWS o'rniga bitta Hetzner server tanlandi: oylik xarajat bir necha barobar kam, ikki kishilik jamoa uchun sodda (bitta compose fayl); evaziga — Multi-AZ va PITR yo'q (kunlik backup), bitta nosozlik nuqtasi. Yuk yoki ishonchlilik talabi o'sganda — AWS (Terraform va deploy workflow tayyor, [DEPLOYMENT.md](DEPLOYMENT.md) §4–§7).
+- **Region tanlovi:** Hetzner — Helsinki (Finlyandiya ro'yxatda, gazeta.uz va spot.uz ro'yxatida 41-o'rin) yoki Falkenstein/Nürnberg (Germaniya); AWS'da — Frankfurt. Hammasi ro'yxatda shartsiz va GDPR yurisdiksiyasida (EU foydalanuvchilari uchun ham mos). AWS UAE (`me-central-1`) UZ foydalanuvchilari uchun **tanlanmaydi** — BAA ro'yxatda yo'q, SCC/BCR yo'lini talab qiladi. Toshkent–Yevropa kechikishi booking ilovasi uchun yetarli bo'lishi kutiladi, lekin ishga tushirishdan oldin real o'lchash kerak; AWS'da statik kontent va video CloudFront orqali beriladi.
 - **Cell pattern saqlanadi:** boshqa davlatlarda lokalizatsiya talablari bor (masalan, Qozog'istonda — bozorga kirishdan oldin alohida tekshirish kerak), qonun yana o'zgarishi ham mumkin. Har cell — to'liq mustaqil stack; `countries.data_region` foydalanuvchining "uy" cell'ini belgilaydi. Kerak bo'lsa, bitta cell'ni boshqa hosting'ga ko'chirish = Terraform + DB migratsiyasi, kod o'zgarmaydi (S3 API, standart PostgreSQL).
 - **Routing:** ilova birinchi so'rovda global `GET https://api.matchup.example/v1/region?phone_prefix=+998` dan cell URL'ini oladi (bu servis PII saqlamaydi). Cross-cell (masalan, UZ foydalanuvchisi Dubayda o'ynaydi) MVP'da yo'q.
-- **Majburiyatlar:** bazani davlat reyestrida ro'yxatdan o'tkazish; cross-border incident runbook'i (24 / 72 soat); AWS bilan DPA; privacy policy'da ma'lumotlar Germaniyada saqlanishi ochiq yoziladi.
+- **Majburiyatlar:** bazani davlat reyestrida ro'yxatdan o'tkazish; cross-border incident runbook'i (24 / 72 soat); hosting provayder bilan DPA (Hetzner — Console'da, AWS — standart DPA); privacy policy'da ma'lumotlar saqlanadigan davlat (Finlyandiya / Germaniya) ochiq yoziladi.
 
 Manbalar: [Dentons (2026-03-31)](https://www.dentons.com/en/insights/articles/2026/march/31/uzbekistan-dismantles-strict-data-localization-regime), [Gazeta.uz — qonun o'zgarishi](https://www.gazeta.uz/oz/2026/03/28/personal-data/), [Gazeta.uz — 49 davlat ro'yxati](https://www.gazeta.uz/oz/2026/08/04/personal-data/), [Spot.uz — ro'yxat va xabardor qilish](https://www.spot.uz/oz/2026/08/04/personal-data-abroad), [Settle Advisory](https://settleadvisory.com/news-en/localization-of-personal-data-in-uzbekistan-transition-to-a-more-flexible-regulatory-model/), [Legal500 / Vakhidov & Partners](https://www.legal500.com/developments/thought-leadership/legislative-updates-in-the-field-of-artificial-intelligence-and-personal-data-regulation-uzbekistan/). Rasmiy matn — [lex.uz](https://lex.uz).
 
@@ -748,7 +748,7 @@ export interface PaymentProvider {
 | Xavfsizlik | TLS 1.3, disk/backup shifrlash (KMS), secret'lar Vault'da, admin uchun TOTP 2FA, RBAC, `audit_logs`. Loglarda PII yo'q (pino `redact`: phone, email, token). |
 | Yosh | Minimal 16 (GDPR raqamli rozilik yoshi); kichiklar uchun guardian waiver. |
 | Processor'lar | DPA: hosting, Eskiz, Telegram, Google, Apple, Sentry, payment provider'lar. Records of Processing (RoPA) yuritiladi. |
-| Data residency | §4.3 — UZ va EU foydalanuvchilari ma'lumotlari Frankfurt'da (Germaniya UZ adekvat ro'yxatida va GDPR yurisdiksiyasida); biometrik ma'lumot faqat O'zbekiston ichida. Eksport fayllari ham shu cell'ning storage'ida. |
+| Data residency | §4.3 — UZ va EU foydalanuvchilari ma'lumotlari EU'da: MVP — Hetzner (Finlyandiya yoki Germaniya), AWS'da — Frankfurt; ikkala davlat ham UZ adekvat ro'yxatida va GDPR yurisdiksiyasida. Biometrik ma'lumot faqat O'zbekiston ichida. Eksport fayllari ham shu cell'ning storage'ida. |
 
 ### 4.9 Background job'lar
 
