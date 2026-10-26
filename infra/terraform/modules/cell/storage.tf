@@ -66,8 +66,9 @@ resource "aws_s3_bucket_lifecycle_configuration" "media" {
       prefix = "recordings/"
     }
 
+    # API shu kundan keyin yozuvni ko'rsatmaydi (MEDIA_RECORDING_EXPIRATION_DAYS); +1 — segmentlar job davomida yoziladi
     expiration {
-      days = var.media_recording_expiration_days
+      days = var.media_recording_expiration_days + 1
     }
   }
 

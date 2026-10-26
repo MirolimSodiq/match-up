@@ -356,7 +356,7 @@ Domen bo'lmaguncha bootstrap `api.<ip>.sslip.io` / `admin.<ip>.sslip.io` ni qo'y
 | `build` (matritsa) | yo'q image'larni `linux/amd64` (yoki `HETZNER_PLATFORM`) uchun build qilib GHCR'ga push; CI `docker` job keshidan foydalanadi |
 | `deploy` | `infra/hetzner` -> `/opt/matchup/releases/<sha>`, so'ng `deploy.sh` (registry token'i — job'ning `GITHUB_TOKEN`'i, stdin orqali; deploy oxirida `docker logout`) |
 
-`deploy.sh` (CI va operator uchun bir xil): `.env` tekshiruvi (yo'q / namuna / bo'sh qiymatlar ro'yxati bilan to'xtaydi) -> image'lar -> bucket lifecycle qoidalari (`storage.sh`: xom fayllar 30, to'liq yozuvlar HLS'i 90, backup'lar 14 kun; o'zgarmagan bo'lsa o'tkazib yuboriladi) -> migratsiya (xato bo'lsa servislarga tegilmaydi) -> `docker compose up --wait` (hamma servis sog'lom bo'lishi kutiladi; bo'lmasa — nosoz servis logi chiqadi va oldingi release + teg qaytariladi) -> Caddyfile o'zgargan bo'lsa `caddy reload` -> `current` symlink, `state/image.env` -> HTTPS orqali `/health` -> eski release'lar (5 tadan ortig'i) va image'lar (oxirgi 3 deploy'dan tashqari) tozalanadi. Xato bo'lsa Telegram ops guruhiga xabar (`TELEGRAM_BOT_TOKEN` + `OPS_TELEGRAM_CHAT_ID`).
+`deploy.sh` (CI va operator uchun bir xil): `.env` tekshiruvi (yo'q / namuna / bo'sh qiymatlar ro'yxati bilan to'xtaydi) -> image'lar -> bucket lifecycle qoidalari (`storage.sh`, pastdagi jadval; o'zgarmagan bo'lsa o'tkazib yuboriladi) -> migratsiya (xato bo'lsa servislarga tegilmaydi) -> `docker compose up --wait` (hamma servis sog'lom bo'lishi kutiladi; bo'lmasa — nosoz servis logi chiqadi va oldingi release + teg qaytariladi) -> Caddyfile o'zgargan bo'lsa `caddy reload` -> `current` symlink, `state/image.env` -> HTTPS orqali `/health` -> eski release'lar (5 tadan ortig'i) va image'lar (oxirgi 3 deploy'dan tashqari) tozalanadi. Xato bo'lsa Telegram ops guruhiga xabar (`TELEGRAM_BOT_TOKEN` + `OPS_TELEGRAM_CHAT_ID`).
 
 | Holat | Harakat |
 |---|---|
@@ -366,6 +366,17 @@ Domen bo'lmaguncha bootstrap `api.<ip>.sslip.io` / `admin.<ip>.sslip.io` ni qo'y
 | Infra image'larini yangilash (PostgreSQL minor, Valkey, Caddy) | `matchup pull db redis caddy`, so'ng `matchup up -d db redis caddy` (qisqa uzilish; deploy ularni yangilamaydi) |
 
 Downtime: API konteyneri almashganda bir necha soniya — Caddy so'rovlarni kutib turadi, WebSocket'lar qayta ulanadi. Migratsiyalar AWS'dagi kabi expand -> contract (§6).
+
+### Video saqlash muddatlari
+
+| Nima | Standart (`.env`) | Izoh |
+|---|---|---|
+| Xom yuklamalar — telefonlardan kelgan asl fayllar (raw bucket) | 3 kun (`MEDIA_RAW_EXPIRATION_DAYS`) | kliplar va HLS shu vaqtgacha tayyor bo'ladi; keyin klip HLS'dan kesiladi, asl fayl kerak emas. Yozuv yuklash 60 soatgacha cho'zilishi mumkin — worker navbati kunlab to'lib qolsa, muddatni oshiring |
+| To'liq o'yin videosi — har kamera HLS (1080p/720p/480p, `recordings/`) | 7 kun (`MEDIA_RECORDING_EXPIRATION_DAYS`) | API shundan keyin yozuvni ko'rsatmaydi (player'da karta yo'qoladi), fayllar bir kun keyin o'chadi |
+| Kliplar (highlight'lar) | o'chirilguncha | muddatga bog'liq emas |
+| Backup'lar | 14 kun (`BACKUP_RETENTION_DAYS`) | |
+
+Kuniga 2 ta o'yin (2 kamera, ~16 GB / kamera) bilan storage'da bir vaqtda ~0.3 TB turadi — Object Storage bazaviy narxi ichida. AWS'da (Terraform) standartlar boshqa: xom 30, to'liq yozuv 90 kun (`media_raw_expiration_days`, `media_recording_expiration_days`).
 
 ### Backup va tiklash
 

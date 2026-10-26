@@ -435,4 +435,16 @@ describe('Recordings: to\'liq o\'yin yozuvi va host belgilaridan klip\'lar', () 
     // Bekor qilingan kamera sessiya holatiga ta'sir qilmaydi
     expect((await q(ctx, 'SELECT status FROM recording_sessions WHERE match_id = $1', [matchId]))[0]).toEqual({ status: 'ready' });
   });
+
+  it('ko\'rish muddati (MEDIA_RECORDING_EXPIRATION_DAYS) o\'tgan yozuv ko\'rsatilmaydi -> 404', async () => {
+    const days = Number(process.env.MEDIA_RECORDING_EXPIRATION_DAYS ?? 90);
+    const [left] = await q<{ media_asset_id: string }>(ctx, 'SELECT media_asset_id FROM recording_cameras WHERE client_camera_id = $1', [LEFT]);
+    const setAge = (d: number) => q(ctx, "UPDATE media_assets SET processed_at = now() - make_interval(days => $2) WHERE id = $1", [left!.media_asset_id, d]);
+
+    await setAge(days - 1);
+    expect((await ctx.http().get(`/v1/matches/${matchId}/recording`).set(tagged.auth).expect(200)).body.cameras[0].playback).toBeTruthy();
+    await setAge(days);
+    await ctx.http().get(`/v1/matches/${matchId}/recording`).set(tagged.auth).expect(404);
+    await setAge(0);
+  });
 });

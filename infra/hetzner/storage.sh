@@ -37,12 +37,13 @@ main() {
   raw=$(env_get MEDIA_RAW_BUCKET)
   media=$(env_get MEDIA_BUCKET)
   backup=$(env_get BACKUP_BUCKET)
-  raw_days=$(days MEDIA_RAW_EXPIRATION_DAYS 30)
-  rec_days=$(days MEDIA_RECORDING_EXPIRATION_DAYS 90)
+  raw_days=$(days MEDIA_RAW_EXPIRATION_DAYS 3)
+  rec_days=$(days MEDIA_RECORDING_EXPIRATION_DAYS 7)
   backup_days=$(days BACKUP_RETENTION_DAYS 14)
 
-  # Xom yuklamalar: hammasi raw_days dan keyin. Natijalar: to'liq o'yin HLS'i (recordings/) rec_days dan keyin,
-  # kliplar (highlights/) o'chirilguncha qoladi. Backup'lar: postgres/ backup_days dan keyin
+  # Xom yuklamalar: hammasi raw_days dan keyin (kliplar va HLS shu vaqtgacha tayyor bo'ladi). Natijalar: to'liq o'yin
+  # HLS'i (recordings/) — API rec_days dan keyin ko'rsatmaydi, fayllar bir kun keyin o'chadi (segmentlar job davomida
+  # yoziladi); kliplar (highlights/) o'chirilguncha qoladi. Backup'lar: postgres/ backup_days dan keyin
   stamp=$(printf '%s\n' "$(env_get S3_ENDPOINT)" "$raw" "$raw_days" "$media" "$rec_days" "$backup" "$backup_days" "$(rule x y 1 abort)" |
     sha256sum | cut -d' ' -f1)
   if [[ ${1:-} != --force && -f $STATE_DIR/storage.sha && $(<"$STATE_DIR/storage.sha") == "$stamp" ]]; then
@@ -54,11 +55,11 @@ main() {
       die "bucket '$b' ochilmadi: Hetzner Console'da yaratilganmi, S3_ENDPOINT shu location'dami, kalitlar to'g'rimi?"
   done
   apply "$raw" raw-expire "" "$raw_days"
-  apply "$media" recordings-expire recordings/ "$rec_days"
+  apply "$media" recordings-expire recordings/ "$((rec_days + 1))"
   apply "$backup" backups-expire postgres/ "$backup_days"
   mkdir -p "$STATE_DIR"
   printf '%s\n' "$stamp" >"$STATE_DIR/storage.sha"
-  log "Lifecycle: $raw ($raw_days kun), $media (recordings/ $rec_days kun), $backup (postgres/ $backup_days kun)"
+  log "Lifecycle: $raw ($raw_days kun), $media (recordings/ $((rec_days + 1)) kun), $backup (postgres/ $backup_days kun)"
 }
 
 main "$@"

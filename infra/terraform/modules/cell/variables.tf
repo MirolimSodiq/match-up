@@ -321,7 +321,7 @@ variable "media_recording_worker_max_count" {
 }
 
 variable "media_recording_expiration_days" {
-  description = "To'liq o'yin yozuvlarining HLS natijalari (media bucket, recordings/) shuncha kundan keyin o'chiriladi (docs/AI_CAM.md §5)"
+  description = "To'liq o'yin videosini ko'rish muddati, kun: API shundan keyin ko'rsatmaydi, HLS (media bucket, recordings/) bir kun keyin o'chiriladi (docs/AI_CAM.md §5)"
   type        = number
   default     = 90
 }
