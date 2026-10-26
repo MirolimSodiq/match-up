@@ -1973,7 +1973,8 @@ paths:
       summary: To'liq o'yin videosi (faqat ishtirokchilarga)
       description: |
         Ko'ra oladi: roster'dagi o'yinchi (`confirmed`, `checked_in`), tayinlangan host, admin; boshqalarga — 403.
-        Yozuv bo'lmasa — 404. Tayyor kameralar HLS ijro havolasi bilan (`/v1/playback/{token}/master.m3u8`),
+        Yozuv bo'lmasa yoki ko'rish muddati o'tgan bo'lsa (kamera tayyor bo'lgandan `MEDIA_RECORDING_EXPIRATION_DAYS` kun;
+        muddati o'tgan kamera ro'yxatda bo'lmaydi) — 404. Tayyor kameralar HLS ijro havolasi bilan (`/v1/playback/{token}/master.m3u8`),
         qolganlari — faqat holat. `moments` — host belgilari: har tayyor kamerada qaysi soniyada (videoda sakrash uchun)
         va kesilgan klip (`highlight_id`, tayyor bo'lsa).
       parameters:

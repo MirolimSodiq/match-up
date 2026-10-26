@@ -448,13 +448,17 @@ export class RecordingsService {
       sql`SELECT *, (extract(epoch FROM kickoff_at) * 1000)::bigint AS kickoff_ms FROM recording_sessions WHERE match_id = ${matchId}`,
     );
     if (!s) throw new AppError('NOT_FOUND');
-    const cameras = await rows<CameraRow & { output_bucket: string | null; thumbnail_key: string | null }>(
+    // Saqlanish muddati o'tgan kamera (HLS object storage lifecycle bilan o'chadi) ko'rsatilmaydi; hammasi o'tgan bo'lsa — yozuv yo'q
+    const all = await rows<CameraRow & { output_bucket: string | null; thumbnail_key: string | null; expired: boolean }>(
       this.db,
-      sql`SELECT ${CAMERA_COLUMNS}, ma.output_bucket, ma.thumbnail_key
+      sql`SELECT ${CAMERA_COLUMNS}, ma.output_bucket, ma.thumbnail_key,
+                 coalesce(ma.processed_at <= now() - make_interval(days => ${this.env.MEDIA_RECORDING_EXPIRATION_DAYS}), false) AS expired
           FROM recording_cameras rc LEFT JOIN media_assets ma ON ma.id = rc.media_asset_id AND ma.status = 'ready'
           WHERE rc.session_id = ${s.id} AND rc.status NOT IN ('cancelled', 'failed')
           ORDER BY array_position(ARRAY['left', 'right', 'wide'], rc.position), rc.started_at`,
     );
+    const cameras = all.filter((c) => !c.expired);
+    if (all.length && !cameras.length) throw new AppError('NOT_FOUND');
     const markers = await rows<MarkerRow & { visible: boolean }>(
       this.db,
       sql`SELECT ${MARKER_COLUMNS},

@@ -14,7 +14,7 @@
 | Host ilovasi (`apps/host`) | takliflar, offline roster, QR skaner (Ed25519 offline), jamoalar, yakunlash, push, highlight yozish va yuklash, AI-Cam (kamera rejimi, pult, to'liq yozuvni yuklash, bib raqamlari), Sentry | vitest 58/58 |
 | Admin panel (`apps/admin`) | Next.js BFF, match/venue/host/refund/dashboard, reconciliation (run'lar, qo'lda ishga tushirish, farqlar), highlight moderatsiyasi, host payout'lari (CSV) | build |
 | Dizayn tizimi | `packages/ui` (tokenlar + RN komponentlar), `packages/contracts` (OpenAPI tiplari) | tsc |
-| CI va infra | GitHub Actions (typecheck, e2e, worker pytest, lint, build, generated fayllar drift), deploy workflow (GitHub OIDC → ECR/ECS), Dockerfile'lar, lokal staging, Terraform (eu-central-1, media bucket'lar, worker ECS — klip va yozuv lane'lari), Sentry, EAS | terraform validate, actionlint |
+| CI va infra | GitHub Actions (typecheck, e2e, worker pytest, lint, build, generated fayllar drift), production deploy — Hetzner (compose, Caddy, GHCR, SSH, rollback, backup), AWS deploy workflow (GitHub OIDC → ECR/ECS), Dockerfile'lar, lokal staging, Terraform (eu-central-1, media bucket'lar, worker ECS — klip va yozuv lane'lari), Sentry, EAS | terraform validate, actionlint, deploy testlari |
 
 ## Jarayonda / merge qilinmagan
 
@@ -62,7 +62,7 @@ Maqsad — noyabrda Toshkentda yopiq sinov (pilot), taxminan 2026-yil dekabr bos
 | C2 | EAS: development/preview build'lar, TestFlight va Google yopiq sinovi (shaxsiy akkauntda chiqishdan oldin ≥ 12 tester, 14 kun), push kalitlari (APNs, FCM), Sentry loyihasi | @MirolimSodiq | `apps/host`, `apps/player` | — |
 | C3 | AI-Cam pilot: haqiqiy maydonda 90 daqiqalik yozuv (qizish, batareya, yuklash vaqti, bir o'yin narxi), jiletka raqami kadrda o'qilishi ([`AI_CAM.md`](AI_CAM.md) §11, §13.2) | @MirolimSodiq | — | — |
 | C4 | Ko'p jamoali o'yinlar ([`AI_CAM.md`](AI_CAM.md) §13.5): 2–4 jamoa, o'yinchi bir necha jamoada, jiletka tarixi, stadion jiletka to'plami, pultda "Yangi o'yin: X–Y" — migratsiya `0013`; admin/API qismi kelishiladi (5-qoida) | @MirolimSodiq | `db/migrations/0013_*`, `apps/api/src/host`, `apps/api/src/admin`, `apps/admin`, `apps/host` | — |
-| C5 | Staging va production'ni AWS'da ishga tushirish (terraform apply, secret'lar, deploy workflow), backup'dan tiklash sinovi | @MirolimProjects | `infra/terraform`, `.github/workflows` | — |
+| C5 | Production'ni ishga tushirish: bitta Hetzner server — Docker Compose, Caddy (HTTPS), GHCR + SSH deploy, rollback, kunlik backup va tiklash ([`DEPLOYMENT.md`](DEPLOYMENT.md) §10); AWS (Terraform) — o'sish bosqichi uchun saqlanadi | @MirolimProjects | `infra/hetzner`, `.github/workflows` | ✅ `feat/hetzner-deploy` (kod; serverni sozlash, Object Storage va domen — operator) |
 | C6 | Discovery API: stadion nomi bo'yicha qidiruv, tuman va "faqat bo'sh joylar" filtrlari (C1 uchun) | @MirolimProjects | `apps/api/src/matches`, `api/openapi.yaml` | — |
 | C7 | App Store review uchun demo kirish: production'da faqat bitta maxsus raqamga doimiy kod, audit bilan (Apple kirish talab qiladigan ilovadan demo akkaunt so'raydi) | @MirolimProjects | `apps/api/src/identity` | — |
 | C8 | Minimal xavfsizlik: WAF / rate limit, API uchun cheklangan DB role ([`DEPLOYMENT.md`](DEPLOYMENT.md) cheklovlari) | @MirolimProjects | `infra/terraform`, `db` | — |

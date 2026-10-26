@@ -1,0 +1,308 @@
+# Match Up — production, bitta server (Hetzner Cloud). docs/DEPLOYMENT.md §10.
+#
+# Serverdagi joylashuv (bootstrap.sh yaratadi, deploy.sh yangilaydi):
+#   /opt/matchup/.env               sozlamalar va maxfiy qiymatlar (env.example)
+#   /opt/matchup/secrets/*.pem      Ed25519 kalitlar (JWT, chipta)
+#   /opt/matchup/caddy/Caddyfile    deploy.sh nusxalaydi (o'zgarsa — caddy reload)
+#   /opt/matchup/releases/<sha>/    shu papka (infra/hetzner) har deploy'da
+#   /opt/matchup/current            -> oxirgi muvaffaqiyatli release
+#   /opt/matchup/state/image.env    IMAGE_REGISTRY, IMAGE_TAG (deploy.sh yozadi)
+#
+# Qo'lda boshqarish — `matchup` buyrug'i (docker compose shu fayl va env fayllar bilan):
+#   matchup ps | matchup logs -f api | matchup exec db psql -U matchup
+#
+# Tashqariga faqat Caddy (80/443) ochiq; DB, Valkey, API va admin — faqat ichki tarmoqda.
+name: matchup-prod
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+x-api-image: &api-image ${IMAGE_REGISTRY:?IMAGE_REGISTRY}/api:${IMAGE_TAG:?IMAGE_TAG}
+x-worker-image: &worker-image ${IMAGE_REGISTRY:?IMAGE_REGISTRY}/media-worker:${IMAGE_TAG:?IMAGE_TAG}
+
+x-s3-env: &s3-env
+  S3_ENDPOINT: ${S3_ENDPOINT:?S3_ENDPOINT}
+  S3_REGION: ${S3_REGION:?S3_REGION}
+  S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?S3_ACCESS_KEY_ID}
+  S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?S3_SECRET_ACCESS_KEY}
+  S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-false}
+
+x-worker-env: &worker-env
+  <<: *s3-env
+  REDIS_URL: redis://redis:6379
+  API_INTERNAL_URL: http://api:3000
+  MEDIA_WORKER_TOKEN: ${MEDIA_WORKER_TOKEN:?MEDIA_WORKER_TOKEN}
+  FFMPEG_THREADS: ${FFMPEG_THREADS:-2}
+
+services:
+  caddy:
+    image: caddy:2.11.7-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      API_DOMAIN: ${API_DOMAIN:?API_DOMAIN}
+      ADMIN_DOMAIN: ${ADMIN_DOMAIN:?ADMIN_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL}
+      ADMIN_ALLOW_IPS: ${ADMIN_ALLOW_IPS:-0.0.0.0/0 ::/0}
+    volumes:
+      # Fayl emas, papka: deploy.sh Caddyfile'ni almashtirib `caddy reload` qiladi — konteyner qayta yaratilmaydi
+      - ${MATCHUP_HOME:-/opt/matchup}/caddy:/etc/caddy:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    mem_limit: 256m
+    logging: *logging
+
+  db:
+    image: postgis/postgis:18-3.6
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: matchup
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD}
+      POSTGRES_DB: matchup
+      TZ: UTC
+    # 4 vCPU / 8 GB server uchun; kattaroq serverda PG_SHARED_BUFFERS ~ RAM'ning 1/4 qismi.
+    # log_parameter_max_length=0 — sekin so'rovlar logiga bind parametrlar (telefon va h.k.) yozilmaydi
+    command:
+      - postgres
+      - -c
+      - shared_buffers=${PG_SHARED_BUFFERS:-512MB}
+      - -c
+      - effective_cache_size=${PG_EFFECTIVE_CACHE_SIZE:-2GB}
+      - -c
+      - work_mem=8MB
+      - -c
+      - maintenance_work_mem=128MB
+      - -c
+      - max_connections=100
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - log_min_duration_statement=1000
+      - -c
+      - log_parameter_max_length=0
+      - -c
+      - log_parameter_max_length_on_error=0
+    shm_size: 256m
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      # TCP orqali: birinchi init paytidagi vaqtinchalik server faqat unix socket'da tinglaydi
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U matchup -d matchup"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    stop_grace_period: 60s
+    logging: *logging
+
+  redis:
+    image: valkey/valkey:8-alpine
+    restart: unless-stopped
+    # BullMQ va Redis Stream'lar (outbox, media navbati): kalitlar o'chirilmasin (noeviction) va
+    # restart'dan keyin qolsin (AOF). maxmemory — konteyner chegarasidan pastroq: to'lsa yozish xato beradi, OOM emas
+    command:
+      - valkey-server
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      - --maxmemory
+      - ${REDIS_MAXMEMORY:-384mb}
+      - --maxmemory-policy
+      - noeviction
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 512m
+    logging: *logging
+
+  # Bir martalik: deploy.sh har deploy'da servislardan oldin ishga tushiradi (`up` bilan start olmaydi)
+  migrate:
+    image: *api-image
+    profiles: [tools]
+    command: ["node", "dist/scripts/migrate.js"]
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://matchup:${DB_PASSWORD:?DB_PASSWORD}@db:5432/matchup
+    depends_on:
+      db:
+        condition: service_healthy
+    logging: *logging
+
+  api:
+    image: *api-image
+    restart: unless-stopped
+    environment:
+      <<: *s3-env
+      NODE_ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      PUBLIC_BASE_URL: https://${API_DOMAIN:?API_DOMAIN}
+      ADMIN_PUBLIC_URL: https://${ADMIN_DOMAIN:?ADMIN_DOMAIN}
+      DATABASE_URL: postgres://matchup:${DB_PASSWORD:?DB_PASSWORD}@db:5432/matchup
+      REDIS_URL: redis://redis:6379
+      RUN_WORKERS: "true"
+      JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public
+      TICKET_PRIVATE_KEY_FILE: /run/secrets/ticket_private
+      TICKET_PUBLIC_KEY_FILE: /run/secrets/ticket_public
+      STORAGE_DIR: /app/storage
+      OTP_PROVIDER: eskiz
+      MEDIA_RAW_BUCKET: ${MEDIA_RAW_BUCKET:?MEDIA_RAW_BUCKET}
+      MEDIA_BUCKET: ${MEDIA_BUCKET:?MEDIA_BUCKET}
+      # storage.sh bilan bir xil standart (HLS lifecycle'i bir kun kechroq)
+      MEDIA_RECORDING_EXPIRATION_DAYS: ${MEDIA_RECORDING_EXPIRATION_DAYS:-7}
+      MEDIA_WORKER_TOKEN: ${MEDIA_WORKER_TOKEN:?MEDIA_WORKER_TOKEN}
+      SENTRY_DSN: ${SENTRY_DSN_API:-}
+      SENTRY_ENVIRONMENT: production
+      # Qiymatsiz — .env da bo'lsa o'tadi, yo'q bo'lsa konteynerda ham yo'q (API standart qiymati ishlaydi)
+      ESKIZ_EMAIL:
+      ESKIZ_PASSWORD:
+      ESKIZ_FROM:
+      PAYME_MERCHANT_ID:
+      PAYME_KEY:
+      PAYME_CHECKOUT_URL:
+      PAYME_API_URL:
+      PAYME_IKPU_CODE:
+      PAYME_PACKAGE_CODE:
+      PAYME_RECONCILE_ENABLED:
+      PAYME_REFUND_ENABLED:
+      CLICK_SERVICE_ID:
+      CLICK_MERCHANT_ID:
+      CLICK_SECRET_KEY:
+      CLICK_CHECKOUT_URL:
+      CLICK_REFUND_ENABLED:
+      CLICK_API_URL:
+      CLICK_MERCHANT_USER_ID:
+      UZUM_SERVICE_ID:
+      UZUM_LOGIN:
+      UZUM_PASSWORD:
+      UZUM_ACCOUNT_PARAM:
+      UZUM_CHECKOUT_URL:
+      TELEGRAM_BOT_TOKEN:
+      OPS_TELEGRAM_CHAT_ID:
+      TELEGRAM_APP_REDIRECTS:
+      GOOGLE_CLIENT_IDS:
+      APPLE_CLIENT_IDS:
+      EXPO_ACCESS_TOKEN:
+      SENTRY_TRACES_SAMPLE_RATE:
+      DATABASE_POOL_MAX:
+    secrets:
+      - jwt_private
+      - jwt_public
+      - ticket_private
+      - ticket_public
+    volumes:
+      # GDPR eksport fayllari (DATA_EXPORT_TTL_HOURS muddatli havolalar)
+      - api-storage:/app/storage
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    mem_limit: ${API_MEM_LIMIT:-1536m}
+    stop_grace_period: 30s
+    logging: *logging
+
+  admin:
+    image: ${IMAGE_REGISTRY:?IMAGE_REGISTRY}/admin:${IMAGE_TAG:?IMAGE_TAG}
+    restart: unless-stopped
+    environment:
+      API_URL: http://api:3000
+      SENTRY_DSN: ${SENTRY_DSN_ADMIN:-}
+      SENTRY_ENVIRONMENT: production
+    depends_on:
+      - api
+    mem_limit: 512m
+    logging: *logging
+
+  # Worker ish papkalari (uid 10001) — nomli volume root'niki bo'lib yaratiladi, egasini bir marta to'g'rilaymiz
+  media-work-init:
+    image: *worker-image
+    user: "0"
+    entrypoint: ["sh", "-c", "mkdir -p /work/clips /work/recording && chown 10001:10001 /work/clips /work/recording"]
+    network_mode: none
+    volumes:
+      - media-work:/work
+    logging: *logging
+
+  # Kliplar navbati (matchup:media-jobs): highlight'lar, belgilardan kesilgan kliplar.
+  # cpu_shares past — CPU talashilganda API ustun; bo'sh paytda worker hamma ruxsat etilgan yadrodan foydalanadi
+  media-worker:
+    image: *worker-image
+    restart: unless-stopped
+    read_only: true
+    environment:
+      <<: *worker-env
+      WORK_DIR: /work/clips
+    tmpfs:
+      - /tmp:size=64m
+    volumes:
+      - media-work:/work
+    depends_on:
+      media-work-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_started
+    cpus: ${MEDIA_WORKER_CPUS:-2}
+    cpu_shares: 256
+    mem_limit: ${MEDIA_WORKER_MEM_LIMIT:-1536m}
+    # SIGTERM: joriy job tugagach to'xtaydi; vaqt tugasa job boshqa safar qaytadan ishlanadi (idempotent)
+    stop_grace_period: 10m
+    logging: *logging
+
+  # To'liq o'yin yozuvlari (AI-Cam, matchup:media-jobs:recording): soatlab kodlash, disk talab qiladi
+  # (90 daqiqalik 4K yozuv ~10–25 GB + natija). deploy.sh job ishlayotgan bo'lsa bu servisni qayta yaratmaydi
+  media-worker-recording:
+    image: *worker-image
+    restart: unless-stopped
+    read_only: true
+    environment:
+      <<: *worker-env
+      MEDIA_JOBS_STREAM: matchup:media-jobs:recording
+      WORK_DIR: /work/recording
+    tmpfs:
+      - /tmp:size=64m
+    volumes:
+      - media-work:/work
+    depends_on:
+      media-work-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_started
+    cpus: ${RECORDING_WORKER_CPUS:-2}
+    cpu_shares: 256
+    mem_limit: ${RECORDING_WORKER_MEM_LIMIT:-3g}
+    stop_grace_period: 10m
+    logging: *logging
+
+# Fayllar uid 1000 (`node`) niki, 0400 — bootstrap.sh yaratadi
+secrets:
+  jwt_private:
+    file: ${MATCHUP_HOME:-/opt/matchup}/secrets/jwt_private.pem
+  jwt_public:
+    file: ${MATCHUP_HOME:-/opt/matchup}/secrets/jwt_public.pem
+  ticket_private:
+    file: ${MATCHUP_HOME:-/opt/matchup}/secrets/ticket_private.pem
+  ticket_public:
+    file: ${MATCHUP_HOME:-/opt/matchup}/secrets/ticket_public.pem
+
+volumes:
+  pgdata:
+  redisdata:
+  api-storage:
+  media-work:
+  caddy-data:
+  caddy-config:

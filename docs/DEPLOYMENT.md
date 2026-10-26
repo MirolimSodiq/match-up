@@ -1,11 +1,17 @@
 # Deployment, CI va infratuzilma
 
-Match Up qanday build qilinadi, tekshiriladi va AWS'ga chiqariladi. Region tanlovi va data residency sababi — [ARCHITECTURE.md §4.3](ARCHITECTURE.md#43-hosting-data-residency-va-multi-region): MVP cell'i `uz-1` = **AWS eu-central-1 (Frankfurt)**.
+Match Up qanday build qilinadi, tekshiriladi va serverga chiqariladi. Ikki yo'l:
+
+- **Production (hozir) — bitta Hetzner server** (§10): Docker Compose, Caddy (avtomatik HTTPS), image'lar GHCR'da, deploy GitHub Actions'dan SSH orqali, kunlik backup Object Storage'ga.
+- **AWS (Terraform, ECS) — o'sish bosqichi** (§4–§7): bir nechta API task, Multi-AZ RDS, CloudFront. Kod tayyor, lekin ishga tushirilmagan.
+
+Region tanlovi va data residency sababi — [ARCHITECTURE.md §4.3](ARCHITECTURE.md#43-hosting-data-residency-va-multi-region).
 
 | Qism | Fayl(lar) |
 |---|---|
 | CI | [.github/workflows/ci.yml](../.github/workflows/ci.yml), [.github/actions/setup-pnpm](../.github/actions/setup-pnpm/action.yml) |
-| Deploy | [.github/workflows/deploy.yml](../.github/workflows/deploy.yml), [infra/deploy/ecs-deploy.sh](../infra/deploy/ecs-deploy.sh) (+ `ecs-deploy.test.sh`), [modules/cell/deploy.tf](../infra/terraform/modules/cell/deploy.tf) |
+| Deploy — Hetzner (production) | [.github/workflows/deploy-hetzner.yml](../.github/workflows/deploy-hetzner.yml), [infra/hetzner](../infra/hetzner): `compose.yml`, `Caddyfile`, `env.example`, `bootstrap.sh`, `deploy.sh` (+ `deploy.test.sh`), `storage.sh`, `backup.sh`, `restore.sh`, `matchup` |
+| Deploy — AWS | [.github/workflows/deploy.yml](../.github/workflows/deploy.yml), [infra/deploy/ecs-deploy.sh](../infra/deploy/ecs-deploy.sh) (+ `ecs-deploy.test.sh`), [modules/cell/deploy.tf](../infra/terraform/modules/cell/deploy.tf) |
 | Image'lar | [apps/api/Dockerfile](../apps/api/Dockerfile), [apps/admin/Dockerfile](../apps/admin/Dockerfile), [.dockerignore](../.dockerignore) |
 | Lokal staging | [docker-compose.staging.yml](../docker-compose.staging.yml), [infra/local/gen-staging-keys.sh](../infra/local/gen-staging-keys.sh) |
 | Terraform | [infra/terraform](../infra/terraform): `modules/cell` (bitta cell — to'liq stack), `envs/staging`, `bootstrap` (state bucket) |
@@ -58,10 +64,10 @@ docker compose -f docker-compose.staging.yml down -v
 | `admin-build` | `turbo run build --filter=@matchup/admin` (`.next/cache` keshlanadi) |
 | `docker` | api, admin va media-worker image'larini build qiladi (push yo'q), GHA cache |
 | `terraform` | `infra/terraform/check.sh`: `fmt -check` + `validate` (credential'siz) |
-| `deploy-script` | `shellcheck` + `infra/deploy/ecs-deploy.test.sh` — deploy skripti soxta `aws` CLI bilan (tartib, image almashtirish, migratsiya xatosi, circuit breaker rollback, yo'q image) |
+| `deploy-script` | `shellcheck` + `infra/deploy/ecs-deploy.test.sh` — deploy skripti soxta `aws` CLI bilan (tartib, image almashtirish, migratsiya xatosi, circuit breaker rollback, yo'q image); Hetzner: `shellcheck`, `infra/hetzner/deploy.test.sh` (soxta `docker`: `.env` tekshiruvi, tartib, login/logout, migratsiya xatosi, rollback, yozuv lane'i band, `--restart`), `compose.yml` va `Caddyfile` validatsiyasi |
 | `actionlint` | workflow'larni tekshiradi |
 
-Deploy — alohida workflow (`deploy.yml`, §6): `main` dagi CI muvaffaqiyatli tugagach avtomatik.
+Deploy — alohida workflow'lar: `deploy-hetzner.yml` (§10) va `deploy.yml` (AWS, §6) — `main` dagi CI muvaffaqiyatli tugagach avtomatik, har biri o'z variable'i (`HETZNER_HOST` / `STAGING_AWS_DEPLOY_ROLE_ARN`) berilgandagina ishlaydi.
 
 Lokal tekshirish (CI bilan bir xil buyruqlar):
 
@@ -104,6 +110,7 @@ docker build -f apps/admin/Dockerfile -t matchup-admin .
 - RDS CA bundle (`NODE_EXTRA_CA_CERTS`) — `DATABASE_URL ...?sslmode=verify-full` bilan sertifikat va hostname tekshiriladi.
 - Entrypoint: ilova Ed25519 kalitlarni faqat fayldan o'qiydi (`*_KEY_FILE`). Kalit env orqali PEM matni sifatida kelsa (`JWT_PRIVATE_KEY=...`, ECS), entrypoint uni `/tmp/matchup-keys/` ga 0600 bilan yozadi, `*_KEY_FILE` ni o'rnatadi va PEM'ni env'dan o'chiradi. Fayl orqali kelsa (docker secrets) hech narsa qilinmaydi.
 - `/health` DB va Valkey'ni tekshiradi.
+- GDPR eksport fayllari (`STORAGE_DIR`, standart `/app/storage`) — image'dagi yagona `node` yoza oladigan papka; Hetzner'da unga volume ulanadi (restart'da fayllar qoladi).
 
 **Media worker** (`services/media-worker/Dockerfile`, `python:3.12-slim-trixie` + FFmpeg 7.1 + `uv`, ~970 MB — FFmpeg kutubxonalari): `python -m media_worker`, uid 10001, root FS read-only (ish papkasi `/tmp/media-worker`), `HEALTHCHECK` — `python -m media_worker health` (navbat sikli heartbeat'i < 2 daq). Kontekst — `services/media-worker`:
 
@@ -291,10 +298,119 @@ Profil belgilanmagan lokal `expo start` da hamma narsa avvalgidek (Expo Go). `de
 cd apps/player && npx eas-cli build --profile preview --platform android
 ```
 
+## 10. Production: bitta Hetzner server
+
+MVP va yopiq sinov uchun hamma narsa bitta serverda, Docker Compose bilan ([infra/hetzner/compose.yml](../infra/hetzner/compose.yml)). Tashqariga faqat Caddy (80/443) ochiq; PostgreSQL, Valkey, API va admin — ichki Docker tarmog'ida. Video fayllar serverda emas, Hetzner Object Storage'da (S3 API) — telefonlar ularga to'g'ridan-to'g'ri presigned URL bilan yuklaydi va ijro etadi.
+
+| Servis | Image | Izoh |
+|---|---|---|
+| `caddy` | `caddy:2.11.7-alpine` | TLS (Let's Encrypt, avtomatik yangilanadi), `API_DOMAIN` -> api, `ADMIN_DOMAIN` -> admin; `/internal/*` tashqaridan 404; deploy paytida so'rovlar yangi API konteynerini 30 s kutadi (`lb_try_duration`); HSTS |
+| `db` | `postgis/postgis:18-3.6` | 8 GB server uchun sozlangan (`PG_SHARED_BUFFERS`, ...), sekin so'rovlar logida parametrlar yo'q |
+| `redis` | `valkey/valkey:8-alpine` | AOF (restart'da navbat va stream'lar qoladi), `noeviction`, `maxmemory` |
+| `migrate` | api image | faqat `deploy.sh` ishga tushiradi, servislardan oldin |
+| `api` | `ghcr.io/<owner>/<repo>/api:<sha>` | `RUN_WORKERS=true` (BullMQ job'lari shu yerda), kalitlar fayl orqali (`/run/secrets`), GDPR eksport volume'da |
+| `admin` | `.../admin:<sha>` | `API_URL=http://api:3000` |
+| `media-worker` | `.../media-worker:<sha>` | kliplar navbati; `cpu_shares` past — CPU talashilganda API ustun |
+| `media-worker-recording` | xuddi shu | AI-Cam to'liq yozuvlari; ish papkasi diskda (`media-work` volume); kodlayotgan bo'lsa deploy uni qayta yaratmaydi |
+
+### Server va hajm
+
+| | Minimum (kliplar, pilot) | AI-Cam to'liq yozuvlari bilan |
+|---|---|---|
+| CPU / RAM | 4 vCPU / 8 GB | 8 vCPU (dedicated) / 16 GB |
+| Disk | 80 GB | 160 GB+ (90 daqiqalik 4K yozuv ~10–25 GB + natija; yoki Hetzner Volume) |
+
+2 GB'li server yetmaydi (PostgreSQL + API + Next.js + FFmpeg). Hetzner Console -> server -> **Rescale**: IP o'zgarmaydi; faqat "CPU and RAM" tanlansa keyin kichraytirish mumkin. OS — Ubuntu 24.04. Location — Helsinki yoki Germaniya: Finlyandiya ham, Germaniya ham O'zbekiston adekvat ro'yxatida ([ARCHITECTURE.md §4.3](ARCHITECTURE.md#43-hosting-data-residency-va-multi-region)). Object Storage — server bilan bir location'da (`hel1`, `fsn1`, `nbg1`). Hetzner'ning server **Backups** funksiyasini yoqish tavsiya etiladi (kunlik snapshot — `.env` va kalitlar ham shunda).
+
+### Birinchi marta sozlash
+
+1. **Object Storage** (Hetzner Console -> Object Storage): server location'ida uchta **private** bucket — xom yuklamalar, natijalar, backup'lar (nomlar butun Hetzner bo'yicha yagona, masalan `matchup-raw-<tasodifiy>`), keyin **S3 credentials** (secret faqat bir marta ko'rsatiladi).
+2. **Server** — skriptni serverga ko'chirib, root sifatida (Docker, `deploy` foydalanuvchisi, ufw 22/80/443, fail2ban, avtomatik xavfsizlik yangilanishlari, swap, Ed25519 kalitlar, `.env`, kunlik backup timer'i, `matchup` buyrug'i):
+   ```bash
+   scp infra/hetzner/bootstrap.sh root@<ip>:
+   ```
+   ```bash
+   ssh root@<ip> bash bootstrap.sh --email <ops-email>
+   ```
+   Oxirida GitHub uchun qiymatlar chiqadi: `HETZNER_HOST`, `HETZNER_KNOWN_HOSTS` va GitHub Actions'ning SSH kaliti (serverda saqlanmaydi — o'sha zahoti nusxalanadi; o'z kalitingiz bo'lsa — `--deploy-key "ssh-ed25519 ..."`). Root'da SSH kalit bo'lsa parol bilan kirish o'chiriladi. Skriptni qayta ishga tushirish xavfsiz.
+3. **`.env`** (`/opt/matchup/.env`, `nano` bilan): `change-me` qiymatlari — S3 kalitlari va bucket nomlari, `ACME_EMAIL`, `ESKIZ_*` (API usiz ishga tushmaydi). Ixtiyoriy — Payme/Click/Uzum, Telegram, Sentry, Google/Apple; ro'yxat va izohlar — [env.example](../infra/hetzner/env.example). Qiymatsiz qator (`KEY=`) qoldirilmaydi. `DB_PASSWORD`, `MEDIA_WORKER_TOKEN` bootstrap generatsiya qilgan — o'zgartirilmaydi.
+4. **GitHub** -> repo Settings -> Secrets and variables -> Actions: **Variables** `HETZNER_HOST`, `HETZNER_KNOWN_HOSTS`; **Secrets** `HETZNER_SSH_KEY`. Ixtiyoriy: `HETZNER_PLATFORM=linux/arm64` (ARM server), `PRODUCTION_ADMIN_SENTRY_DSN`. `production` environment birinchi deploy'da yaratiladi — Settings -> Environments -> production -> "Required reviewers" bilan har deploy tasdiqlanadigan qilish mumkin.
+5. **Birinchi deploy:** Actions -> **Deploy (Hetzner)** -> Run workflow (`main`). Tekshirish: `https://<API_DOMAIN>/health` va `https://<ADMIN_DOMAIN>`.
+6. **Birinchi admin:** admin panelga telefon bilan kiring (rol yo'qligi uchun rad etiladi), so'ng serverda:
+   ```bash
+   matchup exec db psql -U matchup -c "INSERT INTO user_roles (user_id, role) SELECT id, 'admin' FROM users WHERE phone_e164 = '+998XXXXXXXXX'"
+   ```
+7. **Tashqi xizmatlar:** Payme/Click/Uzum kabinetlarida webhook manzillari — `https://<API_DOMAIN>/v1/webhooks/payme`, `.../v1/webhooks/click/prepare` va `/complete`, `.../v1/webhooks/uzum/...` (ARCHITECTURE §3.2); Telegram login uchun BotFather'da `/setdomain` = `API_DOMAIN`; mobil ilovalarning API manzili (EAS `production` profili).
+
+### Domen
+
+Domen bo'lmaguncha bootstrap `api.<ip>.sslip.io` / `admin.<ip>.sslip.io` ni qo'yadi (sslip.io nomni IP'ga aylantiradi, Let's Encrypt sertifikati ishlaydi). Do'konga chiqish va to'lov shartnomalaridan oldin haqiqiy domen kerak: DNS'da `api` va `admin` A yozuvlari -> server IP, `.env` da `API_DOMAIN` / `ADMIN_DOMAIN`, so'ng `/opt/matchup/current/deploy.sh --restart`. Webhook manzillari va mobil ilovalardagi URL ham yangilanadi — shuning uchun domenni pilotdan oldin olish ma'qul.
+
+### Deploy, rollback va boshqaruv
+
+`main` ga merge -> CI yashil -> `deploy-hetzner.yml`:
+
+| Job | Nima qiladi |
+|---|---|
+| `prepare` | commit -> teg (to'liq SHA); GHCR'da qaysi image'lar yo'qligi |
+| `build` (matritsa) | yo'q image'larni `linux/amd64` (yoki `HETZNER_PLATFORM`) uchun build qilib GHCR'ga push; CI `docker` job keshidan foydalanadi |
+| `deploy` | `infra/hetzner` -> `/opt/matchup/releases/<sha>`, so'ng `deploy.sh` (registry token'i — job'ning `GITHUB_TOKEN`'i, stdin orqali; deploy oxirida `docker logout`) |
+
+`deploy.sh` (CI va operator uchun bir xil): `.env` tekshiruvi (yo'q / namuna / bo'sh qiymatlar ro'yxati bilan to'xtaydi) -> image'lar -> bucket lifecycle qoidalari (`storage.sh`, pastdagi jadval; o'zgarmagan bo'lsa o'tkazib yuboriladi) -> migratsiya (xato bo'lsa servislarga tegilmaydi) -> `docker compose up --wait` (hamma servis sog'lom bo'lishi kutiladi; bo'lmasa — nosoz servis logi chiqadi va oldingi release + teg qaytariladi) -> Caddyfile o'zgargan bo'lsa `caddy reload` -> `current` symlink, `state/image.env` -> HTTPS orqali `/health` -> eski release'lar (5 tadan ortig'i) va image'lar (oxirgi 3 deploy'dan tashqari) tozalanadi. Xato bo'lsa Telegram ops guruhiga xabar (`TELEGRAM_BOT_TOKEN` + `OPS_TELEGRAM_CHAT_ID`).
+
+| Holat | Harakat |
+|---|---|
+| Deploy o'tdi, lekin xato bor | Actions -> Deploy (Hetzner) -> Run workflow -> `ref` = oldingi SHA (image GHCR'da bor — build yo'q). Serverda internet/registry'siz: `/opt/matchup/releases/<oldingi-sha>/deploy.sh <oldingi-sha>` |
+| `.env` o'zgardi | `/opt/matchup/current/deploy.sh --restart` |
+| Loglar, holat, konsol | `matchup ps`, `matchup logs -f --tail 100 api`, `matchup exec db psql -U matchup` |
+| Infra image'larini yangilash (PostgreSQL minor, Valkey, Caddy) | `matchup pull db redis caddy`, so'ng `matchup up -d db redis caddy` (qisqa uzilish; deploy ularni yangilamaydi) |
+
+Downtime: API konteyneri almashganda bir necha soniya — Caddy so'rovlarni kutib turadi, WebSocket'lar qayta ulanadi. Migratsiyalar AWS'dagi kabi expand -> contract (§6).
+
+### Video saqlash muddatlari
+
+| Nima | Standart (`.env`) | Izoh |
+|---|---|---|
+| Xom yuklamalar — telefonlardan kelgan asl fayllar (raw bucket) | 3 kun (`MEDIA_RAW_EXPIRATION_DAYS`) | kliplar va HLS shu vaqtgacha tayyor bo'ladi; keyin klip HLS'dan kesiladi, asl fayl kerak emas. Yozuv yuklash 60 soatgacha cho'zilishi mumkin — worker navbati kunlab to'lib qolsa, muddatni oshiring |
+| To'liq o'yin videosi — har kamera HLS (1080p/720p/480p, `recordings/`) | 7 kun (`MEDIA_RECORDING_EXPIRATION_DAYS`) | API shundan keyin yozuvni ko'rsatmaydi (player'da karta yo'qoladi), fayllar bir kun keyin o'chadi |
+| Kliplar (highlight'lar) | o'chirilguncha | muddatga bog'liq emas |
+| Backup'lar | 14 kun (`BACKUP_RETENTION_DAYS`) | |
+
+Kuniga 2 ta o'yin (2 kamera, ~16 GB / kamera) bilan storage'da bir vaqtda ~0.3 TB turadi — Object Storage bazaviy narxi ichida. AWS'da (Terraform) standartlar boshqa: xom 30, to'liq yozuv 90 kun (`media_raw_expiration_days`, `media_recording_expiration_days`).
+
+### Backup va tiklash
+
+`matchup-backup.timer` har kuni 02:30 (Toshkent) `backup.sh` ni ishga tushiradi: `pg_dump` (custom format) -> `s3://<BACKUP_BUCKET>/postgres/matchup-<vaqt>.dump`, hajm tekshiriladi, xato bo'lsa — Telegram. Qo'lda:
+
+```bash
+/opt/matchup/current/backup.sh
+```
+
+```bash
+/opt/matchup/current/restore.sh list
+```
+
+```bash
+/opt/matchup/current/restore.sh latest --yes
+```
+
+Tiklash joriy bazani o'chirmaydi: backup avval `matchup_restore` ga yuklanadi (servislar ishlab turadi), keyin ilova servislari to'xtatilib bazalar qayta nomlanadi — eskisi `matchup_before_<vaqt>` bo'lib qoladi. Lokal sinovda (MinIO) backup -> o'zgartirish -> tiklash -> ma'lumot backup holatiga qaytgani tekshirilgan. Oyiga bir marta tiklashni sinash tavsiya etiladi. Valkey (navbatlar) backup qilinmaydi.
+
+### Xavfsizlik
+
+- Tashqariga faqat 22, 80, 443 (ufw). DB va Valkey port ochmaydi.
+- GitHub Actions kaliti `deploy` foydalanuvchisiga `restrict` bilan (port forwarding, pty yo'q). `deploy` docker guruhida — amalda root huquqi, shuning uchun `HETZNER_SSH_KEY` faqat GitHub secret'ida.
+- Host kaliti oldindan ma'lum (`HETZNER_KNOWN_HOSTS`) — birinchi ulanishda ham MITM'ga yo'l yo'q.
+- `.env` (0600, `deploy`) va `secrets/*.pem` (0400, konteynerdagi `node`); image va repo'da secret yo'q.
+- Admin panelni IP bo'yicha cheklash mumkin: `.env` da `ADMIN_ALLOW_IPS`.
+
 ## Ma'lum cheklovlar va keyingi qadamlar
 
 - **ARM64 image'lar QEMU'da build qilinadi** (x86 runner) — api va admin build'i sekinroq. GitHub arm64 runner'lari (`ubuntu-24.04-arm`) ishlatilsa tezlashadi.
-- **Prod deploy yo'q:** `envs/prod` va `production` environment (majburiy tasdiq bilan) — prod cell'i qo'shilganda `deploy.yml` ga alohida job.
+- **AWS'da prod yo'q:** production hozir Hetzner'da (§10). AWS'ga o'tilsa — `envs/prod` va `production` environment, `deploy.yml` ga alohida job.
+- **Hetzner — bitta server:** server yoki uning disk'i ishdan chiqsa, tiklash — yangi server + `bootstrap.sh` + backup'dan `restore.sh` (yoki Hetzner snapshot'i); kunlik backup'dan keyingi o'zgarishlar yo'qoladi (PITR yo'q). Yuk ko'paysa — DB'ni alohida serverga yoki AWS'ga (§4).
+- **Backup'lar o'sha S3 kalitlari bilan:** serverga kirgan hujumchi backup'larni ham o'chira oladi. Kerak bo'lsa — Object Lock yoqilgan alohida bucket (Hetzner'da faqat bucket yaratilayotganda yoqiladi).
+- **GHCR** — private repo image'lari uchun hozircha bepul (GitHub: o'zgarsa kamida bir oy oldin xabar beriladi); eski versiyalar o'chirilmaydi.
 - API image'ning ~80 MB qismi `@sentry/nestjs` v11 olib keladigan bundler bog'liqliklari (webpack, babel) — SDK tuzilishi.
 - WAF (rate limit) va VPC flow log'lar hali yo'q; ARCHITECTURE §4.1 dagi "CDN + WAF" keyingi bosqichda.
 - DB'da ilova uchun alohida cheklangan role yo'q — api va migratsiya bitta `matchup` foydalanuvchisi bilan ishlaydi.

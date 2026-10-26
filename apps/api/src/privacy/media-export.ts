@@ -88,7 +88,8 @@ export class MediaExport {
       ex,
       sql`SELECT rc.id AS camera_id, m.public_code AS match_code, rc.position, rc.status, rc.started_at, rc.stopped_at,
                  rc.duration_ms, ma.id AS media_id, ma.status AS media_status, ma.bucket AS raw_bucket, ma.object_key AS raw_key,
-                 (rc.status = 'ready' AND ma.status = 'ready') AS playable
+                 (rc.status = 'ready' AND ma.status = 'ready'
+                  AND coalesce(ma.processed_at > now() - make_interval(days => ${this.env.MEDIA_RECORDING_EXPIRATION_DAYS}), true)) AS playable
           FROM recording_cameras rc
           JOIN recording_sessions rs ON rs.id = rc.session_id
           JOIN matches m ON m.id = rs.match_id
@@ -102,7 +103,7 @@ export class MediaExport {
       notes: [
         "Havolalar shu muddatgacha ishlaydi; muddat o'tgach yangi eksport so'rang.",
         "hls — oqim (master playlist): VLC'da ochiladi yoki `ffmpeg -i <hls> -c copy video.mp4` bilan bitta faylga yig'iladi.",
-        "original — siz yoki host yuklagan asl fayl; saqlanish muddati (30 kun) o'tgan bo'lsa null.",
+        "original — siz yoki host yuklagan asl fayl; saqlanish muddati o'tgan bo'lsa null. hls — to'liq o'yin yozuvi ko'rish muddati o'tgan bo'lsa null.",
       ],
       highlights: await Promise.all(
         highlights.map(async (h) => {

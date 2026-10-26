@@ -142,6 +142,11 @@ const EnvSchema = z.object({
   MEDIA_RECORDING_SESSION_HOURS: z.coerce.number().int().positive().max(71).default(60),
   /** Bitta javobdagi presigned qism URL'lari soni (qolganlari — keyingi `GET /v1/media/{id}/upload`). */
   MEDIA_UPLOAD_URL_BATCH: z.coerce.number().int().min(1).max(1000).default(100),
+  /**
+   * To'liq o'yin videosini ko'rish muddati (kamera tayyor bo'lgandan keyin, kun): shundan keyin API yozuvni ko'rsatmaydi.
+   * HLS (`recordings/`) object storage lifecycle'i bilan bir kun kechroq o'chadi (Hetzner: storage.sh, AWS: Terraform).
+   */
+  MEDIA_RECORDING_EXPIRATION_DAYS: z.coerce.number().int().min(1).max(3650).default(90),
   /** Ijro havolalari (HLS playlist token, MP4/thumbnail imzosi) muddati. */
   MEDIA_PLAYBACK_TTL_SEC: z.coerce.number().int().min(300).max(86_400).default(21_600),
   /** CloudFront: domen + key pair berilsa — signed URL; aks holda S3/MinIO presigned GET. */

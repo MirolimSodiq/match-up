@@ -79,6 +79,8 @@ locals {
       MEDIA_BUCKET       = aws_s3_bucket.media.bucket
       MEDIA_RAW_BUCKET   = aws_s3_bucket.media_raw.bucket
       S3_REGION          = local.region
+      # To'liq o'yin videosini ko'rish muddati — HLS lifecycle'i (storage.tf) bir kun kechroq o'chiradi
+      MEDIA_RECORDING_EXPIRATION_DAYS = tostring(var.media_recording_expiration_days)
       # Ops ogohlantirishlaridagi havola (host no-show)
       ADMIN_PUBLIC_URL = "https://${var.admin_domain}"
       # Media navbati metrikasi (CloudWatch EMF) — worker autoscaling'i (media_worker.tf)

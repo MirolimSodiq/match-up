@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# `docker compose` joriy release (/opt/matchup/current) va .env bilan. bootstrap.sh /usr/local/bin/matchup sifatida o'rnatadi.
+#   matchup ps
+#   matchup logs -f --tail 100 api
+#   matchup exec db psql -U matchup
+#   matchup restart admin
+set -euo pipefail
+
+RELEASE_DIR=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd -P)
+# shellcheck source-path=SCRIPTDIR source=lib.sh
+source "$RELEASE_DIR/lib.sh"
+
+compose "$@"
