@@ -262,9 +262,16 @@ describe('Rahmat (Multicard): invoys, callback, sync, refund, reconciliation (C9
        VALUES ('e2e_half_mc', '{"en": "Half"}', '[{"min_hours_before": 0, "refund_pct": 50, "destination": "original_method"}]')
        ON CONFLICT (code) DO NOTHING`,
     );
+    // Dev seed'da Multicard qatori yo'q (seed 0001 sxemasiga mos — db/tests/verify.sh): production'dagi kabi operator qo'shadi
+    await q(
+      ctx,
+      `INSERT INTO payment_provider_configs (country_code, provider, currencies, priority, is_enabled, secret_ref)
+       VALUES ('UZ', 'multicard', '{UZS}', 40, true, 'env:MULTICARD_*')`,
+    );
   });
 
   afterAll(async () => {
+    await q(ctx, "DELETE FROM payment_provider_configs WHERE provider = 'multicard'");
     await ctx.close();
     await new Promise((r) => server.close(r));
     for (const k of [
