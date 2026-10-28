@@ -44,9 +44,15 @@ const EnvSchema = z.object({
   PAYME_MERCHANT_ID: z.string().default('demo-payme'),
   PAYME_KEY: z.string().default('payme_test_key'),
   PAYME_CHECKOUT_URL: z.url().default('https://checkout.test.paycom.uz'),
-  /** Fiskal chek uchun MXIK (IKPU) va o'lchov birligi kodi — soliq.uz katalogidan. */
+  /** Eski nomlar (FISCAL_MXIK_CODE / FISCAL_PACKAGE_CODE berilmasa ishlatiladi). */
   PAYME_IKPU_CODE: z.string().optional(),
   PAYME_PACKAGE_CODE: z.string().optional(),
+  /**
+   * Fiskal chek (OFD) uchun xizmatimizning MXIK (IKPU) va o'lchov birligi (package) kodi — tasnif.soliq.uz katalogidan.
+   * Barcha provider'larda bir xil: Payme `detail.items`, Multicard `ofd`.
+   */
+  FISCAL_MXIK_CODE: z.string().regex(/^\d{17}$/).optional(),
+  FISCAL_PACKAGE_CODE: z.string().regex(/^\d{1,20}$/).optional(),
 
   CLICK_SERVICE_ID: z.string().default('1000'),
   CLICK_MERCHANT_ID: z.string().default('2000'),
@@ -61,6 +67,24 @@ const EnvSchema = z.object({
   UZUM_ACCOUNT_PARAM: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/).default('booking_id'),
   /** Uzum Bank ilovasidagi servisni ochuvchi havola (rasmiy hujjatda yo'q — Uzum menejeri bilan tasdiqlansin). */
   UZUM_CHECKOUT_URL: z.url().default('https://www.uzumbank.uz/open-service'),
+
+  // Rahmat (Multicard) onlayn ekvayringi (docs.multicard.uz): Payme/Click/Uzum'dan farqli, Multicard'ni biz chaqiramiz —
+  // invoys yaratamiz (`POST /payment/invoice`), to'lovdan keyin Multicard `/v1/webhooks/multicard` ga callback yuboradi.
+  // application_id + secret + store_id berilmasa provider to'lov usullarida ko'rinmaydi.
+  /** Sandbox: https://dev-mesh.multicard.uz, production: https://mesh.multicard.uz */
+  MULTICARD_BASE_URL: z.url().default('https://dev-mesh.multicard.uz'),
+  MULTICARD_APPLICATION_ID: z.string().min(1).optional(),
+  /** Token olish va callback imzosi (`md5(store_id + invoice_id + amount + secret)`) uchun. */
+  MULTICARD_SECRET: z.string().min(1).optional(),
+  /** Kassa ID (raqam) — callback'da `store_id` shu bilan solishtiriladi. */
+  MULTICARD_STORE_ID: z.coerce.number().int().positive().optional(),
+  /** Avto-refund: to'liq — `DELETE /payment/{uuid}`. Standart o'chiq (sandbox'da tasdiqlangach yoqiladi). */
+  MULTICARD_REFUND_ENABLED: bool.default(false),
+  /**
+   * Qisman refund — `DELETE /payment/{uuid}/partial` (qolgan summaga yangi fiskal chek). Terminalda Multicard yoqishi kerak;
+   * faqat kartadan (Uzcard/Humo/Visa/Mastercard) to'langanlar — ilova orqali to'langanda karta raqami so'raladi, u bizda yo'q.
+   */
+  MULTICARD_PARTIAL_REFUND_ENABLED: bool.default(false),
 
   // Kechki reconciliation. Payme: Subscribe API `receipts.get_all` (X-Auth: kassa id + kalit).
   /** Tashqi API'ga dev'da demo kalitlar bilan chiqmaslik uchun standart o'chiq. */
@@ -166,6 +190,11 @@ const EnvSchema = z.object({
 export type Env = z.infer<typeof EnvSchema>;
 export const ENV = Symbol('ENV');
 
+/** Multicard kalitlari berilgan (aks holda provider to'lov usullarida ko'rinmaydi, job'lar ishlamaydi). */
+export function multicardConfigured(env: Env): boolean {
+  return !!(env.MULTICARD_APPLICATION_ID && env.MULTICARD_SECRET && env.MULTICARD_STORE_ID);
+}
+
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
   const parsed = EnvSchema.safeParse(source);
   if (!parsed.success) {
@@ -173,6 +202,8 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     throw new Error(`Env konfiguratsiyasi noto'g'ri:\n${issues}`);
   }
   const env = parsed.data;
+  env.FISCAL_MXIK_CODE ??= env.PAYME_IKPU_CODE;
+  env.FISCAL_PACKAGE_CODE ??= env.PAYME_PACKAGE_CODE;
   if (env.CLICK_REFUND_ENABLED && !env.CLICK_MERCHANT_USER_ID) throw new Error('CLICK_REFUND_ENABLED uchun CLICK_MERCHANT_USER_ID kerak');
   if (env.NODE_ENV === 'production') {
     for (const key of ['JWT_PRIVATE_KEY_FILE', 'JWT_PUBLIC_KEY_FILE', 'TICKET_PRIVATE_KEY_FILE', 'TICKET_PUBLIC_KEY_FILE'] as const) {
@@ -183,6 +214,9 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
       if (!env[key].startsWith('https://')) throw new Error(`${key} production'da https bo'lishi shart`);
     }
     if (!env.MEDIA_WORKER_TOKEN) throw new Error("MEDIA_WORKER_TOKEN production'da majburiy");
+    if (multicardConfigured(env) && !(env.FISCAL_MXIK_CODE && env.FISCAL_PACKAGE_CODE)) {
+      throw new Error("Multicard production'da fiskal chek kodlarisiz ishlamaydi: FISCAL_MXIK_CODE va FISCAL_PACKAGE_CODE kerak");
+    }
     if (env.MEDIA_CDN_DOMAIN && !(env.MEDIA_CDN_KEY_PAIR_ID && env.MEDIA_CDN_PRIVATE_KEY_FILE)) {
       throw new Error("MEDIA_CDN_DOMAIN berilsa MEDIA_CDN_KEY_PAIR_ID va MEDIA_CDN_PRIVATE_KEY_FILE ham kerak (signed URL)");
     }

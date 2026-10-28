@@ -1,16 +1,16 @@
 # Loyiha holati
 
-> Oxirgi yangilanish: 2026-10-24. Repo: https://github.com/MirolimSodiq/match-up (private, ikki kishi: @MirolimSodiq, @MirolimProjects), `main` — CI yashil. Yangi Claude sessiyasi shu fayldan davom ettirishi mumkin: avval shuni, keyin `docs/ARCHITECTURE.md` ni o'qing.
+> Oxirgi yangilanish: 2026-10-28. Repo: https://github.com/MirolimSodiq/match-up (private, ikki kishi: @MirolimSodiq, @MirolimProjects), `main` — CI yashil. Yangi Claude sessiyasi shu fayldan davom ettirishi mumkin: avval shuni, keyin `docs/ARCHITECTURE.md` ni o'qing.
 
 ## Bajarildi (`main` da)
 
 | Qism | Natija | Tekshiruv |
 |---|---|---|
 | Arxitektura | `docs/ARCHITECTURE.md`: stack, DB, API, data residency (2026-yil mart qonuni), to'lovlar, compliance, roadmap; `docs/AI_CAM.md` — AI-Cam dizayni; `docs/DEPLOYMENT.md` | — |
-| DB | migratsiyalar 0001–0012, dev seed, `db/tests/verify.sh` (oversell race) | CI |
-| Backend (`apps/api`) | auth (OTP, Google/Apple/Telegram), profil, discovery, waiver, booking, to'lovlar (Payme, Click, Uzum, hamyon) va avtomatik refund (flag bilan), kechki reconciliation, host panel, admin API (moderatsiya, host payout'lari), push va WebSocket, GDPR eksport (media bilan) / erasure, highlight va to'liq o'yin yozuvi (AI-Cam A), post-match job'lari (Glicko-2, feedback, no-show, haftalik payout, host no-show alert), BullMQ job'lar, outbox | e2e 138/138 |
+| DB | migratsiyalar 0001–0012, 0014, dev seed, `db/tests/verify.sh` (oversell race) | CI |
+| Backend (`apps/api`) | auth (OTP, Google/Apple/Telegram), profil, discovery, waiver, booking, to'lovlar (Payme, Click, Uzum, Rahmat/Multicard, hamyon) va avtomatik refund (flag bilan; Multicard'da qisman ham), kechki reconciliation, host panel, admin API (moderatsiya, host payout'lari), push va WebSocket, GDPR eksport (media bilan) / erasure, highlight va to'liq o'yin yozuvi (AI-Cam A), post-match job'lari (Glicko-2, feedback, no-show, haftalik payout, host no-show alert), BullMQ job'lar, outbox | e2e 149/149 |
 | Media worker (`services/media-worker`) | Python 3.12 + FFmpeg, ikki navbat (kliplar, yozuvlar): HLS (yozuv — 1080p/720p/480p), thumbnail, 9:16 MP4, yozuvdan klip kesish; navbat bo'yicha autoscaling | pytest 43/43 |
-| Player ilovasi (`apps/player`) | Expo, discovery, booking va to'lov (Payme, Click, Uzum, hamyon), QR chipta, social login, profil (kirish usullari, maxfiylik, akkauntni o'chirish), push va deep link'lar, highlight feed, to'liq o'yin videosi, o'yindan keyin baholash, Sentry | tsc |
+| Player ilovasi (`apps/player`) | Expo, discovery, booking va to'lov (Payme, Click, Uzum, Rahmat, hamyon), QR chipta, social login, profil (kirish usullari, maxfiylik, akkauntni o'chirish), push va deep link'lar, highlight feed, to'liq o'yin videosi, o'yindan keyin baholash, Sentry | tsc |
 | Host ilovasi (`apps/host`) | takliflar, offline roster, QR skaner (Ed25519 offline), jamoalar, yakunlash, push, highlight yozish va yuklash, AI-Cam (kamera rejimi, pult, to'liq yozuvni yuklash, bib raqamlari), Sentry | vitest 58/58 |
 | Admin panel (`apps/admin`) | Next.js BFF, match/venue/host/refund/dashboard, reconciliation (run'lar, qo'lda ishga tushirish, farqlar), highlight moderatsiyasi, host payout'lari (CSV) | build |
 | Dizayn tizimi | `packages/ui` (tokenlar + RN komponentlar), `packages/contracts` (OpenAPI tiplari) | tsc |
@@ -66,6 +66,7 @@ Maqsad — noyabrda Toshkentda yopiq sinov (pilot), taxminan 2026-yil dekabr bos
 | C6 | Discovery API: stadion nomi bo'yicha qidiruv, tuman va "faqat bo'sh joylar" filtrlari (C1 uchun) | @MirolimProjects | `apps/api/src/matches`, `api/openapi.yaml` | — |
 | C7 | App Store review uchun demo kirish: production'da faqat bitta maxsus raqamga doimiy kod, audit bilan (Apple kirish talab qiladigan ilovadan demo akkaunt so'raydi) | @MirolimProjects | `apps/api/src/identity` | — |
 | C8 | Minimal xavfsizlik: WAF / rate limit, API uchun cheklangan DB role ([`DEPLOYMENT.md`](DEPLOYMENT.md) cheklovlari) | @MirolimProjects | `infra/terraform`, `db` | — |
+| C9 | Rahmat (Multicard) to'lovi: `payment_provider` ga `multicard` (migratsiya `0014`); server-to-server invoys (`POST /payment/invoice`, Bearer token 24 soat, `store_id`, summa tiyin'da, `ofd` — MXIK va `package_code`) → `checkout_url` player WebView'da; callback imzosi `md5(store_id + invoice_id + amount + secret)` (constant-time), idempotent tasdiqlash; javob kelmasa holatni so'rash va hold tugaganda invoysni bekor qilish; refund adapteri (to'liq/qisman, B8); player'da to'lov usuli; sandbox `dev-mesh.multicard.uz`. Keyin: saqlangan kartalar (karta biriktirish), host payout'lari kartaga (B9 avtomatlashadi), split — maydon ulushini to'g'ridan-to'g'ri (agentlik modeli). Payme/Click/Uzum'dan farqi: ular bizni chaqiradi, Multicard'ni biz chaqiramiz | kelishiladi (`payments` — @MirolimProjects) | `apps/api/src/payments`, `apps/api/src/commerce`, `apps/player`, `db/migrations/0014_*` | ✅ `feat/multicard` (migratsiya `0014`; avto-refund flag'lari va kalitlar — sandbox'dan keyin) |
 
 ### Kod bo'lmagan ishlar (biznes tomonni kim olib borsa)
 
@@ -94,7 +95,7 @@ Maqsad — noyabrda Toshkentda yopiq sinov (pilot), taxminan 2026-yil dekabr bos
 ## Ikki kishi bo'lib ishlash
 
 1. `main` ga to'g'ridan-to'g'ri push qilinmaydi: har ish o'z branch'ida → PR → CI yashil va ikkinchi odam ko'rib chiqqandan keyin merge.
-2. Migratsiya raqamlari: `0006` — AI-Cam (@MirolimSodiq), `0009` dan boshlab — @MirolimProjects (`0009` — post-match job'lari, B3; `0010` — highlight moderatsiyasi, B4; `0011` — avto-refund'lar, B8; `0012` — host payout'larini to'lash, B9; `0013` — ko'p jamoali o'yinlar, C4, @MirolimSodiq); bitta PR'da bir nechta kerak bo'lsa, shu yerda band qilinadi. Runner qo'llanganlarni `schema_migrations` da fayl nomi bo'yicha saqlaydi, shuning uchun raqamlar orasidagi bo'shliq va merge tartibi muammo emas.
+2. Migratsiya raqamlari: `0006` — AI-Cam (@MirolimSodiq), `0009` dan boshlab — @MirolimProjects (`0009` — post-match job'lari, B3; `0010` — highlight moderatsiyasi, B4; `0011` — avto-refund'lar, B8; `0012` — host payout'larini to'lash, B9; `0013` — ko'p jamoali o'yinlar, C4, @MirolimSodiq; `0014` — Rahmat/Multicard, C9); bitta PR'da bir nechta kerak bo'lsa, shu yerda band qilinadi. Runner qo'llanganlarni `schema_migrations` da fayl nomi bo'yicha saqlaydi, shuning uchun raqamlar orasidagi bo'shliq va merge tartibi muammo emas.
 3. Generatsiya qilinadigan fayllar (`apps/api/src/db/schema.ts`, `relations.ts`, `packages/contracts`, `pnpm-lock.yaml`) qo'lda tahrirlanmaydi, conflict ham qo'lda tuzatilmaydi: toza bazada `db:migrate` + `db:pull` (contracts uchun `contracts generate`, lock uchun `pnpm install`) qilinadi va natija commit qilinadi. `db:pull` deklaratsiyalarni nom bo'yicha saralaydi, importlar har nom alohida qatorda — bir xil migratsiyalardan doim baytma-bayt bir xil fayl chiqadi, diff faqat haqiqiy o'zgarishni ko'rsatadi. CI'dagi "Generated fayllar drift" job'i Drizzle sxemasi va `packages/contracts/src/schema.ts` manbadan farq qilsa PR'ni to'xtatadi.
 4. `api/openapi.yaml` ga ikkalasi ham tegadi: PR'lar kichik, `main` dan tez-tez rebase.
 5. Boshqa yo'nalish papkasiga tegish kerak bo'lsa (masalan, B7 → `apps/api/src/media/`) — oldin kelishiladi.

@@ -14,7 +14,7 @@ import { useUrlState } from '@/lib/use-url-state';
 import { DiffKinds, Period } from './parts';
 
 const LIMIT = 50;
-const PROVIDERS = ['payme', 'click', 'uzum'] as const;
+const PROVIDERS = ['payme', 'click', 'uzum', 'multicard'] as const;
 const STATUSES = ['completed', 'failed', 'running'] as const;
 type Provider = (typeof PROVIDERS)[number];
 

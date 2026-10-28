@@ -333,14 +333,19 @@ MVP va yopiq sinov uchun hamma narsa bitta serverda, Docker Compose bilan ([infr
    ssh root@<ip> bash bootstrap.sh --email <ops-email>
    ```
    Oxirida GitHub uchun qiymatlar chiqadi: `HETZNER_HOST`, `HETZNER_KNOWN_HOSTS` va GitHub Actions'ning SSH kaliti (serverda saqlanmaydi — o'sha zahoti nusxalanadi; o'z kalitingiz bo'lsa — `--deploy-key "ssh-ed25519 ..."`). Root'da SSH kalit bo'lsa parol bilan kirish o'chiriladi. Skriptni qayta ishga tushirish xavfsiz.
-3. **`.env`** (`/opt/matchup/.env`, `nano` bilan): `change-me` qiymatlari — S3 kalitlari va bucket nomlari, `ACME_EMAIL`, `ESKIZ_*` (API usiz ishga tushmaydi). Ixtiyoriy — Payme/Click/Uzum, Telegram, Sentry, Google/Apple; ro'yxat va izohlar — [env.example](../infra/hetzner/env.example). Qiymatsiz qator (`KEY=`) qoldirilmaydi. `DB_PASSWORD`, `MEDIA_WORKER_TOKEN` bootstrap generatsiya qilgan — o'zgartirilmaydi.
+3. **`.env`** (`/opt/matchup/.env`, `nano` bilan): `change-me` qiymatlari — S3 kalitlari va bucket nomlari, `ACME_EMAIL`, `ESKIZ_*` (API usiz ishga tushmaydi). Ixtiyoriy — Payme/Click/Uzum/Rahmat, Telegram, Sentry, Google/Apple; ro'yxat va izohlar — [env.example](../infra/hetzner/env.example). Qiymatsiz qator (`KEY=`) qoldirilmaydi. `DB_PASSWORD`, `MEDIA_WORKER_TOKEN` bootstrap generatsiya qilgan — o'zgartirilmaydi.
 4. **GitHub** -> repo Settings -> Secrets and variables -> Actions: **Variables** `HETZNER_HOST`, `HETZNER_KNOWN_HOSTS`; **Secrets** `HETZNER_SSH_KEY`. Ixtiyoriy: `HETZNER_PLATFORM=linux/arm64` (ARM server), `PRODUCTION_ADMIN_SENTRY_DSN`. `production` environment birinchi deploy'da yaratiladi — Settings -> Environments -> production -> "Required reviewers" bilan har deploy tasdiqlanadigan qilish mumkin.
 5. **Birinchi deploy:** Actions -> **Deploy (Hetzner)** -> Run workflow (`main`). Tekshirish: `https://<API_DOMAIN>/health` va `https://<ADMIN_DOMAIN>`.
 6. **Birinchi admin:** admin panelga telefon bilan kiring (rol yo'qligi uchun rad etiladi), so'ng serverda:
    ```bash
    matchup exec db psql -U matchup -c "INSERT INTO user_roles (user_id, role) SELECT id, 'admin' FROM users WHERE phone_e164 = '+998XXXXXXXXX'"
    ```
-7. **Tashqi xizmatlar:** Payme/Click/Uzum kabinetlarida webhook manzillari — `https://<API_DOMAIN>/v1/webhooks/payme`, `.../v1/webhooks/click/prepare` va `/complete`, `.../v1/webhooks/uzum/...` (ARCHITECTURE §3.2); Telegram login uchun BotFather'da `/setdomain` = `API_DOMAIN`; mobil ilovalarning API manzili (EAS `production` profili).
+7. **Tashqi xizmatlar:** Payme/Click/Uzum kabinetlarida webhook manzillari — `https://<API_DOMAIN>/v1/webhooks/payme`, `.../v1/webhooks/click/prepare` va `/complete`, `.../v1/webhooks/uzum/...` (ARCHITECTURE §3.2); Rahmat (Multicard) uchun kabinetda sozlash kerak emas — callback manzili (`https://<API_DOMAIN>/v1/webhooks/multicard`) har invoysda yuboriladi (`PUBLIC_BASE_URL` dan); Telegram login uchun BotFather'da `/setdomain` = `API_DOMAIN`; mobil ilovalarning API manzili (EAS `production` profili).
+8. **Rahmat (Multicard)** ([ARCHITECTURE §4.6](ARCHITECTURE.md#46-payment-gatewaylar)): `.env` da `MULTICARD_BASE_URL=https://mesh.multicard.uz` (standart — sandbox `https://dev-mesh.multicard.uz`, `deploy.sh` ogohlantiradi), `MULTICARD_APPLICATION_ID`, `MULTICARD_SECRET`, `MULTICARD_STORE_ID` (kassa ID, raqam) va fiskal chek kodlari `FISCAL_MXIK_CODE` (17 raqam) / `FISCAL_PACKAGE_CODE` — tasnif.soliq.uz, barcha provider'larda bir xil (eski `PAYME_IKPU_CODE` / `PAYME_PACKAGE_CODE` ham ishlaydi). Kalitlar bilan `FISCAL_*` bo'lmasa API production'da start olmaydi. Avto-refund — `MULTICARD_REFUND_ENABLED=true`; qisman refund — `MULTICARD_PARTIAL_REFUND_ENABLED=true` (avval Multicard terminalda yoqadi). To'lov usullarida ko'rinishi uchun config qatori (boshqa provider'lar kabi operator qo'shadi):
+   ```bash
+   matchup exec db psql -U matchup -c "INSERT INTO payment_provider_configs (country_code, provider, currencies, priority, is_enabled, secret_ref) VALUES ('UZ', 'multicard', '{UZS}', 40, true, 'env:MULTICARD_*') ON CONFLICT (country_code, provider) DO UPDATE SET is_enabled = true"
+   ```
+   Kalitlar berilmagan bo'lsa qator yoqilgan bo'lsa ham `multicard` ko'rinmaydi.
 
 ### Domen
 
@@ -407,7 +412,7 @@ Tiklash joriy bazani o'chirmaydi: backup avval `matchup_restore` ga yuklanadi (s
 ## Ma'lum cheklovlar va keyingi qadamlar
 
 - **ARM64 image'lar QEMU'da build qilinadi** (x86 runner) — api va admin build'i sekinroq. GitHub arm64 runner'lari (`ubuntu-24.04-arm`) ishlatilsa tezlashadi.
-- **AWS'da prod yo'q:** production hozir Hetzner'da (§10). AWS'ga o'tilsa — `envs/prod` va `production` environment, `deploy.yml` ga alohida job.
+- **AWS'da prod yo'q:** production hozir Hetzner'da (§10). AWS'ga o'tilsa — `envs/prod` va `production` environment, `deploy.yml` ga alohida job; ECS task'iga hozircha faqat Payme/Click secret'lari ulangan — Uzum va Rahmat (`UZUM_*`, `MULTICARD_*`, `FISCAL_*`) ham qo'shiladi.
 - **Hetzner — bitta server:** server yoki uning disk'i ishdan chiqsa, tiklash — yangi server + `bootstrap.sh` + backup'dan `restore.sh` (yoki Hetzner snapshot'i); kunlik backup'dan keyingi o'zgarishlar yo'qoladi (PITR yo'q). Yuk ko'paysa — DB'ni alohida serverga yoki AWS'ga (§4).
 - **Backup'lar o'sha S3 kalitlari bilan:** serverga kirgan hujumchi backup'larni ham o'chira oladi. Kerak bo'lsa — Object Lock yoqilgan alohida bucket (Hetzner'da faqat bucket yaratilayotganda yoqiladi).
 - **GHCR** — private repo image'lari uchun hozircha bepul (GitHub: o'zgarsa kamida bir oy oldin xabar beriladi); eski versiyalar o'chirilmaydi.

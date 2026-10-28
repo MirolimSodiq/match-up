@@ -49,6 +49,8 @@ INSERT INTO payment_provider_configs (country_code, provider, currencies, priori
   ('UZ', 'payme',  '{UZS}', 10, true,  'demo-payme',  'vault:kv/payments/uz/payme'),
   ('UZ', 'click',  '{UZS}', 20, true,  'demo-click',  'vault:kv/payments/uz/click'),
   ('UZ', 'uzum',   '{UZS}', 30, true,  'demo-uzum',   'vault:kv/payments/uz/uzum'),
+  -- Rahmat (Multicard): MULTICARD_APPLICATION_ID / _SECRET / _STORE_ID berilmasa to'lov usullarida ko'rinmaydi
+  ('UZ', 'multicard', '{UZS}', 40, true, NULL,        'vault:kv/payments/uz/multicard'),
   ('AE', 'stripe', '{AED,USD}', 10, false, NULL,      'vault:kv/payments/ae/stripe');
 
 -- -----------------------------------------------------------------------------

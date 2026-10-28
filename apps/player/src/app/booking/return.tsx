@@ -4,7 +4,7 @@ import { Loading } from '@matchup/ui';
 import { closeCheckout, lastPendingBooking } from '@/features/payment';
 
 /**
- * Payme/Click `return_url` deep link'i (matchup://booking/return). Booking id'si URL'da yo'q —
+ * Payme/Click/Rahmat `return_url` deep link'i (matchup://booking/return; Rahmat'da `return_error_url` ham shu). Booking id'si URL'da yo'q —
  * booking yaratilishidan oldin ma'lum emas — shuning uchun oxirgi kutilayotgan booking'ga qaytamiz.
  */
 export default function PaymentReturnScreen() {

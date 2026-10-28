@@ -9,7 +9,7 @@ import { Button, colors, ErrorText, ErrorView, fontFamily, Footer, Loading, Noti
 import { api, call } from '@/api/client';
 import { ApiError, isApiError } from '@/api/errors';
 import { qk, useMatch, usePaymentMethods, useRequiredWaiver } from '@/api/queries';
-import { paymentReturnUrl, PROVIDER_COLORS, rememberCheckout } from '@/features/payment';
+import { paymentReturnUrl, PROVIDER_COLORS, PROVIDER_ON_COLORS, rememberCheckout } from '@/features/payment';
 import { currentLocale } from '@/i18n';
 import { formatDay, formatTime } from '@/lib/datetime';
 import { uuid } from '@/lib/device';
@@ -165,7 +165,9 @@ export default function CheckoutScreen() {
                   {isWallet ? (
                     <Ionicons name="wallet" size={19} color={colors.onPrimary} />
                   ) : (
-                    <Text style={styles.methodLetter}>{(pm.display_name ?? p).slice(0, 1)}</Text>
+                    <Text style={[styles.methodLetter, PROVIDER_ON_COLORS[p] ? { color: PROVIDER_ON_COLORS[p] } : null]}>
+                      {(pm.display_name ?? p).slice(0, 1)}
+                    </Text>
                   )}
                 </View>
                 <View style={styles.flex}>

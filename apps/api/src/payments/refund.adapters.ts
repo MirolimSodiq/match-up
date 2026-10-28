@@ -3,15 +3,19 @@ import { Inject, Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { ENV, type Env } from '../config/env';
 import type { Executor } from '../db/db';
+import { FISCAL_ITEM_TITLE, fiscalCodes } from './fiscal';
+import { MulticardClient, type MulticardPayment, type MulticardResult } from './multicard.client';
 
-export type RefundProvider = 'payme' | 'click' | 'uzum';
+export type RefundProvider = 'payme' | 'click' | 'uzum' | 'multicard';
 
-/** Provider tomonda to'liq bekor qilinadigan to'lov (payments qatori). */
+/** Provider tomonda bekor qilinadigan to'lov (payments qatori). */
 export interface ProviderPayment {
   paymentId: string;
   bookingId: string;
   providerTransactionId: string;
   amount: number;
+  /** payments.provider_state (masalan Multicard: to'lov usuli `ps`). */
+  providerState?: Record<string, unknown>;
 }
 
 /**
@@ -27,8 +31,9 @@ export type RefundOutcome =
   | { status: 'rejected'; error: string };
 
 /**
- * Provider orqali refund. Hech bir provider'da qisman qaytarish hujjat bilan tasdiqlanmagan — faqat to'lovni
- * to'liq bekor qilish; qisman refund'lar admin navbatida qoladi (hamyonga o'tkaziladi yoki qo'lda).
+ * Provider orqali refund: to'lovni to'liq bekor qilish (`reverse`). Qisman qaytarish faqat `partial` bor
+ * adapterlarda (Multicard, kartadan to'langanlar); qolganlarida qisman refund'lar admin navbatida qoladi
+ * (hamyonga o'tkaziladi yoki qo'lda).
  */
 export interface RefundAdapter {
   readonly provider: RefundProvider;
@@ -41,6 +46,14 @@ export interface RefundAdapter {
   check?(p: ProviderPayment): Promise<RefundOutcome>;
   /** Qaytarilgani `check` orqali bilindi (webhook kelmadi) — payments.provider_state'ni moslash. */
   markReversed?(ex: Executor, p: ProviderPayment): Promise<void>;
+  /**
+   * Qisman refund: `amount` qaytariladi, to'lovda `remaining` qoladi. `supports` false bo'lsa (sozlanmagan yoki
+   * to'lov usuli qo'llamaydi) — admin navbati (`partial`).
+   */
+  partial?: {
+    supports(p: ProviderPayment): boolean;
+    refund(p: ProviderPayment, amount: number, remaining: number): Promise<RefundOutcome>;
+  };
 }
 
 export const REFUND_ADAPTERS = Symbol('REFUND_ADAPTERS');
@@ -167,5 +180,73 @@ export class UzumRefundAdapter implements RefundAdapter {
 
   reverse(): Promise<RefundOutcome> {
     return Promise.reject(new Error(this.unsupported));
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Multicard — `DELETE /payment/{uuid}` (to'liq), `DELETE /payment/{uuid}/partial` (qisman)
+// -----------------------------------------------------------------------------
+/** Kartadan to'g'ridan-to'g'ri to'lov (ilova orqali emas): qisman refund'da karta raqami so'ralmaydi. */
+const MULTICARD_CARD_PS: ReadonlySet<string> = new Set(['uzcard', 'humo', 'visa', 'mastercard']);
+
+/**
+ * Multicard (docs.multicard.uz, "Отмена платежа (возврат средств)"): `DELETE /payment/{uuid}` — to'lovni bekor qilish,
+ * pul kartaga qaytadi; javob sinxron (`paymentModel`, holat `revert`). uuid — callback'dagi tranzaksiya uuid'i
+ * (payments.provider_transaction_id). Qisman — `DELETE /payment/{uuid}/partial` {refund_amount, ofd}: eski fiskal
+ * chek bekor qilinadi, `ofd` — qolgan summaga yangi chek. Ilova (Payme, Click, …) orqali to'langanda to'liq karta
+ * raqami (`card_pan`) kerak — bizda yo'q, shuning uchun qisman faqat kartadan to'langanlarda.
+ */
+@Injectable()
+export class MulticardRefundAdapter implements RefundAdapter {
+  readonly provider = 'multicard' as const;
+  readonly unsupported = null;
+
+  constructor(
+    @Inject(ENV) private readonly env: Env,
+    private readonly client: MulticardClient,
+  ) {}
+
+  get enabled() {
+    return this.env.MULTICARD_REFUND_ENABLED && this.client.configured;
+  }
+
+  async reverse(p: ProviderPayment): Promise<RefundOutcome> {
+    return this.outcome(await this.client.refund(p.providerTransactionId), p, 'revert');
+  }
+
+  async check(p: ProviderPayment): Promise<RefundOutcome> {
+    return this.outcome(await this.client.payment(p.providerTransactionId), p, 'check');
+  }
+
+  async markReversed(ex: Executor, p: ProviderPayment) {
+    await ex.execute(
+      sql`UPDATE payments SET provider_state = provider_state || jsonb_build_object('status', 'revert', 'refund_time', ${Date.now()}::bigint)
+          WHERE id = ${p.paymentId}`,
+    );
+  }
+
+  readonly partial = {
+    supports: (p: ProviderPayment): boolean =>
+      this.env.MULTICARD_PARTIAL_REFUND_ENABLED && !!fiscalCodes(this.env) && MULTICARD_CARD_PS.has(String(p.providerState?.ps ?? '')),
+    refund: async (p: ProviderPayment, amount: number, remaining: number): Promise<RefundOutcome> => {
+      const codes = fiscalCodes(this.env)!;
+      const r = await this.client.partialRefund(p.providerTransactionId, {
+        refund_amount: amount,
+        ofd: [{ qty: 1, price: remaining, total: remaining, mxik: codes.mxik, package_code: codes.packageCode, name: FISCAL_ITEM_TITLE, vat: 0 }],
+      });
+      if (!r.ok) return { status: 'rejected', error: `Multicard partial: ${r.code} ${r.details}`.trim() };
+      return { status: 'succeeded', providerRefundId: r.data?.uuid ?? p.providerTransactionId };
+    },
+  };
+
+  /** To'liq refund javobi / tekshiruvi: `revert` — qaytarildi; boshqa holat — kutilmoqda (check) yoki rad. */
+  private outcome(r: MulticardResult<MulticardPayment>, p: ProviderPayment, action: 'revert' | 'check'): RefundOutcome {
+    if (!r.ok) return { status: 'rejected', error: `Multicard ${action}: ${r.code} ${r.details}`.trim() };
+    const status = r.data?.status;
+    if (status === 'revert' || (action === 'revert' && status === undefined)) {
+      return { status: 'succeeded', providerRefundId: r.data?.uuid ?? p.providerTransactionId };
+    }
+    if (status === 'error') return { status: 'rejected', error: `Multicard ${action}: to'lov holati ${status}` };
+    return { status: 'submitted' };
   }
 }

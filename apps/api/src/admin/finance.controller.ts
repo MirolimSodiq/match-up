@@ -7,7 +7,7 @@ import { type Actor, CurrentActor } from './audit';
 import { AdminFinanceService } from './finance.service';
 import { csv, DateTime, Page } from './schemas';
 
-const Provider = z.enum(['payme', 'click', 'uzum', 'stripe', 'paypal', 'wallet', 'manual']);
+const Provider = z.enum(['payme', 'click', 'uzum', 'multicard', 'stripe', 'paypal', 'wallet', 'manual']);
 
 const PaymentList = z.object({
   status: csv(z.enum(['created', 'pending', 'authorized', 'succeeded', 'failed', 'cancelled', 'expired', 'refunded', 'partially_refunded'])).optional(),
