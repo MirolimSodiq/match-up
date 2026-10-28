@@ -66,6 +66,7 @@ Maqsad — noyabrda Toshkentda yopiq sinov (pilot), taxminan 2026-yil dekabr bos
 | C6 | Discovery API: stadion nomi bo'yicha qidiruv, tuman va "faqat bo'sh joylar" filtrlari (C1 uchun) | @MirolimProjects | `apps/api/src/matches`, `api/openapi.yaml` | — |
 | C7 | App Store review uchun demo kirish: production'da faqat bitta maxsus raqamga doimiy kod, audit bilan (Apple kirish talab qiladigan ilovadan demo akkaunt so'raydi) | @MirolimProjects | `apps/api/src/identity` | — |
 | C8 | Minimal xavfsizlik: WAF / rate limit, API uchun cheklangan DB role ([`DEPLOYMENT.md`](DEPLOYMENT.md) cheklovlari) | @MirolimProjects | `infra/terraform`, `db` | — |
+| C9 | Rahmat (Multicard) to'lovi: `payment_provider` ga `multicard` (migratsiya `0014`); server-to-server invoys (`POST /payment/invoice`, Bearer token 24 soat, `store_id`, summa tiyin'da, `ofd` — MXIK va `package_code`) → `checkout_url` player WebView'da; callback imzosi `md5(store_id + invoice_id + amount + secret)` (constant-time), idempotent tasdiqlash; javob kelmasa holatni so'rash va hold tugaganda invoysni bekor qilish; refund adapteri (to'liq/qisman, B8); player'da to'lov usuli; sandbox `dev-mesh.multicard.uz`. Keyin: saqlangan kartalar (karta biriktirish), host payout'lari kartaga (B9 avtomatlashadi), split — maydon ulushini to'g'ridan-to'g'ri (agentlik modeli). Payme/Click/Uzum'dan farqi: ular bizni chaqiradi, Multicard'ni biz chaqiramiz | kelishiladi (`payments` — @MirolimProjects) | `apps/api/src/payments`, `apps/api/src/commerce`, `apps/player`, `db/migrations/0014_*` | — |
 
 ### Kod bo'lmagan ishlar (biznes tomonni kim olib borsa)
 
@@ -74,9 +75,11 @@ Maqsad — noyabrda Toshkentda yopiq sinov (pilot), taxminan 2026-yil dekabr bos
 | Uzum checkout havolasi formati | Uzum menejeri bilan tasdiqlash |
 | Haqiqiy Apple/Google client ID'lar | social login'ni haqiqiy credential bilan sinash |
 | Push bosilganda deep link | haqiqiy qurilmada sinash |
-| Payme / Click merchant shartnomalari | komissiya, refund qoidalari |
+| Payme / Click merchant shartnomalari | YaTT nomiga; komissiya, refund qoidalari |
+| Rahmat (Multicard) merchant shartnomasi | YaTT nomiga; `application_id`, `secret`, `store_id`, sandbox kirish; komissiya va hisob-kitob muddati (saytda yo'q); xizmatimiz uchun MXIK va `package_code` (tasnif.soliq.uz) — barcha provayderlarda bir xil (C9) |
 | Yuridik | biometrik ta'rif (video), davlat reyestri, waiver kuchi, host'lar bilan shartnoma (`ARCHITECTURE.md` §6) |
-| Apple Developer va Google Play akkauntlari | kompaniya nomiga (D-U-N-S raqami kerak); Google shaxsiy akkauntida chiqishdan oldin 14 kunlik yopiq sinov majburiy |
+| Apple Developer va Google Play akkauntlari | **Qaror (2026-10-28): hozircha YaTT nomida, hamma narsa bitta shaxsda** (do'kon, Payme/Click/Rahmat, oferta, maxfiylik siyosati, fiskal chek). Apple yakka tadbirkorni Individual sifatida ro'yxatdan o'tkazadi — sotuvchi nomi shaxsiy ism; Google shaxsiy akkauntida chiqishdan oldin ≥ 12 tester bilan 14 kunlik yopiq sinov majburiy. Investor kirganda MChJ'ga o'tiladi: ilovani akkauntlar o'rtasida ko'chirish, to'lov tizimlarini qayta ulash, yangi oferta. Bo'lingan sxema (do'kon MChJ'da, pul YaTT'da) qo'llanmaydi |
+| Soliq (buxgalter bilan) | YaTT rejimi va tushum chegaralari; agentlik modeli (soliq faqat komissiyadan, maydon ulushi — split); IT Park — PQ-388 (2026-04-01 dan marketpleys va to'lov tashkilotlariga imtiyoz yo'q), o'yin joyini sotish IT daromadi hisoblanadimi |
 | Eskiz SMS shartnomasi | production'da kirish kodlari |
 | Maxfiylik siyosati va foydalanish shartlari | yurist yozadi, veb-sahifada (C1 havolalari shunga) |
 | Jiletka to'plamlari | har stadionga 4 rang × 8, raqamlar 1–8, 11–18, 21–28, 31–38 ([`AI_CAM.md`](AI_CAM.md) §13.2) |
@@ -94,7 +97,7 @@ Maqsad — noyabrda Toshkentda yopiq sinov (pilot), taxminan 2026-yil dekabr bos
 ## Ikki kishi bo'lib ishlash
 
 1. `main` ga to'g'ridan-to'g'ri push qilinmaydi: har ish o'z branch'ida → PR → CI yashil va ikkinchi odam ko'rib chiqqandan keyin merge.
-2. Migratsiya raqamlari: `0006` — AI-Cam (@MirolimSodiq), `0009` dan boshlab — @MirolimProjects (`0009` — post-match job'lari, B3; `0010` — highlight moderatsiyasi, B4; `0011` — avto-refund'lar, B8; `0012` — host payout'larini to'lash, B9; `0013` — ko'p jamoali o'yinlar, C4, @MirolimSodiq); bitta PR'da bir nechta kerak bo'lsa, shu yerda band qilinadi. Runner qo'llanganlarni `schema_migrations` da fayl nomi bo'yicha saqlaydi, shuning uchun raqamlar orasidagi bo'shliq va merge tartibi muammo emas.
+2. Migratsiya raqamlari: `0006` — AI-Cam (@MirolimSodiq), `0009` dan boshlab — @MirolimProjects (`0009` — post-match job'lari, B3; `0010` — highlight moderatsiyasi, B4; `0011` — avto-refund'lar, B8; `0012` — host payout'larini to'lash, B9; `0013` — ko'p jamoali o'yinlar, C4, @MirolimSodiq; `0014` — Rahmat/Multicard, C9); bitta PR'da bir nechta kerak bo'lsa, shu yerda band qilinadi. Runner qo'llanganlarni `schema_migrations` da fayl nomi bo'yicha saqlaydi, shuning uchun raqamlar orasidagi bo'shliq va merge tartibi muammo emas.
 3. Generatsiya qilinadigan fayllar (`apps/api/src/db/schema.ts`, `relations.ts`, `packages/contracts`, `pnpm-lock.yaml`) qo'lda tahrirlanmaydi, conflict ham qo'lda tuzatilmaydi: toza bazada `db:migrate` + `db:pull` (contracts uchun `contracts generate`, lock uchun `pnpm install`) qilinadi va natija commit qilinadi. `db:pull` deklaratsiyalarni nom bo'yicha saralaydi, importlar har nom alohida qatorda — bir xil migratsiyalardan doim baytma-bayt bir xil fayl chiqadi, diff faqat haqiqiy o'zgarishni ko'rsatadi. CI'dagi "Generated fayllar drift" job'i Drizzle sxemasi va `packages/contracts/src/schema.ts` manbadan farq qilsa PR'ni to'xtatadi.
 4. `api/openapi.yaml` ga ikkalasi ham tegadi: PR'lar kichik, `main` dan tez-tez rebase.
 5. Boshqa yo'nalish papkasiga tegish kerak bo'lsa (masalan, B7 → `apps/api/src/media/`) — oldin kelishiladi.
