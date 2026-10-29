@@ -12,7 +12,7 @@ const CreateBooking = z.object({
   match_id: z.uuid(),
   seats: z.number().int().min(1).max(4).default(1),
   guests: z.array(z.object({ name: z.string().trim().min(2).max(60) })).max(3).default([]),
-  payment_method: z.enum(['payme', 'click', 'uzum', 'stripe', 'paypal', 'wallet']),
+  payment_method: z.enum(['payme', 'click', 'uzum', 'multicard', 'stripe', 'paypal', 'wallet']),
   use_wallet: z.boolean().default(false),
   promo_code: z.string().max(40).optional(),
   waiver_signature_id: z.uuid(),

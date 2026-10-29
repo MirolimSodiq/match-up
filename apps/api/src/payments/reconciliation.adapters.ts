@@ -1,8 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { ENV, type Env } from '../config/env';
+import { MulticardClient, type MulticardStatus, parseTashkentTime } from './multicard.client';
 
-export type ReconProvider = 'payme' | 'click' | 'uzum';
-export const RECON_PROVIDERS: readonly ReconProvider[] = ['payme', 'click', 'uzum'];
+export type ReconProvider = 'payme' | 'click' | 'uzum' | 'multicard';
+export const RECON_PROVIDERS: readonly ReconProvider[] = ['payme', 'click', 'uzum', 'multicard'];
 
 /** Provider holati bizning terminlarda: pul yechilgan / qaytarilgan / yechilmay bekor qilingan / jarayonda. */
 export type ProviderTxStatus = 'succeeded' | 'refunded' | 'cancelled' | 'pending';
@@ -135,5 +136,57 @@ export class UzumReconciliationAdapter implements ReconciliationAdapter {
 
   fetchTransactions(): Promise<ProviderTransaction[]> {
     return Promise.reject(new Error(this.unsupported));
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Multicard — reyestr `GET /payment/store/{store_id}/history` (docs.multicard.uz, "Реестр проведенных платежей")
+// -----------------------------------------------------------------------------
+const MULTICARD_PAGE = 100;
+const MULTICARD_MAX = 100_000;
+
+/** success — pul yechilgan; revert — qaytarilgan; error — yechilmagan; draft/progress/billing — jarayonda. */
+export function multicardTxStatus(s: MulticardStatus): ProviderTxStatus {
+  if (s === 'success') return 'succeeded';
+  if (s === 'revert') return 'refunded';
+  if (s === 'error') return 'cancelled';
+  return 'pending';
+}
+
+/**
+ * Kassa bo'yicha tranzaksiyalar (davr — GMT+5, `offset`/`limit` bilan sahifalab). `uuid` — tranzaksiya uuid'i: to'langan
+ * to'lovlarda payments.provider_transaction_id shu (callback'dan). `store_invoice_id` — bizning payments.id.
+ */
+@Injectable()
+export class MulticardReconciliationAdapter implements ReconciliationAdapter {
+  readonly provider = 'multicard' as const;
+
+  constructor(private readonly client: MulticardClient) {}
+
+  get unsupported(): string | null {
+    return this.client.configured ? null : 'Multicard kalitlari (MULTICARD_APPLICATION_ID, _SECRET, _STORE_ID) sozlanmagan';
+  }
+
+  async fetchTransactions(from: Date, to: Date): Promise<ProviderTransaction[]> {
+    const out: ProviderTransaction[] = [];
+    for (let offset = 0; ; offset += MULTICARD_PAGE) {
+      const r = await this.client.history({ from, to, offset, limit: MULTICARD_PAGE });
+      if (!r.ok) throw new Error(`Multicard history: ${r.code} ${r.details}`);
+      const page = r.data?.list ?? [];
+      for (const t of page) {
+        out.push({
+          providerTransactionId: t.uuid,
+          amount: t.payment_amount,
+          currency: 'UZS',
+          status: multicardTxStatus(t.status),
+          occurredAt: parseTashkentTime(t.added_on) ?? new Date(NaN),
+          bookingId: null,
+          raw: { status: t.status, ps: t.ps ?? null, store_invoice_id: t.store_invoice_id ?? null, payment_time: t.payment_time ?? null, refund_time: t.refund_time ?? null },
+        });
+      }
+      const total = r.data?.pagination?.total ?? 0;
+      if (page.length < MULTICARD_PAGE || offset + page.length >= total) return out;
+      if (offset >= MULTICARD_MAX) throw new Error(`Multicard history: ${MULTICARD_MAX} dan ortiq tranzaksiya`);
+    }
   }
 }

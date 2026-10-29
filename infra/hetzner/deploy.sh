@@ -52,6 +52,9 @@ validate_env() {
   if [[ -n $(env_get PAYME_MERCHANT_ID) && $(env_get PAYME_CHECKOUT_URL https://checkout.test.paycom.uz) == *test* ]]; then
     log "OGOHLANTIRISH: PAYME_CHECKOUT_URL test muhitiga qaraydi (production: https://checkout.paycom.uz)"
   fi
+  if [[ -n $(env_get MULTICARD_APPLICATION_ID) && $(env_get MULTICARD_BASE_URL https://dev-mesh.multicard.uz) == *dev-mesh* ]]; then
+    log "OGOHLANTIRISH: MULTICARD_BASE_URL sandbox'ga qaraydi (production: https://mesh.multicard.uz)"
+  fi
 }
 
 # Sog'lom bo'lmagan servislar va ularning oxirgi loglari (bir martalik media-work-init muvaffaqiyatli tugagan bo'ladi)

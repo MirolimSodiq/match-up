@@ -674,6 +674,9 @@ export interface paths {
          * Joyni band qilish (hold) va checkout boshlash
          * @description 1. Waiver imzosi tekshiriladi. 2. Atomik seat hold (`db/queries/hold_seat.sql`), muddati 15 daqiqa.
          *     3. Provider adapter checkout yaratadi. Wallet to'liq yopsa — darhol `confirmed`.
+         *     Payme / Click / Uzum havolasi deterministik yasaladi; Rahmat (`multicard`) uchun server Multicard'da invoys yaratadi
+         *     (`POST /payment/invoice`, `ttl` = hold muddati) va `checkout.url` — invoysning `checkout_url` i. Invoys yaratilmasa
+         *     hold ozod qilinadi va 503 (`UPSTREAM_UNAVAILABLE`) — o'yinchi yangi `Idempotency-Key` bilan qaytadan band qiladi.
          *     Holat o'zgarishini client `GET /v1/bookings/{id}` yoki WebSocket `booking:{id}` orqali kuzatadi.
          */
         post: operations["createBooking"];
@@ -841,6 +844,43 @@ export interface paths {
          *     POST bo'lmagan so'rov yoki noma'lum operatsiya — `10003`; buzilgan JSON — `10002`.
          */
         post: operations["uzumMerchantApi"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/webhooks/multicard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rahmat (Multicard) callback'i — muvaffaqiyatli to'lovdan keyin
+         * @description Rasmiy hujjat: <https://docs.multicard.uz> ("Оплата на платежной странице Multicard" -> "Callback (success)").
+         *     Payme/Click/Uzum'dan farqi: invoysni biz yaratamiz (`POST /v1/bookings` -> Multicard `POST /payment/invoice`,
+         *     `invoice_id` = bizning `payments.id`), pul yechilgach Multicard shu endpointni chaqiradi (IP 195.158.26.90).
+         *     `sign = md5(store_id + invoice_id + amount + secret)` (summa butun tiyin, constant-time solishtiriladi).
+         *
+         *     | Holat | Javob |
+         *     |---|---|
+         *     | imzo noto'g'ri yoki `MULTICARD_SECRET` sozlanmagan | 403, `success: false` — Multicard to'lovni bekor qiladi |
+         *     | to'lov topilmadi, `store_id` yoki summa mos emas | 200, `success: false` + `message` (to'lov sahifasida ko'rsatiladi) — pul qaytariladi |
+         *     | booking tasdiqlandi (hold muddati o'tgan bo'lsa joy bor ekan — qayta hold) | 200, `success: true`; `PaymentSucceeded` outbox |
+         *     | o'sha `uuid` bilan takroriy callback | 200, `success: true` (idempotent, ikkinchi tasdiq yo'q) |
+         *     | joy qolmagan, booking bekor qilingan yoki boshqa usul bilan to'langan | 200, `success: false` — to'lov `cancelled`, pulni Multicard qaytaradi |
+         *     | kutilmagan server xatosi | 500 — Multicard tranzaksiyani muzlatadi va callback'ni qayta yuboradi |
+         *
+         *     Har callback (imzo xatosi bilan ham) `payment_events` ga yoziladi (telefon maskalanadi, karta tokeni yozilmaydi).
+         *     Callback kelmasa `multicard-sync` job'i (har daqiqa) invoys holatini so'raydi (`GET /payment/invoice/{uuid}`):
+         *     `success` — tasdiqlanadi (joy qolmagan bo'lsa to'liq refund navbatga, `late_payment_no_seat`); hold tugagan yoki
+         *     booking bekor qilingan va to'lanmagan — invoys bekor qilinadi (`DELETE /payment/invoice/{uuid}`).
+         */
+        post: operations["multicardCallback"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1994,6 +2034,7 @@ export interface paths {
          *     | Payme | Subscribe API `receipts.get_all` (X-Auth: kassa id + kalit, sahifa 50 tadan); `PAYME_RECONCILE_ENABLED=true` bo'lsa |
          *     | Click | yo'q — Merchant API'da davr bo'yicha ro'yxat yo'q (faqat bitta to'lov holati, summasiz) |
          *     | Uzum | yo'q — Merchant API faqat webhook'lardan iborat |
+         *     | Rahmat (Multicard) | reyestr `GET /payment/store/{store_id}/history` (sahifa 100 tadan, GMT+5); Multicard kalitlari sozlangan bo'lsa |
          */
         get: operations["adminListReconciliationRuns"];
         put?: never;
@@ -2140,8 +2181,11 @@ export interface components {
         };
         /** @enum {string} */
         SkillLevel: "beginner" | "intermediate" | "advanced" | "pro";
-        /** @enum {string} */
-        PaymentProvider: "payme" | "click" | "uzum" | "stripe" | "paypal" | "wallet";
+        /**
+         * @description `multicard` — Rahmat (Multicard) to'lov sahifasi: kartalar (Uzcard, Humo, Visa, Mastercard) va to'lov ilovalari
+         * @enum {string}
+         */
+        PaymentProvider: "payme" | "click" | "uzum" | "multicard" | "stripe" | "paypal" | "wallet";
         DeviceInfo: {
             device_id: string;
             /** @enum {string} */
@@ -2740,7 +2784,7 @@ export interface components {
             /** @constant */
             type: "redirect";
             /** @enum {string} */
-            provider: "payme" | "click" | "uzum";
+            provider: "payme" | "click" | "uzum" | "multicard";
             /**
              * Format: uri
              * @example https://checkout.paycom.uz/bT1kZW1vO2FjLmJvb2tpbmdfaWQ9MDFhMS4uLjthPTQ1MDAwMDA=
@@ -2863,6 +2907,54 @@ export interface components {
             /** @enum {integer} */
             error: 0 | -1 | -2 | -3 | -4 | -5 | -6 | -7 | -8 | -9;
             error_note: string;
+        };
+        /** @description Multicard "Callback (success)" — summalar tiyin'da, vaqt GMT+5 (`YYYY-mm-dd H:i:s`) */
+        MulticardCallback: {
+            /** @description Kassa ID (`MULTICARD_STORE_ID`) */
+            store_id: number;
+            /**
+             * Format: int64
+             * @description tiyin
+             */
+            amount: number;
+            /**
+             * Format: uuid
+             * @description Bizning `payments.id`
+             */
+            invoice_id: string;
+            billing_id?: string;
+            /** @example 2026-10-28 14:36:31 */
+            payment_time?: string;
+            /** @description 998XXXXXXXXX (bo'lsa) */
+            phone?: string;
+            /** @description Maskalangan karta raqami */
+            card_pan?: string;
+            /**
+             * @example uzcard
+             * @example humo
+             * @example visa
+             * @example mastercard
+             * @example payme
+             * @example click
+             * @example uzum
+             */
+            ps?: string;
+            /** @description Saqlanmaydi */
+            card_token?: string;
+            /** @description Multicard tranzaksiya uuid'i (takroriy callback'lar shu bo'yicha) */
+            uuid: string;
+            /**
+             * Format: uri
+             * @description Fiskal chek
+             */
+            receipt_url?: string;
+            /** @description md5(store_id + invoice_id + amount + secret) */
+            sign: string;
+        };
+        MulticardReply: {
+            success: boolean;
+            /** @description `success: false` da to'lov sahifasida o'yinchiga ko'rsatiladi */
+            message?: string;
         };
         /**
          * @description Maydonlar operatsiyaga qarab: `check` — `params`; `create` — `transId`, `params`, `amount`;
@@ -4118,7 +4210,7 @@ export interface components {
             booking_id: string;
             booking_status: components["schemas"]["BookingStatus"];
             /** @enum {string} */
-            provider: "payme" | "click" | "uzum" | "stripe" | "paypal" | "wallet" | "manual";
+            provider: "payme" | "click" | "uzum" | "multicard" | "stripe" | "paypal" | "wallet" | "manual";
             amount: components["schemas"]["Money"];
             refunded: components["schemas"]["Money"];
             status: components["schemas"]["PaymentStatus"];
@@ -4150,7 +4242,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            provider: "payme" | "click" | "uzum";
+            provider: "payme" | "click" | "uzum" | "multicard";
             period: {
                 /** Format: date-time */
                 from: string;
@@ -4342,7 +4434,8 @@ export interface components {
             } | null;
         };
         /**
-         * @description Avtomatik provider refund'i (Payme `receipts.cancel`, Click `payment/reversal`; Uzum'da API yo'q).
+         * @description Avtomatik provider refund'i (Payme `receipts.cancel`, Click `payment/reversal`, Multicard `DELETE /payment/{uuid}`
+         *     va qisman — `…/partial`, faqat kartadan to'langanlarda; Uzum'da API yo'q).
          *     `status`: null — hali ko'rilmagan yoki tegishli emas; `queued` — `next_attempt_at` da (qayta) urinish;
          *     `submitted` — provider javobi kutilmoqda; `manual` — admin hal qiladi (`manual_reason`).
          */
@@ -4353,7 +4446,8 @@ export interface components {
             /** Format: date-time */
             next_attempt_at: string | null;
             /**
-             * @description partial — provider faqat to'liq summani qaytaradi; unsupported — provider'da refund API yo'q (Uzum);
+             * @description partial — provider qisman qaytara olmaydi (Payme, Click; Multicard — ilova orqali to'langan yoki qisman o'chiq);
+             *     unsupported — provider'da refund API yo'q (Uzum);
              *     disabled — avto-refund o'chiq; rejected — provider rad etdi; failed — urinishlar tugadi;
              *     timeout — provider natijani tasdiqlamadi; legacy — avto-refund'dan oldingi navbat.
              * @enum {string|null}
@@ -5764,6 +5858,15 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+            /** @description Rahmat (Multicard) invoysi yaratilmadi (`UPSTREAM_UNAVAILABLE`) — booking bekor qilingan, joy ozod */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     getBooking: {
@@ -6001,6 +6104,64 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UzumError"];
+                };
+            };
+        };
+    };
+    multicardCallback: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "store_id": 6,
+                 *       "amount": 4500000,
+                 *       "invoice_id": "01a14af9-7400-7aaa-9bbb-123456789abc",
+                 *       "billing_id": "20241214242009869794410864028760",
+                 *       "payment_time": "2026-10-28 14:36:31",
+                 *       "phone": "998901234567",
+                 *       "card_pan": "860030******5959",
+                 *       "ps": "uzcard",
+                 *       "card_token": "6225f3c93f7a880142782fa4",
+                 *       "uuid": "e60d8ebc-b9fe-11ef-b159-005056b4367d",
+                 *       "receipt_url": "https://checkout.multicard.uz/check/e60d8ebc-b9fe-11ef-b159-005056b4367d",
+                 *       "sign": "553b4292b0f1d8e0e18e6daeb3af3761"
+                 *     }
+                 */
+                "application/json": components["schemas"]["MulticardCallback"];
+            };
+        };
+        responses: {
+            /** @description Qabul qilindi (`success: true`) yoki rad etildi (`success: false` — Multicard pulni qaytaradi) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MulticardReply"];
+                };
+            };
+            /** @description Imzo noto'g'ri */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MulticardReply"];
+                };
+            };
+            /** @description Kutilmagan server xatosi — Multicard callback'ni qayta yuboradi */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MulticardReply"];
                 };
             };
         };
@@ -7927,7 +8088,7 @@ export interface operations {
             content: {
                 "application/json": {
                     /** @enum {string} */
-                    provider?: "payme" | "click" | "uzum";
+                    provider?: "payme" | "click" | "uzum" | "multicard";
                     /**
                      * Format: date-time
                      * @description Kiritiladi

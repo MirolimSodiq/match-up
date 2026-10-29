@@ -7,9 +7,11 @@ import { bool, csv, DateTime, Page } from '../admin/schemas';
 import { ENV, type Env } from '../config/env';
 import { AppError } from '../common/errors';
 import { IdempotencyKey, ReqLocale, Roles, ZBody, ZQuery } from '../common/http';
+import { CommerceModule } from '../commerce/commerce.module';
 import type { Locale } from '../common/i18n';
 import {
   ClickReconciliationAdapter,
+  MulticardReconciliationAdapter,
   PaymeReconciliationAdapter,
   RECON_PROVIDERS,
   RECONCILIATION_ADAPTERS,
@@ -122,14 +124,16 @@ export class ReconciliationJobs implements OnModuleInit, OnModuleDestroy {
 }
 
 @Module({
+  imports: [CommerceModule],
   controllers: [AdminReconciliationController],
   providers: [
     PaymeReconciliationAdapter,
     ClickReconciliationAdapter,
     UzumReconciliationAdapter,
+    MulticardReconciliationAdapter,
     {
       provide: RECONCILIATION_ADAPTERS,
-      inject: [PaymeReconciliationAdapter, ClickReconciliationAdapter, UzumReconciliationAdapter],
+      inject: [PaymeReconciliationAdapter, ClickReconciliationAdapter, UzumReconciliationAdapter, MulticardReconciliationAdapter],
       useFactory: (...adapters: ReconciliationAdapter[]) => adapters,
     },
     ReconciliationService,

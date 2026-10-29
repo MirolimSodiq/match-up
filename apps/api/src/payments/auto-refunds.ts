@@ -31,6 +31,7 @@ interface DueRefund extends PendingRefund {
   pay_refunded: number;
   pay_status: string;
   provider_transaction_id: string | null;
+  provider_state: Record<string, unknown>;
   public_code: string;
 }
 
@@ -40,9 +41,11 @@ const DUE = sql`r.status = 'pending' AND r.destination = 'original_method'
 /**
  * Avtomatik provider refund'i (job `provider-refunds`, har daqiqa). Kutilayotgan `original_method` refund'i:
  *   * provider refund API'si yo'q (Uzum) yoki avto-refund o'chiq — admin navbatiga (`unsupported` / `disabled`);
- *   * qisman (refund to'lovning hammasini qoplamaydi) — admin navbatiga (`partial`): admin hamyonga o'tkazadi
- *     yoki provider kabinetidan qo'lda qaytaradi;
- *   * to'liq — provider'da to'lov bekor qilinadi (Payme `receipts.cancel`, Click `payment/reversal`).
+ *   * qisman (refund to'lovning hammasini qoplamaydi) — adapter qo'llasa (Multicard, kartadan to'langan) provider'da
+ *     qisman qaytariladi, aks holda admin navbatiga (`partial`): admin hamyonga o'tkazadi yoki provider kabinetidan
+ *     qo'lda qaytaradi;
+ *   * to'liq — provider'da to'lov bekor qilinadi (Payme `receipts.cancel`, Click `payment/reversal`, Multicard
+ *     `DELETE /payment/{uuid}`).
  * Provider chaqiruvi tranzaksiyadan tashqarida: Payme shu orada `CancelTransaction` webhook'ini chaqiradi va u
  * refund'ni o'zi yakunlaydi. Vaqtinchalik xato — backoff bilan qayta urinish; provider rad etsa, urinishlar
  * tugasa yoki natija 24 soatda tasdiqlanmasa — admin navbati + ops guruhiga ogohlantirish.
@@ -81,16 +84,12 @@ export class AutoRefunds {
     if (!claimed) return null;
     if ('manual' in claimed) return this.done(claimed);
 
-    const { r, adapter, action } = claimed;
-    const payment: ProviderPayment = {
-      paymentId: r.payment_id,
-      bookingId: r.booking_id,
-      providerTransactionId: r.provider_transaction_id!,
-      amount: r.pay_amount,
-    };
+    const { r, adapter, action, payment } = claimed;
     let outcome: RefundOutcome | Error;
     try {
-      outcome = action === 'check' ? await adapter.check!(payment) : await adapter.reverse(payment);
+      if (action === 'check') outcome = await adapter.check!(payment);
+      else if (action === 'partial') outcome = await adapter.partial!.refund(payment, r.amount, r.pay_amount - r.pay_refunded - r.amount);
+      else outcome = await adapter.reverse(payment);
     } catch (err) {
       outcome = err as Error;
     }
@@ -103,7 +102,7 @@ export class AutoRefunds {
       sql`SELECT r.id, r.booking_id, r.payment_id, r.amount, r.currency, b.user_id,
                  r.auto_status, r.auto_attempts, extract(epoch FROM now() - r.auto_submitted_at)::int AS submitted_age_s,
                  pay.provider, pay.amount AS pay_amount, pay.refunded_amount AS pay_refunded, pay.status AS pay_status,
-                 pay.provider_transaction_id, m.public_code
+                 pay.provider_transaction_id, pay.provider_state, m.public_code
           FROM refunds r
           JOIN bookings b ON b.id = r.booking_id
           JOIN matches m ON m.id = b.match_id
@@ -117,27 +116,39 @@ export class AutoRefunds {
       return this.manual(tx, r, 'unsupported', adapter?.unsupported ?? `${r.provider}: provider orqali refund qilinmaydi`);
     }
     if (!adapter.enabled) return this.manual(tx, r, 'disabled', null);
-    // Provider faqat butun to'lovni bekor qiladi: refund to'lovning hammasini qoplashi kerak
-    if (r.pay_refunded > 0 || r.amount < r.pay_amount) return this.manual(tx, r, 'partial', null);
-    if (r.pay_status !== 'succeeded' || !r.provider_transaction_id) {
+    const payment: ProviderPayment = {
+      paymentId: r.payment_id,
+      bookingId: r.booking_id,
+      providerTransactionId: r.provider_transaction_id ?? '',
+      amount: r.pay_amount,
+      providerState: r.provider_state,
+    };
+    // Qisman (refund to'lovning hammasini qoplamaydi): adapter qo'llasa provider'da, aks holda admin navbati.
+    // Qolgan summa 0 bo'lsa (oldin qisman qaytarilgan to'lovning qoldig'i) — fiskal chek bo'sh bo'lardi: admin navbati.
+    const partial = r.pay_refunded > 0 || r.amount < r.pay_amount;
+    if (partial && !(adapter.partial?.supports(payment) && r.pay_amount - r.pay_refunded - r.amount > 0)) {
+      return this.manual(tx, r, 'partial', null);
+    }
+    if (!['succeeded', 'partially_refunded'].includes(r.pay_status) || !r.provider_transaction_id) {
       return this.manual(tx, r, 'rejected', `to'lov holati: ${r.pay_status}`);
     }
 
-    const action = r.auto_status === 'submitted' ? ('check' as const) : ('reverse' as const);
+    const action = r.auto_status === 'submitted' ? ('check' as const) : partial ? ('partial' as const) : ('reverse' as const);
     if (action === 'check') {
-      if (!adapter.check) return this.manual(tx, r, 'timeout', "natija noma'lum (javob olinmadi) — provider kabinetida tekshiring");
+      // Qisman so'rov natijasini to'lov holatidan bilib bo'lmaydi (to'lov `success` da qoladi)
+      if (!adapter.check || partial) return this.manual(tx, r, 'timeout', "natija noma'lum (javob olinmadi) — provider kabinetida tekshiring");
       if ((r.submitted_age_s ?? 0) > SUBMITTED_TIMEOUT_S) return this.manual(tx, r, 'timeout', 'provider 24 soatda tasdiqlamadi');
     }
     // `submitted` + keyingi tekshiruv vaqti: jarayon shu yerda uzilsa ham keyingi job qayta yubormaydi, tekshiradi
     await tx.execute(
       sql`UPDATE refunds
              SET auto_status = 'submitted', auto_next_at = now() + make_interval(secs => ${CHECK_DELAY_S}),
-                 auto_attempts = auto_attempts + ${action === 'reverse' ? 1 : 0},
-                 auto_submitted_at = CASE WHEN ${action} = 'reverse' THEN now() ELSE auto_submitted_at END
+                 auto_attempts = auto_attempts + ${action === 'check' ? 0 : 1},
+                 auto_submitted_at = CASE WHEN ${action} = 'check' THEN auto_submitted_at ELSE now() END
            WHERE id = ${r.id}`,
     );
-    if (action === 'reverse') r.auto_attempts++;
-    return { r, adapter, action };
+    if (action !== 'check') r.auto_attempts++;
+    return { r, adapter, action, payment };
   }
 
   private async apply(
@@ -145,7 +156,7 @@ export class AutoRefunds {
     r: DueRefund,
     adapter: RefundAdapter,
     payment: ProviderPayment,
-    action: 'reverse' | 'check',
+    action: 'reverse' | 'partial' | 'check',
     outcome: RefundOutcome | Error,
   ): Promise<{ result: Result; alert?: string } | null> {
     const cur = await one<{ status: string; auto_status: string | null }>(
@@ -160,6 +171,8 @@ export class AutoRefunds {
       this.log.warn(`refund ${r.id} (${r.provider} ${action}): ${outcome.message}`);
       // Tekshiruv xatosi — keyingi tekshiruv allaqachon rejalashtirilgan
       if (action === 'check') return { result: 'retry' };
+      // Qisman so'rov bajarilgan bo'lishi mumkin (javob yo'qolgan): qayta yuborish ikki marta qaytarardi
+      if (action === 'partial') return this.manual(tx, r, 'timeout', `natija noma'lum: ${outcome.message}`);
       if (r.auto_attempts >= AUTO_REFUND_MAX_ATTEMPTS) return this.manual(tx, r, 'failed', outcome.message);
       const delay = RETRY_DELAYS_S[Math.min(r.auto_attempts - 1, RETRY_DELAYS_S.length - 1)]!;
       await tx.execute(
@@ -171,12 +184,17 @@ export class AutoRefunds {
     if (outcome.status === 'submitted') return { result: 'submitted' };
     if (outcome.status === 'rejected') return this.manual(tx, r, 'rejected', outcome.error);
 
-    await adapter.markReversed?.(tx, payment);
-    await this.settlement.providerReversed(tx, r.payment_id, outcome.providerRefundId);
+    if (action === 'partial') {
+      await this.settlement.providerPartial(tx, r, outcome.providerRefundId);
+    } else {
+      await adapter.markReversed?.(tx, payment);
+      await this.settlement.providerReversed(tx, r.payment_id, outcome.providerRefundId);
+    }
     await audit(tx, null, 'refund.auto_complete', 'refund', r.id, {
       provider: r.provider,
       provider_refund_id: outcome.providerRefundId,
       attempts: r.auto_attempts,
+      ...(action === 'partial' ? { partial: true } : {}),
     });
     return { result: 'succeeded' };
   }

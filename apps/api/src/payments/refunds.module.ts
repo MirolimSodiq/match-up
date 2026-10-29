@@ -5,7 +5,14 @@ import { CommerceModule } from '../commerce/commerce.module';
 import { OpsAlerts } from '../common/ops-alerts';
 import { ENV, type Env } from '../config/env';
 import { AutoRefunds } from './auto-refunds';
-import { ClickRefundAdapter, PaymeRefundAdapter, REFUND_ADAPTERS, type RefundAdapter, UzumRefundAdapter } from './refund.adapters';
+import {
+  ClickRefundAdapter,
+  MulticardRefundAdapter,
+  PaymeRefundAdapter,
+  REFUND_ADAPTERS,
+  type RefundAdapter,
+  UzumRefundAdapter,
+} from './refund.adapters';
 import { RefundSettlement } from './refund-settlement';
 
 /** Avto-refund job'i (`provider-refunds`, har daqiqa) — o'z navbatida, maintenance job'lariga to'siq bo'lmaydi. */
@@ -48,9 +55,10 @@ export class RefundJobs implements OnModuleInit, OnModuleDestroy {
     PaymeRefundAdapter,
     ClickRefundAdapter,
     UzumRefundAdapter,
+    MulticardRefundAdapter,
     {
       provide: REFUND_ADAPTERS,
-      inject: [PaymeRefundAdapter, ClickRefundAdapter, UzumRefundAdapter],
+      inject: [PaymeRefundAdapter, ClickRefundAdapter, UzumRefundAdapter, MulticardRefundAdapter],
       useFactory: (...adapters: RefundAdapter[]) => adapters,
     },
     OpsAlerts,

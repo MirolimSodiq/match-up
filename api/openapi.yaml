@@ -41,7 +41,7 @@ tags:
   - name: Bookings
     description: Joy band qilish, checkout, bekor qilish, chipta (QR)
   - name: Webhooks
-    description: To'lov provayderlaridan keladigan chaqiruvlar (Payme, Click, Uzum, Stripe)
+    description: To'lov provayderlaridan keladigan chaqiruvlar (Payme, Click, Uzum, Rahmat/Multicard, Stripe)
   - name: Host
     description: Freelance Match Host paneli — offer'lar, roster, check-in, highlight
   - name: Media
@@ -1063,6 +1063,9 @@ paths:
       description: |
         1. Waiver imzosi tekshiriladi. 2. Atomik seat hold (`db/queries/hold_seat.sql`), muddati 15 daqiqa.
         3. Provider adapter checkout yaratadi. Wallet to'liq yopsa — darhol `confirmed`.
+        Payme / Click / Uzum havolasi deterministik yasaladi; Rahmat (`multicard`) uchun server Multicard'da invoys yaratadi
+        (`POST /payment/invoice`, `ttl` = hold muddati) va `checkout.url` — invoysning `checkout_url` i. Invoys yaratilmasa
+        hold ozod qilinadi va 503 (`UPSTREAM_UNAVAILABLE`) — o'yinchi yangi `Idempotency-Key` bilan qaytadan band qiladi.
         Holat o'zgarishini client `GET /v1/bookings/{id}` yoki WebSocket `booking:{id}` orqali kuzatadi.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -1102,6 +1105,11 @@ paths:
                 detail: Bu o'yinda bo'sh joy qolmadi. Kutish ro'yxatiga yozilishingiz mumkin.
         '422':
           description: '`WAIVER_REQUIRED` | `SKILL_LEVEL_MISMATCH` | `AGE_RESTRICTED` | validatsiya'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '503':
+          description: Rahmat (Multicard) invoysi yaratilmadi (`UPSTREAM_UNAVAILABLE`) — booking bekor qilingan, joy ozod
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -1379,6 +1387,69 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/UzumError' }
+
+  /v1/webhooks/multicard:
+    post:
+      tags: [Webhooks]
+      operationId: multicardCallback
+      summary: Rahmat (Multicard) callback'i — muvaffaqiyatli to'lovdan keyin
+      description: |
+        Rasmiy hujjat: <https://docs.multicard.uz> ("Оплата на платежной странице Multicard" -> "Callback (success)").
+        Payme/Click/Uzum'dan farqi: invoysni biz yaratamiz (`POST /v1/bookings` -> Multicard `POST /payment/invoice`,
+        `invoice_id` = bizning `payments.id`), pul yechilgach Multicard shu endpointni chaqiradi (IP 195.158.26.90).
+        `sign = md5(store_id + invoice_id + amount + secret)` (summa butun tiyin, constant-time solishtiriladi).
+
+        | Holat | Javob |
+        |---|---|
+        | imzo noto'g'ri yoki `MULTICARD_SECRET` sozlanmagan | 403, `success: false` — Multicard to'lovni bekor qiladi |
+        | to'lov topilmadi, `store_id` yoki summa mos emas | 200, `success: false` + `message` (to'lov sahifasida ko'rsatiladi) — pul qaytariladi |
+        | booking tasdiqlandi (hold muddati o'tgan bo'lsa joy bor ekan — qayta hold) | 200, `success: true`; `PaymentSucceeded` outbox |
+        | o'sha `uuid` bilan takroriy callback | 200, `success: true` (idempotent, ikkinchi tasdiq yo'q) |
+        | joy qolmagan, booking bekor qilingan yoki boshqa usul bilan to'langan | 200, `success: false` — to'lov `cancelled`, pulni Multicard qaytaradi |
+        | kutilmagan server xatosi | 500 — Multicard tranzaksiyani muzlatadi va callback'ni qayta yuboradi |
+
+        Har callback (imzo xatosi bilan ham) `payment_events` ga yoziladi (telefon maskalanadi, karta tokeni yozilmaydi).
+        Callback kelmasa `multicard-sync` job'i (har daqiqa) invoys holatini so'raydi (`GET /payment/invoice/{uuid}`):
+        `success` — tasdiqlanadi (joy qolmagan bo'lsa to'liq refund navbatga, `late_payment_no_seat`); hold tugagan yoki
+        booking bekor qilingan va to'lanmagan — invoys bekor qilinadi (`DELETE /payment/invoice/{uuid}`).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MulticardCallback' }
+            example:
+              store_id: 6
+              amount: 4500000
+              invoice_id: 01a14af9-7400-7aaa-9bbb-123456789abc
+              billing_id: '20241214242009869794410864028760'
+              payment_time: '2026-10-28 14:36:31'
+              phone: '998901234567'
+              card_pan: 860030******5959
+              ps: uzcard
+              card_token: 6225f3c93f7a880142782fa4
+              uuid: e60d8ebc-b9fe-11ef-b159-005056b4367d
+              receipt_url: https://checkout.multicard.uz/check/e60d8ebc-b9fe-11ef-b159-005056b4367d
+              sign: 553b4292b0f1d8e0e18e6daeb3af3761
+      responses:
+        '200':
+          description: "Qabul qilindi (`success: true`) yoki rad etildi (`success: false` — Multicard pulni qaytaradi)"
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MulticardReply' }
+              examples:
+                ok: { value: { success: true } }
+                no_seats: { value: { success: false, message: "O'yinda joy qolmadi" } }
+        '403':
+          description: Imzo noto'g'ri
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MulticardReply' }
+        '500':
+          description: Kutilmagan server xatosi — Multicard callback'ni qayta yuboradi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MulticardReply' }
 
   /v1/webhooks/stripe:
     post:
@@ -2914,6 +2985,7 @@ paths:
         | Payme | Subscribe API `receipts.get_all` (X-Auth: kassa id + kalit, sahifa 50 tadan); `PAYME_RECONCILE_ENABLED=true` bo'lsa |
         | Click | yo'q — Merchant API'da davr bo'yicha ro'yxat yo'q (faqat bitta to'lov holati, summasiz) |
         | Uzum | yo'q — Merchant API faqat webhook'lardan iborat |
+        | Rahmat (Multicard) | reyestr `GET /payment/store/{store_id}/history` (sahifa 100 tadan, GMT+5); Multicard kalitlari sozlangan bo'lsa |
       parameters:
         - { name: provider, in: query, description: Vergul bilan, schema: { type: string, examples: ['payme,uzum'] } }
         - { name: status, in: query, description: Vergul bilan, schema: { type: string, examples: ['completed,failed'] } }
@@ -2949,7 +3021,7 @@ paths:
               type: object
               required: [date_from, date_to]
               properties:
-                provider: { type: string, enum: [payme, click, uzum] }
+                provider: { type: string, enum: [payme, click, uzum, multicard] }
                 date_from: { type: string, format: date-time, description: Kiritiladi }
                 date_to: { type: string, format: date-time, description: Kiritilmaydi }
       responses:
@@ -3288,7 +3360,8 @@ components:
       enum: [beginner, intermediate, advanced, pro]
     PaymentProvider:
       type: string
-      enum: [payme, click, uzum, stripe, paypal, wallet]
+      description: '`multicard` — Rahmat (Multicard) to''lov sahifasi: kartalar (Uzcard, Humo, Visa, Mastercard) va to''lov ilovalari'
+      enum: [payme, click, uzum, multicard, stripe, paypal, wallet]
     DeviceInfo:
       type: object
       required: [device_id, platform]
@@ -3850,7 +3923,7 @@ components:
           required: [type, provider, url]
           properties:
             type: { const: redirect }
-            provider: { type: string, enum: [payme, click, uzum] }
+            provider: { type: string, enum: [payme, click, uzum, multicard] }
             url:
               type: string
               format: uri
@@ -3952,6 +4025,29 @@ components:
         merchant_confirm_id: { type: integer, description: Complete javobida }
         error: { type: integer, enum: [0, -1, -2, -3, -4, -5, -6, -7, -8, -9] }
         error_note: { type: string }
+    MulticardCallback:
+      type: object
+      description: Multicard "Callback (success)" — summalar tiyin'da, vaqt GMT+5 (`YYYY-mm-dd H:i:s`)
+      required: [store_id, amount, invoice_id, uuid, sign]
+      properties:
+        store_id: { type: integer, description: Kassa ID (`MULTICARD_STORE_ID`) }
+        amount: { type: integer, format: int64, description: tiyin }
+        invoice_id: { type: string, format: uuid, description: 'Bizning `payments.id`' }
+        billing_id: { type: string }
+        payment_time: { type: string, examples: ['2026-10-28 14:36:31'] }
+        phone: { type: string, description: 998XXXXXXXXX (bo'lsa) }
+        card_pan: { type: string, description: Maskalangan karta raqami }
+        ps: { type: string, examples: [uzcard, humo, visa, mastercard, payme, click, uzum] }
+        card_token: { type: string, description: Saqlanmaydi }
+        uuid: { type: string, description: Multicard tranzaksiya uuid'i (takroriy callback'lar shu bo'yicha) }
+        receipt_url: { type: string, format: uri, description: Fiskal chek }
+        sign: { type: string, description: 'md5(store_id + invoice_id + amount + secret)' }
+    MulticardReply:
+      type: object
+      required: [success]
+      properties:
+        success: { type: boolean }
+        message: { type: string, description: "`success: false` da to'lov sahifasida o'yinchiga ko'rsatiladi" }
     UzumRequest:
       type: object
       description: |
@@ -5106,7 +5202,7 @@ components:
         id: { type: string, format: uuid }
         booking_id: { type: string, format: uuid }
         booking_status: { $ref: '#/components/schemas/BookingStatus' }
-        provider: { type: string, enum: [payme, click, uzum, stripe, paypal, wallet, manual] }
+        provider: { type: string, enum: [payme, click, uzum, multicard, stripe, paypal, wallet, manual] }
         amount: { $ref: '#/components/schemas/Money' }
         refunded: { $ref: '#/components/schemas/Money' }
         status: { $ref: '#/components/schemas/PaymentStatus' }
@@ -5137,7 +5233,7 @@ components:
       required: [id, provider, period, status, trigger, triggered_by, counts, diffs_by_kind, error, started_at, finished_at]
       properties:
         id: { type: string, format: uuid }
-        provider: { type: string, enum: [payme, click, uzum] }
+        provider: { type: string, enum: [payme, click, uzum, multicard] }
         period:
           type: object
           required: [from, to]
@@ -5332,7 +5428,8 @@ components:
     AdminRefundAuto:
       type: object
       description: |
-        Avtomatik provider refund'i (Payme `receipts.cancel`, Click `payment/reversal`; Uzum'da API yo'q).
+        Avtomatik provider refund'i (Payme `receipts.cancel`, Click `payment/reversal`, Multicard `DELETE /payment/{uuid}`
+        va qisman — `…/partial`, faqat kartadan to'langanlarda; Uzum'da API yo'q).
         `status`: null — hali ko'rilmagan yoki tegishli emas; `queued` — `next_attempt_at` da (qayta) urinish;
         `submitted` — provider javobi kutilmoqda; `manual` — admin hal qiladi (`manual_reason`).
       required: [status, attempts, next_attempt_at, manual_reason, error]
@@ -5344,7 +5441,8 @@ components:
           type: [string, 'null']
           enum: [partial, unsupported, disabled, rejected, failed, timeout, legacy, null]
           description: |
-            partial — provider faqat to'liq summani qaytaradi; unsupported — provider'da refund API yo'q (Uzum);
+            partial — provider qisman qaytara olmaydi (Payme, Click; Multicard — ilova orqali to'langan yoki qisman o'chiq);
+            unsupported — provider'da refund API yo'q (Uzum);
             disabled — avto-refund o'chiq; rejected — provider rad etdi; failed — urinishlar tugadi;
             timeout — provider natijani tasdiqlamadi; legacy — avto-refund'dan oldingi navbat.
         error: { type: [string, 'null'], description: 'Provider xatosi (oxirgi urinish)' }

@@ -61,6 +61,20 @@ export class RefundSettlement {
     );
   }
 
+  /**
+   * Provider to'lovning bir qismini qaytardi (Multicard partial): refund yakunlanadi, to'lovda refunded_amount oshadi —
+   * `partially_refunded` (hammasi qaytgan bo'lsa `refunded`).
+   */
+  async providerPartial(tx: Tx, r: PendingRefund, providerRefundId: string): Promise<void> {
+    await tx.execute(
+      sql`UPDATE payments
+             SET refunded_amount = least(amount, refunded_amount + ${r.amount}), updated_at = now(),
+                 status = CASE WHEN refunded_amount + ${r.amount} >= amount THEN 'refunded' ELSE 'partially_refunded' END::payment_status
+           WHERE id = ${r.payment_id}`,
+    );
+    await this.complete(tx, r, providerRefundId);
+  }
+
   /** Refund provider orqali qaytarildi: succeeded + provider_refund_id. payments jadvaliga chaqiruvchi yozadi. */
   async complete(tx: Tx, r: PendingRefund, providerRefundId: string, opts: { processedBy?: string; note?: string } = {}) {
     await tx.execute(

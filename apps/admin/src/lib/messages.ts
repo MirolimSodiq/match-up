@@ -136,7 +136,7 @@ const uz = {
     sand: 'Qum',
     asphalt: 'Asfalt',
   } as Record<string, string>,
-  provider: { payme: 'Payme', click: 'Click', uzum: 'Uzum', stripe: 'Stripe', paypal: 'PayPal', wallet: 'Hamyon', manual: "Qo'lda" } as Record<string, string>,
+  provider: { payme: 'Payme', click: 'Click', uzum: 'Uzum', multicard: 'Rahmat', stripe: 'Stripe', paypal: 'PayPal', wallet: 'Hamyon', manual: "Qo'lda" } as Record<string, string>,
 
   login: {
     title: 'Admin panelga kirish',
@@ -390,7 +390,7 @@ const uz = {
   refunds: {
     title: 'Refund navbati',
     subtitle:
-      "To'liq refund'lar Payme / Click orqali avtomatik qaytariladi. Qisman refund'lar, Uzum va provider xatolari shu yerda hal qilinadi: provider kabinetida qaytarib «Bajarildi» deb belgilang yoki hamyonga o'tkazing.",
+      "To'liq refund'lar Payme / Click / Rahmat orqali avtomatik qaytariladi. Qisman refund'lar, Uzum va provider xatolari shu yerda hal qilinadi: provider kabinetida qaytarib «Bajarildi» deb belgilang yoki hamyonga o'tkazing.",
     pending: 'Navbatda',
     manual: 'Admin hal qiladi',
     searchPlaceholder: 'Telefon, match kodi, refund yoki tranzaksiya ID',
@@ -462,7 +462,7 @@ const uz = {
   } as Record<string, string>,
   reconciliation: {
     title: "To'lovlarni solishtirish",
-    subtitle: "Bizning to'lovlar provider ro'yxati bilan har kecha solishtiriladi. Hozircha faqat Payme davr bo'yicha ro'yxat beradi — Click va Uzum'da bunday API yo'q.",
+    subtitle: "Bizning to'lovlar provider ro'yxati bilan har kecha solishtiriladi. Davr bo'yicha ro'yxatni Payme va Rahmat (Multicard) beradi — Click va Uzum'da bunday API yo'q.",
     run: 'Solishtirish',
     runTitle: "Solishtirishni qo'lda ishga tushirish",
     runText: "Tanlangan kunlar (Toshkent vaqti) bo'yicha provider ro'yxati olinadi va farqlar shu yerda ko'rinadi. Davr 31 kundan oshmasin.",
@@ -652,7 +652,7 @@ const ru: DeepPartialStrings<Messages> = {
     sand: 'Песок',
     asphalt: 'Асфальт',
   },
-  provider: { payme: 'Payme', click: 'Click', uzum: 'Uzum', stripe: 'Stripe', paypal: 'PayPal', wallet: 'Кошелёк', manual: 'Вручную' },
+  provider: { payme: 'Payme', click: 'Click', uzum: 'Uzum', multicard: 'Rahmat', stripe: 'Stripe', paypal: 'PayPal', wallet: 'Кошелёк', manual: 'Вручную' },
 
   login: {
     title: 'Вход в админ-панель',
@@ -906,7 +906,7 @@ const ru: DeepPartialStrings<Messages> = {
   refunds: {
     title: 'Очередь возвратов',
     subtitle:
-      'Полные возвраты проходят автоматически через Payme / Click. Частичные возвраты, Uzum и ошибки провайдера решаются здесь: верните в кабинете провайдера и отметьте «Выполнен» или переведите в кошелёк.',
+      'Полные возвраты проходят автоматически через Payme / Click / Rahmat. Частичные возвраты, Uzum и ошибки провайдера решаются здесь: верните в кабинете провайдера и отметьте «Выполнен» или переведите в кошелёк.',
     pending: 'В очереди',
     manual: 'Требуют решения',
     searchPlaceholder: 'Телефон, код матча, ID возврата или транзакции',
@@ -978,7 +978,7 @@ const ru: DeepPartialStrings<Messages> = {
   },
   reconciliation: {
     title: 'Сверка платежей',
-    subtitle: 'Наши платежи каждую ночь сверяются со списком провайдера. Пока список за период отдаёт только Payme — у Click и Uzum такого API нет.',
+    subtitle: 'Наши платежи каждую ночь сверяются со списком провайдера. Список за период отдают Payme и Rahmat (Multicard) — у Click и Uzum такого API нет.',
     run: 'Сверить',
     runTitle: 'Запустить сверку вручную',
     runText: 'Будет получен список провайдера за выбранные дни (время Ташкента), расхождения появятся здесь. Период — не более 31 дня.',
