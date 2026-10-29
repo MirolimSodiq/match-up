@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import { File } from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import { contentTypeFor, type UploadJob, validateClip } from './uploadCore';
@@ -39,8 +40,12 @@ export function toClip(input: { uri: string; mimeType?: string | null; fileSize?
  * server cheklovi ≤ 150 MB) — `ARCHITECTURE` §4.10 dagi "client 720p ga siqadi".
  */
 export async function pickFromLibrary(): Promise<PickResult> {
-  const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-  if (!perm.granted) return { ok: false, reason: 'permission' };
+  // Android'da tizim Photo Picker'i ruxsatsiz ishlaydi; Android ≤ 12 da bu so'rov xotira ruxsatini so'rardi,
+  // u esa manifestdan olib tashlangan (app.json `blockedPermissions`) — so'ralsa doim rad etiladi
+  if (Platform.OS !== 'android') {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) return { ok: false, reason: 'permission' };
+  }
   const res = await ImagePicker.launchImageLibraryAsync({
     mediaTypes: ['videos'],
     allowsEditing: true,
