@@ -75,9 +75,11 @@ Maqsad — noyabrda Toshkentda yopiq sinov (pilot), taxminan 2026-yil dekabr bos
 | Uzum checkout havolasi formati | Uzum menejeri bilan tasdiqlash |
 | Haqiqiy Apple/Google client ID'lar | social login'ni haqiqiy credential bilan sinash |
 | Push bosilganda deep link | haqiqiy qurilmada sinash |
-| Payme / Click merchant shartnomalari | komissiya, refund qoidalari |
+| Payme / Click merchant shartnomalari | YaTT nomiga; komissiya, refund qoidalari |
+| Rahmat (Multicard) merchant shartnomasi | YaTT nomiga; `application_id`, `secret`, `store_id`, sandbox kirish; komissiya ~1%, pul 24 soatda tushadi, hisobdan kartaga o'tkazma 0.04% (dasturchilar guruhidagi ma'lumot, 2026-10-28 — shartnomada tasdiqlash); xizmatimiz uchun MXIK va `package_code` (tasnif.soliq.uz) — barcha provayderlarda bir xil (C9) |
 | Yuridik | biometrik ta'rif (video), davlat reyestri, waiver kuchi, host'lar bilan shartnoma (`ARCHITECTURE.md` §6) |
-| Apple Developer va Google Play akkauntlari | kompaniya nomiga (D-U-N-S raqami kerak); Google shaxsiy akkauntida chiqishdan oldin 14 kunlik yopiq sinov majburiy |
+| Apple Developer va Google Play akkauntlari | **Qaror (2026-10-28): hozircha YaTT nomida, hamma narsa bitta shaxsda** (do'kon, Payme/Click/Rahmat, oferta, maxfiylik siyosati, fiskal chek). Apple yakka tadbirkorni Individual sifatida ro'yxatdan o'tkazadi — sotuvchi nomi shaxsiy ism; Google shaxsiy akkauntida chiqishdan oldin ≥ 12 tester bilan 14 kunlik yopiq sinov majburiy — pilot o'yinchilari bilan C2/C3 bilan bir vaqtda o'tkaziladi (begona "2023-yilgacha ochilgan akkaunt" orqali chiqarib transfer qilish sxemasi ishlatilmaydi). Investor kirganda MChJ'ga o'tiladi: ilovani akkauntlar o'rtasida ko'chirish, to'lov tizimlarini qayta ulash, yangi oferta. Bo'lingan sxema (do'kon MChJ'da, pul YaTT'da) qo'llanmaydi |
+| Soliq (buxgalter bilan) | YaTT rejimi va tushum chegaralari; agentlik modeli (soliq faqat komissiyadan, maydon ulushi — split); IT Park — PQ-388 (2026-04-01 dan marketpleys va to'lov tashkilotlariga imtiyoz yo'q), o'yin joyini sotish IT daromadi hisoblanadimi |
 | Eskiz SMS shartnomasi | production'da kirish kodlari |
 | Maxfiylik siyosati va foydalanish shartlari | yurist yozadi, veb-sahifada (C1 havolalari shunga) |
 | Jiletka to'plamlari | har stadionga 4 rang × 8, raqamlar 1–8, 11–18, 21–28, 31–38 ([`AI_CAM.md`](AI_CAM.md) §13.2) |
