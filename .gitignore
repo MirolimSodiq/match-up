@@ -19,3 +19,6 @@ apps/api/keys/
 *.tfplan
 crash.log
 apps/api/storage/
+
+# Firebase (Android push) — EAS fayl env GOOGLE_SERVICES_JSON orqali beriladi
+apps/*/google-services.json

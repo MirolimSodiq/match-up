@@ -5,6 +5,7 @@ import { ENV, type Env } from '../config/env';
 import { emit } from '../common/outbox';
 import { SeatsService, type LockedBooking } from '../commerce/seats.service';
 import { DB, type Db, one, rows, type Tx } from '../db/db';
+import { FISCAL_ITEM_TITLE, fiscalCodes } from './fiscal';
 import { RefundSettlement } from './refund-settlement';
 
 /**
@@ -189,20 +190,12 @@ export class PaymeService {
 
   /** Fiskal chek (OFD) uchun detail — MXIK/IKPU kodi sozlangan bo'lsa. */
   private receiptDetail(amount: number) {
-    if (!this.env.PAYME_IKPU_CODE || !this.env.PAYME_PACKAGE_CODE) return undefined;
+    const codes = fiscalCodes(this.env);
+    if (!codes) return undefined;
     return {
       detail: {
         receipt_type: 0,
-        items: [
-          {
-            title: "Havaskor sport o'yinida ishtirok",
-            price: amount,
-            count: 1,
-            code: this.env.PAYME_IKPU_CODE,
-            package_code: this.env.PAYME_PACKAGE_CODE,
-            vat_percent: 0,
-          },
-        ],
+        items: [{ title: FISCAL_ITEM_TITLE, price: amount, count: 1, code: codes.mxik, package_code: codes.packageCode, vat_percent: 0 }],
       },
     };
   }

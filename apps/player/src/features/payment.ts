@@ -22,7 +22,7 @@ export function rememberCheckout(bookingId: string, url: string) {
 export const checkoutUrlFor = (bookingId: string) => checkouts.get(bookingId);
 export const lastPendingBooking = () => lastPendingBookingId;
 
-/** Payme/Click sahifasini ilova ichidagi brauzerda ochadi; foydalanuvchi yopganda (yoki qaytganda) resolve bo'ladi. */
+/** Payme/Click/Rahmat sahifasini ilova ichidagi brauzerda ochadi; foydalanuvchi yopganda (yoki qaytganda) resolve bo'ladi. */
 export async function openCheckout(url: string): Promise<void> {
   try {
     await WebBrowser.openBrowserAsync(url, {
@@ -61,5 +61,11 @@ export function closeCheckout(): void {
 export const PROVIDER_COLORS: Record<string, string> = {
   payme: colors.payme,
   click: colors.click,
+  multicard: colors.multicard,
   wallet: colors.wallet,
+};
+
+/** To'q brend fonidagi harf (kontrast uchun oq). */
+export const PROVIDER_ON_COLORS: Record<string, string> = {
+  multicard: colors.onPrimary,
 };

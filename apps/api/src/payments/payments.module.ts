@@ -11,6 +11,7 @@ import { WalletService } from '../commerce/wallet.service';
 import { MatchesModule } from '../matches/matches.controller';
 import { MatchesService } from '../matches/matches.service';
 import { type ClickRequest, ClickService } from './click.service';
+import { MulticardJobs, MulticardService } from './multicard.service';
 import { type PaymeRpc, PaymeService } from './payme.service';
 import { ReconciliationModule } from './reconciliation.module';
 import { RefundsModule } from './refunds.module';
@@ -24,6 +25,7 @@ export class PaymentsController {
     private readonly payme: PaymeService,
     private readonly click: ClickService,
     private readonly uzum: UzumService,
+    private readonly multicard: MulticardService,
     private readonly checkout: CheckoutService,
     private readonly wallet: WalletService,
     private readonly matches: MatchesService,
@@ -79,6 +81,18 @@ export class PaymentsController {
     return reply.body;
   }
 
+  /**
+   * Rahmat (Multicard) callback'i — muvaffaqiyatli to'lovdan keyin. 200 + `success: true` — qabul qilindi;
+   * `success: false` yoki 200 bo'lmagan javob — Multicard to'lovni bekor qilib pulni qaytaradi; 500 — qayta yuboradi.
+   */
+  @Public()
+  @Post('webhooks/multicard')
+  async multicardCallback(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const reply = await this.multicard.callback(req.body);
+    res.status(reply.status);
+    return reply.body;
+  }
+
   @Public()
   @Post('webhooks/stripe')
   stripe(): never {
@@ -89,6 +103,7 @@ export class PaymentsController {
 @Module({
   imports: [CommerceModule, MatchesModule, ReconciliationModule, RefundsModule],
   controllers: [PaymentsController],
-  providers: [PaymeService, ClickService, UzumService],
+  providers: [PaymeService, ClickService, UzumService, MulticardService, MulticardJobs],
+  exports: [MulticardService],
 })
 export class PaymentsModule {}

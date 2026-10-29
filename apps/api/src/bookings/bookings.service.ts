@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { type SQL, sql } from 'drizzle-orm';
 import { SIGNING_KEYS, type SigningKeys } from '../config/keys';
 import { AppError } from '../common/errors';
@@ -7,7 +7,7 @@ import type { Locale } from '../common/i18n';
 import { signCompact } from '../common/jwt';
 import { money } from '../common/money';
 import { emit } from '../common/outbox';
-import { CheckoutService, type CheckoutProvider } from '../commerce/checkout.service';
+import { CheckoutService, type CheckoutProvider, InvoiceError } from '../commerce/checkout.service';
 import { SeatsService } from '../commerce/seats.service';
 import { WalletService } from '../commerce/wallet.service';
 import { DB, type Db, iso, one, pgError, PG, rows, type Tx } from '../db/db';
@@ -20,7 +20,7 @@ export interface CreateBookingInput {
   match_id: string;
   seats: number;
   guests: { name: string }[];
-  payment_method: 'payme' | 'click' | 'uzum' | 'stripe' | 'paypal' | 'wallet';
+  payment_method: 'payme' | 'click' | 'uzum' | 'multicard' | 'stripe' | 'paypal' | 'wallet';
   use_wallet: boolean;
   waiver_signature_id: string;
   return_url?: string;
@@ -46,6 +46,8 @@ const LEVELS = ['beginner', 'intermediate', 'advanced', 'pro'];
 
 @Injectable()
 export class BookingsService {
+  private readonly log = new Logger('Bookings');
+
   constructor(
     @Inject(DB) private readonly db: Db,
     @Inject(SIGNING_KEYS) private readonly keys: SigningKeys,
@@ -188,6 +190,12 @@ export class BookingsService {
           );
           const outcome = await this.seats.confirmPaid(tx, held.id);
           if (outcome !== 'confirmed') throw new AppError('INVALID_STATE');
+        } else if (method === 'multicard') {
+          // Invoys tranzaksiyadan keyin (openInvoice): match qatori lock'i Multicard API javobini kutmasin
+          await tx.execute(
+            sql`INSERT INTO payments (booking_id, user_id, provider, amount, currency, status)
+                VALUES (${held.id}, ${userId}, 'multicard', ${held.total_amount}, ${held.currency}, 'created')`,
+          );
         } else {
           const co = this.checkout.buildRedirect(method as CheckoutProvider, {
             bookingId: held.id,
@@ -218,8 +226,50 @@ export class BookingsService {
       }
       throw err;
     }
+    if (method === 'multicard') await this.openInvoice(bookingId, input.return_url, locale);
     const b = await this.getOwned(bookingId, userId);
     return { booking: await this.present(b, locale), checkout: await this.checkoutFor(b) };
+  }
+
+  /**
+   * Multicard invoysi (server-to-server): `created` qator -> `pending` + uuid + checkout_url. Yaratilmasa — hold ozod,
+   * to'lov `failed`, 503 (o'yinchi qaytadan band qiladi). Takroriy so'rov (replay) jarayon uzilib qolgan bo'lsa
+   * invoysni shu yerda yaratadi; parallel replay ikkinchi invoys yaratsa — u bekor qilinadi.
+   */
+  private async openInvoice(bookingId: string, returnUrl: string | undefined, locale: Locale) {
+    const pay = await one<{ id: string; amount: number }>(
+      this.db,
+      sql`SELECT p.id, p.amount FROM payments p JOIN bookings b ON b.id = p.booking_id
+          WHERE p.booking_id = ${bookingId} AND p.provider = 'multicard' AND p.status = 'created'
+            AND p.provider_transaction_id IS NULL AND b.status = 'pending_payment'
+          ORDER BY p.created_at DESC LIMIT 1`,
+    );
+    if (!pay) return;
+    let inv;
+    try {
+      inv = await this.checkout.createInvoice({ paymentId: pay.id, amount: pay.amount, returnUrl, locale });
+    } catch (err) {
+      if (!(err instanceof InvoiceError)) throw err;
+      this.log.warn(`booking ${bookingId}: ${err.message}`);
+      await this.db.transaction(async (tx) => {
+        await tx.execute(
+          sql`UPDATE payments SET status = 'failed', failed_at = now(), updated_at = now(), failure_code = 'invoice_failed',
+                     failure_message = ${err.message.slice(0, 500)}
+              WHERE id = ${pay.id} AND status = 'created'`,
+        );
+        await this.seats.release(tx, bookingId, 'cancelled', 'payment_provider_error', undefined, { onlyPending: true });
+      });
+      throw new AppError('UPSTREAM_UNAVAILABLE');
+    }
+    const state = { invoice_uuid: inv.invoiceUuid, status: 'draft', lang: inv.lang, ttl: inv.ttl, created_time: Date.now() };
+    const updated = await one(
+      this.db,
+      sql`UPDATE payments SET status = 'pending', provider_transaction_id = ${inv.invoiceUuid}, checkout_url = ${inv.url},
+                 provider_state = ${JSON.stringify(state)}::jsonb, updated_at = now()
+          WHERE id = ${pay.id} AND status = 'created' AND provider_transaction_id IS NULL
+          RETURNING id`,
+    );
+    if (!updated) await this.checkout.cancelInvoice(inv.invoiceUuid);
   }
 
   private async holdFailure(tx: Tx, matchId: string, userId: string): Promise<AppError> {
@@ -237,6 +287,10 @@ export class BookingsService {
 
   private async replay(b: BookingRow, input: CreateBookingInput, locale: Locale) {
     if (b.match_id !== input.match_id || b.seats !== input.seats) throw new AppError('IDEMPOTENCY_CONFLICT');
+    if (b.status === 'pending_payment') {
+      await this.openInvoice(b.id, input.return_url, locale);
+      b = await this.getOwned(b.id, b.user_id);
+    }
     return { booking: await this.present(b, locale), checkout: await this.checkoutFor(b) };
   }
 

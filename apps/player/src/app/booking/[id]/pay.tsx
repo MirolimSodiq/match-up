@@ -16,9 +16,10 @@ import { checkoutUrlFor, isPaymentReturn, openCheckout } from '@/features/paymen
 const HTTP = /^https?:\/\//i;
 
 /**
- * To'lov gateway'i (Payme/Click) ilova ichidagi WebView'da, ilova uslubidagi oq ramka bilan.
+ * To'lov gateway'i (Payme/Click/Uzum, Rahmat — Multicard invoysining `checkout_url` i) ilova ichidagi WebView'da,
+ * ilova uslubidagi oq ramka bilan.
  * - `return_url` ga yo'naltirish ushlanadi — WebView yopiladi, booking ekrani polling'ni davom ettiradi;
- * - `payme://`, `click://`, bank ilovalari va boshqa http bo'lmagan havolalar tizimga (tashqi ilovaga) beriladi;
+ * - `payme://`, `click://`, bank ilovalari (Rahmat sahifasidagi to'lov ilovalari ham) va boshqa http bo'lmagan havolalar tizimga (tashqi ilovaga) beriladi;
  * - sahifa ochilmasa (tarmoq/3DS xatosi) — tashqi brauzerga fallback.
  */
 export default function PaymentScreen() {

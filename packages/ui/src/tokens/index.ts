@@ -80,6 +80,8 @@ export const colors = {
   // Provayder belgilari
   payme: '#33CCCC',
   click: '#0073FF',
+  /** Rahmat (Multicard) */
+  multicard: '#531EDC',
   wallet: palette.navy,
 } as const;
 

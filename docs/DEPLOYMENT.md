@@ -298,6 +298,21 @@ Profil belgilanmagan lokal `expo start` da hamma narsa avvalgidek (Expo Go). `de
 cd apps/player && npx eas-cli build --profile preview --platform android
 ```
 
+### Android: Google Play yopiq sinov
+
+**Ruxsatlar** (`app.json` → `android.blockedPermissions`): ikkala ilovada `SYSTEM_ALERT_WINDOW`, `READ/WRITE_EXTERNAL_STORAGE` olib tashlangan, player'da `READ/WRITE_CALENDAR` ham. "Kalendarga qo'shish" Android'da tizim oynasi (`ACTION_INSERT`) orqali — ruxsatsiz; host galereyasi tizim Photo Picker'i — ruxsatsiz (shuning uchun `pickClip.ts` Android'da media ruxsatini so'ramaydi). Host'da `CAMERA` va `RECORD_AUDIO` `expo-camera` dan keladi — `expo-image-picker` konfiguratsiyasida `cameraPermission: false` / `microphonePermission: false` yozilmasin: plagin ularni butun ilova uchun bloklaydi (QR skaner va kamera rejimi Android'da ishlamay qoladi). Tekshirish: `APP_VARIANT=production npx expo config --type introspect` → `_internal.modResults.android.manifest`.
+
+**Push (FCM).** Bildirishnomalar Expo Push orqali, Android uchun Firebase kerak:
+1. Firebase loyihasida build qilinadigan har paket Android ilova sifatida ro'yxatdan o'tadi: `uz.matchup.player`, `uz.matchup.player.preview`, `uz.matchup.host`, `uz.matchup.host.preview` (dev build bo'lsa `.dev` lar ham). Bitta `google-services.json` hamma paketlarni o'z ichiga oladi.
+2. Fayl EAS'ga fayl turidagi environment variable `GOOGLE_SERVICES_JSON` sifatida (`production` va `preview` muhitlari, ikkala EAS loyihasi) — `app.config.ts` yo'lni shundan oladi; git'ga qo'shilmaydi (`.gitignore`). Lokal build'da: `GOOGLE_SERVICES_JSON=./google-services.json`.
+3. FCM V1 kaliti: Firebase → Service accounts → private key (JSON) → `npx eas-cli credentials` → Android → Google Service Account → push notifications (FCM V1).
+
+**Play Console va yuklash:**
+1. Ilova (`uz.matchup.player`, keyin host) → App content: maxfiylik siyosati URL, App access (tekshiruvchi uchun demo raqam va doimiy kod — STATUS C7), reklama yo'q, kontent reytingi, maqsadli yosh, Data safety (telefon, ism, joylashuv, to'lov tarixi, host'da foto/video, push uchun qurilma ID); store listing (ikonka 512×512, banner 1024×500, skrinshotlar).
+2. `npx eas-cli build --profile production --platform android` → AAB (build raqami EAS'da avtomatik). **Birinchi** AAB Play Console → Testing → Closed testing'ga qo'lda yuklanadi.
+3. Keyingilari: `npx eas-cli submit --profile production --platform android` — `alpha` (yopiq sinov) yo'lagiga `draft` bo'lib tushadi, testerlarga chiqarish Play Console'da tasdiqlanadi. Buning uchun Play Console API ruxsati berilgan service account kaliti `eas credentials` ga ("Google Service Account Key for Play Store Submissions").
+4. Shaxsiy akkauntda production'dan oldin ≥ 12 tester (Gmail) 14 kun uzluksiz yopiq sinovda bo'lishi kerak — pilot o'yinchilari bilan (STATUS C2/C3). Host ilovasi production'siz yopiq yoki ichki sinovda qolishi mumkin.
+
 ## 10. Production: bitta Hetzner server
 
 MVP va yopiq sinov uchun hamma narsa bitta serverda, Docker Compose bilan ([infra/hetzner/compose.yml](../infra/hetzner/compose.yml)). Tashqariga faqat Caddy (80/443) ochiq; PostgreSQL, Valkey, API va admin — ichki Docker tarmog'ida. Video fayllar serverda emas, Hetzner Object Storage'da (S3 API) — telefonlar ularga to'g'ridan-to'g'ri presigned URL bilan yuklaydi va ijro etadi.
@@ -333,14 +348,19 @@ MVP va yopiq sinov uchun hamma narsa bitta serverda, Docker Compose bilan ([infr
    ssh root@<ip> bash bootstrap.sh --email <ops-email>
    ```
    Oxirida GitHub uchun qiymatlar chiqadi: `HETZNER_HOST`, `HETZNER_KNOWN_HOSTS` va GitHub Actions'ning SSH kaliti (serverda saqlanmaydi — o'sha zahoti nusxalanadi; o'z kalitingiz bo'lsa — `--deploy-key "ssh-ed25519 ..."`). Root'da SSH kalit bo'lsa parol bilan kirish o'chiriladi. Skriptni qayta ishga tushirish xavfsiz.
-3. **`.env`** (`/opt/matchup/.env`, `nano` bilan): `change-me` qiymatlari — S3 kalitlari va bucket nomlari, `ACME_EMAIL`, `ESKIZ_*` (API usiz ishga tushmaydi). Ixtiyoriy — Payme/Click/Uzum, Telegram, Sentry, Google/Apple; ro'yxat va izohlar — [env.example](../infra/hetzner/env.example). Qiymatsiz qator (`KEY=`) qoldirilmaydi. `DB_PASSWORD`, `MEDIA_WORKER_TOKEN` bootstrap generatsiya qilgan — o'zgartirilmaydi.
+3. **`.env`** (`/opt/matchup/.env`, `nano` bilan): `change-me` qiymatlari — S3 kalitlari va bucket nomlari, `ACME_EMAIL`, `ESKIZ_*` (API usiz ishga tushmaydi). Ixtiyoriy — Payme/Click/Uzum/Rahmat, Telegram, Sentry, Google/Apple; ro'yxat va izohlar — [env.example](../infra/hetzner/env.example). Qiymatsiz qator (`KEY=`) qoldirilmaydi. `DB_PASSWORD`, `MEDIA_WORKER_TOKEN` bootstrap generatsiya qilgan — o'zgartirilmaydi.
 4. **GitHub** -> repo Settings -> Secrets and variables -> Actions: **Variables** `HETZNER_HOST`, `HETZNER_KNOWN_HOSTS`; **Secrets** `HETZNER_SSH_KEY`. Ixtiyoriy: `HETZNER_PLATFORM=linux/arm64` (ARM server), `PRODUCTION_ADMIN_SENTRY_DSN`. `production` environment birinchi deploy'da yaratiladi — Settings -> Environments -> production -> "Required reviewers" bilan har deploy tasdiqlanadigan qilish mumkin.
 5. **Birinchi deploy:** Actions -> **Deploy (Hetzner)** -> Run workflow (`main`). Tekshirish: `https://<API_DOMAIN>/health` va `https://<ADMIN_DOMAIN>`.
 6. **Birinchi admin:** admin panelga telefon bilan kiring (rol yo'qligi uchun rad etiladi), so'ng serverda:
    ```bash
    matchup exec db psql -U matchup -c "INSERT INTO user_roles (user_id, role) SELECT id, 'admin' FROM users WHERE phone_e164 = '+998XXXXXXXXX'"
    ```
-7. **Tashqi xizmatlar:** Payme/Click/Uzum kabinetlarida webhook manzillari — `https://<API_DOMAIN>/v1/webhooks/payme`, `.../v1/webhooks/click/prepare` va `/complete`, `.../v1/webhooks/uzum/...` (ARCHITECTURE §3.2); Telegram login uchun BotFather'da `/setdomain` = `API_DOMAIN`; mobil ilovalarning API manzili (EAS `production` profili).
+7. **Tashqi xizmatlar:** Payme/Click/Uzum kabinetlarida webhook manzillari — `https://<API_DOMAIN>/v1/webhooks/payme`, `.../v1/webhooks/click/prepare` va `/complete`, `.../v1/webhooks/uzum/...` (ARCHITECTURE §3.2); Rahmat (Multicard) uchun kabinetda sozlash kerak emas — callback manzili (`https://<API_DOMAIN>/v1/webhooks/multicard`) har invoysda yuboriladi (`PUBLIC_BASE_URL` dan); Telegram login uchun BotFather'da `/setdomain` = `API_DOMAIN`; mobil ilovalarning API manzili (EAS `production` profili).
+8. **Rahmat (Multicard)** ([ARCHITECTURE §4.6](ARCHITECTURE.md#46-payment-gatewaylar)): `.env` da `MULTICARD_BASE_URL=https://mesh.multicard.uz` (standart — sandbox `https://dev-mesh.multicard.uz`, `deploy.sh` ogohlantiradi), `MULTICARD_APPLICATION_ID`, `MULTICARD_SECRET`, `MULTICARD_STORE_ID` (kassa ID, raqam) va fiskal chek kodlari `FISCAL_MXIK_CODE` (17 raqam) / `FISCAL_PACKAGE_CODE` — tasnif.soliq.uz, barcha provider'larda bir xil (eski `PAYME_IKPU_CODE` / `PAYME_PACKAGE_CODE` ham ishlaydi). Kalitlar bilan `FISCAL_*` bo'lmasa API production'da start olmaydi. Avto-refund — `MULTICARD_REFUND_ENABLED=true`; qisman refund — `MULTICARD_PARTIAL_REFUND_ENABLED=true` (avval Multicard terminalda yoqadi). To'lov usullarida ko'rinishi uchun config qatori (boshqa provider'lar kabi operator qo'shadi):
+   ```bash
+   matchup exec db psql -U matchup -c "INSERT INTO payment_provider_configs (country_code, provider, currencies, priority, is_enabled, secret_ref) VALUES ('UZ', 'multicard', '{UZS}', 40, true, 'env:MULTICARD_*') ON CONFLICT (country_code, provider) DO UPDATE SET is_enabled = true"
+   ```
+   Kalitlar berilmagan bo'lsa qator yoqilgan bo'lsa ham `multicard` ko'rinmaydi.
 
 ### Domen
 
@@ -407,7 +427,7 @@ Tiklash joriy bazani o'chirmaydi: backup avval `matchup_restore` ga yuklanadi (s
 ## Ma'lum cheklovlar va keyingi qadamlar
 
 - **ARM64 image'lar QEMU'da build qilinadi** (x86 runner) — api va admin build'i sekinroq. GitHub arm64 runner'lari (`ubuntu-24.04-arm`) ishlatilsa tezlashadi.
-- **AWS'da prod yo'q:** production hozir Hetzner'da (§10). AWS'ga o'tilsa — `envs/prod` va `production` environment, `deploy.yml` ga alohida job.
+- **AWS'da prod yo'q:** production hozir Hetzner'da (§10). AWS'ga o'tilsa — `envs/prod` va `production` environment, `deploy.yml` ga alohida job; ECS task'iga hozircha faqat Payme/Click secret'lari ulangan — Uzum va Rahmat (`UZUM_*`, `MULTICARD_*`, `FISCAL_*`) ham qo'shiladi.
 - **Hetzner — bitta server:** server yoki uning disk'i ishdan chiqsa, tiklash — yangi server + `bootstrap.sh` + backup'dan `restore.sh` (yoki Hetzner snapshot'i); kunlik backup'dan keyingi o'zgarishlar yo'qoladi (PITR yo'q). Yuk ko'paysa — DB'ni alohida serverga yoki AWS'ga (§4).
 - **Backup'lar o'sha S3 kalitlari bilan:** serverga kirgan hujumchi backup'larni ham o'chira oladi. Kerak bo'lsa — Object Lock yoqilgan alohida bucket (Hetzner'da faqat bucket yaratilayotganda yoqiladi).
 - **GHCR** — private repo image'lari uchun hozircha bepul (GitHub: o'zgarsa kamida bir oy oldin xabar beriladi); eski versiyalar o'chirilmaydi.
