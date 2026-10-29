@@ -298,6 +298,21 @@ Profil belgilanmagan lokal `expo start` da hamma narsa avvalgidek (Expo Go). `de
 cd apps/player && npx eas-cli build --profile preview --platform android
 ```
 
+### Android: Google Play yopiq sinov
+
+**Ruxsatlar** (`app.json` → `android.blockedPermissions`): ikkala ilovada `SYSTEM_ALERT_WINDOW`, `READ/WRITE_EXTERNAL_STORAGE` olib tashlangan, player'da `READ/WRITE_CALENDAR` ham. "Kalendarga qo'shish" Android'da tizim oynasi (`ACTION_INSERT`) orqali — ruxsatsiz; host galereyasi tizim Photo Picker'i — ruxsatsiz (shuning uchun `pickClip.ts` Android'da media ruxsatini so'ramaydi). Host'da `CAMERA` va `RECORD_AUDIO` `expo-camera` dan keladi — `expo-image-picker` konfiguratsiyasida `cameraPermission: false` / `microphonePermission: false` yozilmasin: plagin ularni butun ilova uchun bloklaydi (QR skaner va kamera rejimi Android'da ishlamay qoladi). Tekshirish: `APP_VARIANT=production npx expo config --type introspect` → `_internal.modResults.android.manifest`.
+
+**Push (FCM).** Bildirishnomalar Expo Push orqali, Android uchun Firebase kerak:
+1. Firebase loyihasida build qilinadigan har paket Android ilova sifatida ro'yxatdan o'tadi: `uz.matchup.player`, `uz.matchup.player.preview`, `uz.matchup.host`, `uz.matchup.host.preview` (dev build bo'lsa `.dev` lar ham). Bitta `google-services.json` hamma paketlarni o'z ichiga oladi.
+2. Fayl EAS'ga fayl turidagi environment variable `GOOGLE_SERVICES_JSON` sifatida (`production` va `preview` muhitlari, ikkala EAS loyihasi) — `app.config.ts` yo'lni shundan oladi; git'ga qo'shilmaydi (`.gitignore`). Lokal build'da: `GOOGLE_SERVICES_JSON=./google-services.json`.
+3. FCM V1 kaliti: Firebase → Service accounts → private key (JSON) → `npx eas-cli credentials` → Android → Google Service Account → push notifications (FCM V1).
+
+**Play Console va yuklash:**
+1. Ilova (`uz.matchup.player`, keyin host) → App content: maxfiylik siyosati URL, App access (tekshiruvchi uchun demo raqam va doimiy kod — STATUS C7), reklama yo'q, kontent reytingi, maqsadli yosh, Data safety (telefon, ism, joylashuv, to'lov tarixi, host'da foto/video, push uchun qurilma ID); store listing (ikonka 512×512, banner 1024×500, skrinshotlar).
+2. `npx eas-cli build --profile production --platform android` → AAB (build raqami EAS'da avtomatik). **Birinchi** AAB Play Console → Testing → Closed testing'ga qo'lda yuklanadi.
+3. Keyingilari: `npx eas-cli submit --profile production --platform android` — `alpha` (yopiq sinov) yo'lagiga `draft` bo'lib tushadi, testerlarga chiqarish Play Console'da tasdiqlanadi. Buning uchun Play Console API ruxsati berilgan service account kaliti `eas credentials` ga ("Google Service Account Key for Play Store Submissions").
+4. Shaxsiy akkauntda production'dan oldin ≥ 12 tester (Gmail) 14 kun uzluksiz yopiq sinovda bo'lishi kerak — pilot o'yinchilari bilan (STATUS C2/C3). Host ilovasi production'siz yopiq yoki ichki sinovda qolishi mumkin.
+
 ## 10. Production: bitta Hetzner server
 
 MVP va yopiq sinov uchun hamma narsa bitta serverda, Docker Compose bilan ([infra/hetzner/compose.yml](../infra/hetzner/compose.yml)). Tashqariga faqat Caddy (80/443) ochiq; PostgreSQL, Valkey, API va admin — ichki Docker tarmog'ida. Video fayllar serverda emas, Hetzner Object Storage'da (S3 API) — telefonlar ularga to'g'ridan-to'g'ri presigned URL bilan yuklaydi va ijro etadi.
