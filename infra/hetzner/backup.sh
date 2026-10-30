@@ -16,6 +16,7 @@ on_exit() {
 }
 
 main() {
+  enter_home "$@"
   trap on_exit EXIT
   load_env
   local bucket size

@@ -25,6 +25,7 @@ case "$*" in
   "compose "*" run "*migrate*) exit "${MIGRATE_EXIT:-0}" ;;
   "compose "*" up "*) [[ ${IMAGE_TAG:-} != "${UP_FAIL_TAG:-none}" ]] || exit 1 ;;
   "compose "*XPENDING*) echo "${PENDING:-0}" ;;
+  "run "*head-bucket*) [[ -z ${STORAGE_FAIL:-} ]] || exit 1 ;;
   "image ls"*) printf '%s\n' "${IMAGES:-}" | sed '/^$/d' ;;
 esac
 exit 0
@@ -71,7 +72,7 @@ deploy() {
   local release=$1
   shift
   code=0
-  env PATH="$WORK/bin:$PATH" MATCHUP_HOME="$HOME_DIR" bash "$HOME_DIR/releases/$release/deploy.sh" "$@" \
+  env PATH="$WORK/bin:$PATH" MATCHUP_HOME="$HOME_DIR" MATCHUP_DEPLOY_USER=matchup-test-no-such-user bash "$HOME_DIR/releases/$release/deploy.sh" "$@" \
     <<<"${TOKEN:-}" >"$STATE/out.log" 2>&1 || code=$?
 }
 check() {
@@ -97,6 +98,13 @@ PAYME_KEY="
 deploy r2 --registry "$REGISTRY" r2
 check "env-bad: exit != 0, hamma xatolar ro'yxati" '((code != 0)) && grep -q "S3_ACCESS_KEY_ID: namuna" "$STATE/out.log" && grep -q "BACKUP_BUCKET: yo.q" "$STATE/out.log" && grep -q "PAYME_KEY: bo.sh" "$STATE/out.log"'
 check "env-bad: docker chaqirilmagan" '[[ ! -s $STATE/calls.log ]]'
+
+# 2b. Object Storage'ga ulanib bo'lmadi — migratsiya va servislarga tegilmaydi
+setup storage-fail
+deployed_r1
+STORAGE_FAIL=1 deploy r2 r2
+check "storage-fail: exit != 0 va sabab" '((code != 0)) && grep -q "Object Storage sozlanmadi" "$STATE/out.log"'
+check "storage-fail: migratsiya va up chaqirilmagan, holat r1 da" '! grep -q " migrate\| up -d" "$STATE/calls.log" && grep -q "IMAGE_TAG=r1" "$HOME_DIR/state/image.env"'
 
 # 3. Migratsiya xatosi — servislarga va holatga tegilmaydi
 setup migrate-fail

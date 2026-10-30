@@ -347,7 +347,7 @@ MVP va yopiq sinov uchun hamma narsa bitta serverda, Docker Compose bilan ([infr
    ```bash
    ssh root@<ip> bash bootstrap.sh --email <ops-email>
    ```
-   Oxirida GitHub uchun qiymatlar chiqadi: `HETZNER_HOST`, `HETZNER_KNOWN_HOSTS` va GitHub Actions'ning SSH kaliti (serverda saqlanmaydi — o'sha zahoti nusxalanadi; o'z kalitingiz bo'lsa — `--deploy-key "ssh-ed25519 ..."`). Root'da SSH kalit bo'lsa parol bilan kirish o'chiriladi. Skriptni qayta ishga tushirish xavfsiz.
+   Oxirida GitHub uchun qiymatlar chiqadi: `HETZNER_HOST`, `HETZNER_KNOWN_HOSTS` va GitHub Actions'ning SSH kaliti (ekranga chiqqach serverdan o'chiriladi — o'sha zahoti nusxalanadi; skript yarmida to'xtasa, qayta ishga tushirilganda kalit baribir chiqadi; o'z kalitingiz bo'lsa — `--deploy-key "ssh-ed25519 ..."`). Root'da SSH kalit bo'lsa parol bilan kirish o'chiriladi. Skriptni qayta ishga tushirish xavfsiz.
 3. **`.env`** (`/opt/matchup/.env`, `nano` bilan): `change-me` qiymatlari — S3 kalitlari va bucket nomlari, `ACME_EMAIL`, `ESKIZ_*` (API usiz ishga tushmaydi). Ixtiyoriy — Payme/Click/Uzum/Rahmat, Telegram, Sentry, Google/Apple; ro'yxat va izohlar — [env.example](../infra/hetzner/env.example). Qiymatsiz qator (`KEY=`) qoldirilmaydi. `DB_PASSWORD`, `MEDIA_WORKER_TOKEN` bootstrap generatsiya qilgan — o'zgartirilmaydi.
 4. **GitHub** -> repo Settings -> Secrets and variables -> Actions: **Variables** `HETZNER_HOST`, `HETZNER_KNOWN_HOSTS`; **Secrets** `HETZNER_SSH_KEY`. Ixtiyoriy: `HETZNER_PLATFORM=linux/arm64` (ARM server), `PRODUCTION_ADMIN_SENTRY_DSN`. `production` environment birinchi deploy'da yaratiladi — Settings -> Environments -> production -> "Required reviewers" bilan har deploy tasdiqlanadigan qilish mumkin.
 5. **Birinchi deploy:** Actions -> **Deploy (Hetzner)** -> Run workflow (`main`). Tekshirish: `https://<API_DOMAIN>/health` va `https://<ADMIN_DOMAIN>`.
@@ -423,6 +423,33 @@ Tiklash joriy bazani o'chirmaydi: backup avval `matchup_restore` ga yuklanadi (s
 - Host kaliti oldindan ma'lum (`HETZNER_KNOWN_HOSTS`) — birinchi ulanishda ham MITM'ga yo'l yo'q.
 - `.env` (0600, `deploy`) va `secrets/*.pem` (0400, konteynerdagi `node`); image va repo'da secret yo'q.
 - Admin panelni IP bo'yicha cheklash mumkin: `.env` da `ADMIN_ALLOW_IPS`.
+
+### Muammolar
+
+`deploy.sh`, `backup.sh`, `storage.sh`, `restore.sh` ni root'dan ishga tushirish mumkin — ular o'zi `deploy` foydalanuvchisiga o'tadi va `/opt/matchup` dan ishlaydi (`state/` dagi fayllar CI va backup timer'i yoza oladigan bo'lib qoladi).
+
+| Belgi | Sabab va yechim |
+|---|---|
+| Deploy `Object Storage sozlanmadi (storage.sh)` bilan to'xtadi | bucket'larga ulanib bo'lmadi, sabab xato qatorida: `403 SignatureDoesNotMatch` / `InvalidAccessKeyId` — S3 kalitlari (ko'pincha nusxalashda qisqargan), `404 NoSuchBucket` — bucket nomi yoki `S3_ENDPOINT` location'i, `javob kelmadi` — endpoint yoki tarmoq. Ilova servislariga tegilmagan. Tuzatgach: `/opt/matchup/current/deploy.sh --restart` |
+| `argument of type 'NoneType' is not iterable` (backup va boshqa aws-cli buyruqlari) | aws-cli Hetzner'ning xato javobini shunday yashiradi ([aws/aws-cli#10161](https://github.com/aws/aws-cli/issues/10161)). Haqiqiy sabab: `/opt/matchup/current/storage.sh --force` |
+| Backup timer'i: `state/backups.log: Permission denied` | `state/` dagi fayl root nomidan yozilgan (shu tuzatishdan oldingi versiya). `chown -R deploy:deploy /opt/matchup/state` yoki istalgan skriptni root'dan bir marta ishga tushirish |
+| `stat .: permission denied` (`sudo -u deploy matchup ...`) | `deploy` joriy papkani (masalan `/root`) o'qiy olmaydi: oldin `cd /opt/matchup` yoki `matchup` ni root'dan ishlating |
+| `error in libcrypto` (GitHub Actions, SSH) | `HETZNER_SSH_KEY` secret'i buzilgan (qator tushib qolgan yoki ortiqcha matn). Kalitni qayta yaratish — pastda |
+| `client_loop: send disconnect: Broken pipe` | uzoq turgan SSH sessiyasi uzildi (Wi-Fi, uyqu rejimi). Kompyuterdagi `~/.ssh/config` da server uchun `ServerAliveInterval 30` |
+
+S3 kalitlarini ekranga chiqarmasdan qayta yozish (Hetzner: access key — 20, secret — 40 belgi; `read -s` — yozilgani ko'rinmaydi), so'ng `/opt/matchup/current/deploy.sh --restart`:
+
+```bash
+read -rp 'Access key: ' k && read -rsp 'Secret key: ' s && echo && [ ${#k} = 20 ] && [ ${#s} = 40 ] && sed -i -e "s|^S3_ACCESS_KEY_ID=.*|S3_ACCESS_KEY_ID=$k|" -e "s|^S3_SECRET_ACCESS_KEY=.*|S3_SECRET_ACCESS_KEY=$s|" /opt/matchup/.env && echo YOZILDI || echo "uzunlik noto'g'ri — yozilmadi"; unset k s
+```
+
+GitHub Actions kalitini qayta yaratish (eski kalit ishlamay qoladi):
+
+```bash
+ssh-keygen -q -t ed25519 -N '' -C matchup-deploy -f /root/matchup-deploy && sed -i '/^restrict /d' ~deploy/.ssh/authorized_keys && echo "restrict $(cat /root/matchup-deploy.pub)" >> ~deploy/.ssh/authorized_keys
+```
+
+Maxfiy qismini to'g'ridan-to'g'ri kompyuter buferiga olib (macOS: `ssh root@<ip> cat /root/matchup-deploy | pbcopy`) `HETZNER_SSH_KEY` secret'iga qo'ying, so'ng serverda `rm /root/matchup-deploy /root/matchup-deploy.pub`.
 
 ## Ma'lum cheklovlar va keyingi qadamlar
 

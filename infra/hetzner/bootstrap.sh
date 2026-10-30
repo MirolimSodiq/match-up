@@ -18,6 +18,9 @@ set -euo pipefail
 
 MATCHUP_HOME=/opt/matchup
 DEPLOY_USER=deploy
+# Generatsiya qilingan GitHub Actions kaliti summary uni ekranga chiqarguncha shu yerda (0600) turadi: skript yarmida
+# to'xtasa, keyingi ishga tushirishda baribir chiqariladi; chiqarilgach o'chiriladi
+DEPLOY_KEY_FILE=/root/.matchup-deploy-key
 NODE_UID=1000 # API konteyneridagi `node` — secrets/*.pem shu uid'ga o'qiladi
 
 email='' deploy_key='' swap_size=4G
@@ -95,18 +98,16 @@ setup_user() {
   log "Foydalanuvchi: $DEPLOY_USER"
   id "$DEPLOY_USER" >/dev/null 2>&1 || useradd --create-home --shell /bin/bash "$DEPLOY_USER"
   usermod -aG docker "$DEPLOY_USER"
-  local home ssh_dir keys tmp
+  local home ssh_dir keys
   home=$(getent passwd "$DEPLOY_USER" | cut -d: -f6)
   ssh_dir="$home/.ssh"
   keys="$ssh_dir/authorized_keys"
   install -d -m 0700 -o "$DEPLOY_USER" -g "$DEPLOY_USER" "$ssh_dir"
   touch "$keys"
   if [[ -z $deploy_key ]] && ! grep -q '^restrict ' "$keys"; then
-    tmp=$(mktemp -d)
-    ssh-keygen -q -t ed25519 -N '' -C matchup-deploy -f "$tmp/key"
-    deploy_key=$(<"$tmp/key.pub")
-    GENERATED_PRIVATE_KEY=$(<"$tmp/key")
-    rm -rf "$tmp"
+    rm -f "$DEPLOY_KEY_FILE" "$DEPLOY_KEY_FILE.pub"
+    ssh-keygen -q -t ed25519 -N '' -C matchup-deploy -f "$DEPLOY_KEY_FILE"
+    deploy_key=$(<"$DEPLOY_KEY_FILE.pub")
   fi
   if [[ -n $deploy_key ]] && ! grep -qF "${deploy_key#restrict }" "$keys"; then
     [[ $deploy_key == ssh-* || $deploy_key == ecdsa-* ]] || die "--deploy-key: OpenSSH ochiq kaliti kerak"
@@ -256,14 +257,15 @@ GitHub -> repo Settings -> Secrets and variables -> Actions:
   Variables:  HETZNER_HOST = $ip
               HETZNER_KNOWN_HOSTS = $ip $(cut -d' ' -f1,2 /etc/ssh/ssh_host_ed25519_key.pub)
 EOF
-  if [[ -n ${GENERATED_PRIVATE_KEY:-} ]]; then
+  if [[ -f $DEPLOY_KEY_FILE ]]; then
     cat <<EOF
-  Secrets:    HETZNER_SSH_KEY = pastdagi kalit (BEGIN va END qatorlari bilan). Serverda saqlanmadi —
-              hozir nusxalang, boshqa joyga yozmang.
+  Secrets:    HETZNER_SSH_KEY = pastdagi kalit (BEGIN va END qatorlari bilan). Serverdan hozir o'chiriladi —
+              darhol nusxalang, boshqa joyga yozmang.
 
-$GENERATED_PRIVATE_KEY
+$(<"$DEPLOY_KEY_FILE")
 
 EOF
+    rm -f "$DEPLOY_KEY_FILE" "$DEPLOY_KEY_FILE.pub"
   else
     echo "  Secrets:    HETZNER_SSH_KEY = avval berilgan/yaratilgan kalitning maxfiy qismi (yo'qolgan bo'lsa:"
     echo "              ~$DEPLOY_USER/.ssh/authorized_keys dan 'restrict' qatorini o'chirib, skriptni qayta ishga tushiring)"

@@ -146,7 +146,9 @@ deploy() {
   log "Image'lar: $registry/{api,admin,media-worker}:$tag"
   compose pull --quiet api admin media-worker
 
-  "$RELEASE_DIR/storage.sh" || log "OGOHLANTIRISH: bucket lifecycle qoidalari qo'llanmadi (storage.sh) — deploy davom etadi"
+  # Bucket'larga ulanib bo'lmasa (kalit, nom, endpoint) ilova video yuklay olmaydi — to'xtaymiz. storage.sh S3'ga faqat
+  # sozlamalar o'zgarganda murojaat qiladi, shuning uchun oddiy deploy'ni vaqtinchalik S3 uzilishi to'xtatmaydi
+  "$RELEASE_DIR/storage.sh" || die "Object Storage sozlanmadi (storage.sh) — .env dagi S3_* qiymatlarini tekshiring"
 
   log "Migratsiya"
   compose run --rm --no-TTY migrate || die "migratsiya xato — servislarga tegilmadi"
@@ -176,6 +178,7 @@ deploy() {
 }
 
 main() {
+  enter_home "$@"
   local login_user="" registry="" restart=0 token out
   while (( $# )); do
     case $1 in
