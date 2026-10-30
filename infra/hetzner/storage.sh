@@ -31,7 +31,17 @@ apply() {
   aws_s3 s3api put-bucket-lifecycle-configuration --bucket "$bucket" --lifecycle-configuration "$(rule "$@")"
 }
 
+# Ulanish xatosining sababi. aws-cli Hetzner'ning xato javobida ko'pincha "argument of type 'NoneType'" deb yiqilib, asl
+# xatoni yashiradi (aws/aws-cli#10161) — HTTP holati va S3 xato kodi --debug chiqishidan olinadi (kalitlar chiqmaydi)
+s3_reason() {
+  local out
+  out=$(aws_s3 s3api list-objects-v2 --bucket "$1" --max-keys 1 --debug 2>&1 >/dev/null |
+    grep -oE 'HTTP/1\.1" [0-9]{3}|<Code>[^<]+</Code>' | sed -E 's/^HTTP.* //; s#</?Code>##g' | sort -u | paste -sd' ' -) || true
+  printf '%s' "${out:-javob kelmadi}"
+}
+
 main() {
+  enter_home "$@"
   load_env
   local raw media backup raw_days rec_days backup_days stamp b
   raw=$(env_get MEDIA_RAW_BUCKET)
@@ -51,8 +61,9 @@ main() {
   fi
 
   for b in "$raw" "$media" "$backup"; do
-    aws_s3 s3api head-bucket --bucket "$b" >/dev/null ||
-      die "bucket '$b' ochilmadi: Hetzner Console'da yaratilganmi, S3_ENDPOINT shu location'dami, kalitlar to'g'rimi?"
+    aws_s3 s3api head-bucket --bucket "$b" >/dev/null 2>&1 ||
+      die "bucket '$b' ochilmadi ($(s3_reason "$b")). SignatureDoesNotMatch / InvalidAccessKeyId — S3 kalitlari noto'g'ri;" \
+        "NoSuchBucket — bucket nomi yoki S3_ENDPOINT location'i; javob kelmadi — S3_ENDPOINT yoki tarmoq"
   done
   apply "$raw" raw-expire "" "$raw_days"
   apply "$media" recordings-expire recordings/ "$((rec_days + 1))"
