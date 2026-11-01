@@ -10,10 +10,15 @@ export interface OtpSender {
 
 export const OTP_SENDER = Symbol('OTP_SENDER');
 
+/**
+ * Matnlar Eskiz kabinetidagi tasdiqlangan shablonlar bilan harfma-harf bir xil bo'lishi shart (resurs nomi + maqsad):
+ * o'zgartirilsa — avval Eskiz'da yangi shablon tasdiqlatiladi. Kod login'da ham, waiver imzosida ham ishlatiladi
+ * ("kirish va tasdiqlash"). Har biri bitta SMS: kirill matn 70 belgigacha, lotin — 160.
+ */
 export function otpText(code: string, locale: Locale): string {
-  if (locale === 'ru') return `Match Up: код подтверждения ${code}. Никому не сообщайте его.`;
-  if (locale === 'en') return `Match Up: your verification code is ${code}. Do not share it.`;
-  return `Match Up: tasdiqlash kodi ${code}. Uni hech kimga bermang.`;
+  if (locale === 'ru') return `1Dream: код для входа и подтверждения ${code}. Не сообщайте его никому.`;
+  if (locale === 'en') return `1Dream: sign-in and confirmation code ${code}. Do not share it.`;
+  return `1Dream: kirish va tasdiqlash kodi ${code}. Kodni hech kimga bermang.`;
 }
 
 /** Dev: kod logga yoziladi. Production'da env validatsiyasi buni taqiqlaydi. */

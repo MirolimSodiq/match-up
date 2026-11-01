@@ -1,3 +1,5 @@
+import type { Locale } from '../src/common/i18n';
+import { otpText } from '../src/identity/otp-senders';
 import { createTestApp, device, login, type TestCtx } from './helpers';
 
 describe('Auth & profil', () => {
@@ -105,5 +107,21 @@ describe('Auth & profil', () => {
     await ctx.http().delete('/v1/me').set(s.auth).expect(202);
     const dup = await ctx.http().delete('/v1/me').set(s.auth).expect(409);
     expect(dup.body.code).toBe('ERASURE_PENDING');
+  });
+});
+
+describe('OTP SMS matni', () => {
+  // Eskiz faqat tasdiqlangan shablonni yuboradi: matn o'zgarsa SMS bormay qoladi — Eskiz'dagi shablon ham yangilanadi
+  it("Eskiz shablonlari bilan bir xil va har biri bitta SMS", () => {
+    const texts: Record<Locale, string> = {
+      'uz-Latn': '1Dream: kirish va tasdiqlash kodi 123456. Kodni hech kimga bermang.',
+      'uz-Cyrl': '1Dream: kirish va tasdiqlash kodi 123456. Kodni hech kimga bermang.',
+      ru: '1Dream: код для входа и подтверждения 123456. Не сообщайте его никому.',
+      en: '1Dream: sign-in and confirmation code 123456. Do not share it.',
+    };
+    for (const [locale, text] of Object.entries(texts)) {
+      expect(otpText('123456', locale as Locale)).toBe(text);
+      expect(text.length).toBeLessThanOrEqual(/[^\x00-\x7F]/.test(text) ? 70 : 160);
+    }
   });
 });
