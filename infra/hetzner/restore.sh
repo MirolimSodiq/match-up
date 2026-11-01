@@ -24,6 +24,7 @@ list_backups() {
 }
 
 main() {
+  enter_home "$@"
   load_env
   case ${1:-} in
     list) list_backups | tail -n 20; return ;;

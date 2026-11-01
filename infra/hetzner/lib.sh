@@ -11,6 +11,21 @@ AWS_CLI_IMAGE=amazon/aws-cli:2.37.0
 log() { printf '[%s] %s\n' "$(date -u +%H:%M:%S)" "$*" >&2; }
 die() { log "XATO: $*"; exit 1; }
 
+# Operator skriptlari (deploy, backup, storage, restore) `deploy` foydalanuvchisi nomidan va MATCHUP_HOME dan ishlaydi
+# (main boshida: enter_home "$@"):
+# - root ishga tushirsa — `deploy` ga o'tiladi: aks holda state/ dagi fayllar root'niki bo'lib qoladi va CI deploy'i
+#   hamda backup timer'i (ikkalasi `deploy` nomidan) ularga yoza olmaydi. Avval root yozib qo'ygan fayllar qaytariladi;
+# - ishga tushirilgan papka (masalan /root) `deploy` ga yopiq bo'lsa docker compose "stat .: permission denied" bilan
+#   yiqiladi. `matchup` buyrug'i esa joriy papkada qoladi (`matchup cp` dagi nisbiy yo'llar uchun)
+DEPLOY_USER=${MATCHUP_DEPLOY_USER:-deploy}
+enter_home() {
+  cd "$MATCHUP_HOME" || die "$MATCHUP_HOME ga o'tib bo'lmadi"
+  if (( EUID == 0 )) && id "$DEPLOY_USER" >/dev/null 2>&1; then
+    chown -R "$DEPLOY_USER:$DEPLOY_USER" "$STATE_DIR" "$MATCHUP_HOME/caddy" 2>/dev/null || true
+    exec runuser -u "$DEPLOY_USER" -- "$RELEASE_DIR/${0##*/}" "$@"
+  fi
+}
+
 # .env ni bash'da `source` qilinmaydi (ADMIN_ALLOW_IPS kabi bo'sh joyli qiymat buyruq bo'lib ketadi) —
 # docker compose dotenv formatidagi KEY=VALUE qatorlari ENV massiviga o'qiladi.
 declare -gA ENV=()
