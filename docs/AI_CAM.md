@@ -261,7 +261,7 @@ Natijalar API'ga ichki endpoint orqali yoziladi (servis token, faqat VPC ichida)
 | **A — Yozish va ma'lumot yig'ish** | host app'da yozish rejimi va resumable upload, `recording_sessions`, bib biriktirish, to'liq o'yin videosi ishtirokchilarga, host qo'lda belgilagan highlight'lar | Dataset yig'iladi, rig operatsion jihatdan sinaladi. **Backend tayyor (§12)**; host va player UI — keyingi qadam |
 | **B — Avtomatik kliplar** | sinxronlash, kalibrovka, detection va tracking, gol va zarba event'lari, virtual kamera render, 9:16 ulashish | "AI beta" gol kliplari |
 | **C — O'yinchi statistikasi va reyting** | jamoa va bib identity, possession modeli, barcha event'lar, `player_match_stats`, formula v1, review navbati, `/analytics`, o'yinchi videosi (player reel, §4), navbatli 3–4 jamoali o'yinlar (§13) | Reyting avval shadow rejimda, keyin nashr |
-| **D — Optimallashtirish** | qurilmada oldindan ishlov (upload hajmini kamaytirish), venue'larga doimiy kameralar, deyarli real-time | Narx va kechikish pasayadi |
+| **D — Optimallashtirish** | qurilmada oldindan ishlov (upload hajmini kamaytirish), venue'larga doimiy kameralar, deyarli real-time; tajriba: flagman maydonda gollar uchun 3D takroriy lavha (§14.5) | Narx va kechikish pasayadi |
 
 ## 11. Xatarlar va ochiq savollar
 
@@ -426,3 +426,12 @@ Telefon, havaskor maydon, jiletka raqami bo'yicha o'yinchi reytingi va booking b
 2. roboflow/sports tuzilmasini Ultralytics'siz qayta yig'ish: RF-DETR + supervision (ByteTrack) + o'z maydon keypoint modeli + bib rangi bo'yicha jamoa.
 3. Bib OCR: PARSeq'ni o'z jiletkalarimizda fine-tune (4 rang × 8, raqam diapazoni tekshiruvi — §13.2).
 4. O'lchov: §9 metrikalari pilot test set'ida, SoccerNet metrikalari (GS-HOTA) bilan solishtirish.
+
+### 14.5 Kuzatiladigan texnologiya: 3D takroriy lavha (Bosqich D)
+
+[Gracia AI](https://gracia.ai/) 4–8 kamera videosidan sahnani 4D Gaussian splatting bilan qayta quradi — lavhani istalgan burchakdan ko'rish mumkin ([Radiance Fields](https://radiancefields.com/gracia-introduces-a-world-reconstruction-model-for-physical-ai-and-sports-replays)).
+
+- **Talablar:** kameralar apparat darajasida sinxron (shutter sync / genlock — GoPro, Insta360 mos emas; iPhone 17, Blackmagic, Sony FR7 mos), sahna atrofiga joylashtiriladi; Gracia faqat qayta ishlaydi, suratga olish — hamkorlar. "Real vaqtga yaqin" deyiladi, golf loyihasida natija 24 soatda. Sahna o'lchami, narx va mustaqil benchmark e'lon qilinmagan.
+- **Nega hozir emas:** statistika va reyting uchun pitch koordinatalari (2D) yetarli; bir chetdagi ikki telefon sinxron kamera to'plami emas; havaskor o'yin narxida 4–8 kamera va GPU qayta ishlashni oqlab bo'lmaydi.
+- **Mumkin bo'lgan foyda:** venue'ga doimiy, sinxronlangan kameralar o'rnatilgach — flagman maydonda faqat **gollar uchun 3D lavha** (pult belgilari bo'yicha, butun o'yin emas): ijtimoiy tarmoq va marketing. Havodagi to'p muammosi (§14.2, 1-band) 3D'da nazariy jihatdan yechiladi.
+- **Qayta ko'rib chiqish shartlari:** maydonlarda doimiy kameralar; bitta lavha narxi ma'lum; futbol yoki mini-futbol maydonida ishlashi isbotlangan (hozircha golf va studiya misollari).
