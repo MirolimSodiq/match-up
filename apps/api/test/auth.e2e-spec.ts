@@ -114,10 +114,10 @@ describe('OTP SMS matni', () => {
   // Eskiz faqat tasdiqlangan shablonni yuboradi: matn o'zgarsa SMS bormay qoladi — Eskiz'dagi shablon ham yangilanadi
   it("Eskiz shablonlari bilan bir xil va har biri bitta SMS", () => {
     const texts: Record<Locale, string> = {
-      'uz-Latn': '1Dream: kirish va tasdiqlash kodi 123456. Kodni hech kimga bermang.',
-      'uz-Cyrl': '1Dream: kirish va tasdiqlash kodi 123456. Kodni hech kimga bermang.',
-      ru: '1Dream: код для входа и подтверждения 123456. Не сообщайте его никому.',
-      en: '1Dream: sign-in and confirmation code 123456. Do not share it.',
+      'uz-Latn': '1Dream ilovasiga kirish uchun tasdiqlash kodi: 123456. Kodni hech kimga bermang!',
+      'uz-Cyrl': '1Dream ilovasiga kirish uchun tasdiqlash kodi: 123456. Kodni hech kimga bermang!',
+      ru: 'Код для входа в приложение 1Dream: 123456. Никому его не сообщайте!',
+      en: 'Your code to sign in to the 1Dream app: 123456. Do not share it with anyone!',
     };
     for (const [locale, text] of Object.entries(texts)) {
       expect(otpText('123456', locale as Locale)).toBe(text);
