@@ -1,7 +1,7 @@
 # AI-Cam Engine — video highlight'lar va o'yinchi reytingi
 
 > Maydondagi 2–3 telefon yozuvidan butun maydon ko'rinishi, avtomatik highlight kliplar (gol, dribling, progressiv pas) va har bir o'yinchi uchun FIFA uslubidagi reyting (masalan, **8.7**) yaratadigan modul.
-> Holat: **Bosqich A — tayyor** (migratsiya `0006`, API, worker profillari `recording_v1` / `clip_v1`, host'da kamera rejimi va pult, player'da to'liq o'yin videosi; §12). Haqiqiy telefonda 90 daqiqalik yozuv bilan pilot — keyingi qadam. Bosqich B–D — reja.
+> Holat: **Bosqich A — tayyor** (migratsiya `0006`, API, worker profillari `recording_v1` / `clip_v1`, host'da kamera rejimi va pult, player'da to'liq o'yin videosi; §12). Haqiqiy telefonda 90 daqiqalik yozuv bilan pilot — keyingi qadam. Bosqich B–D — reja; mavjud ochiq yechimlar va litsenziya qarorlari — §14.
 
 | Bog'liq joy | Nima bor |
 |---|---|
@@ -81,12 +81,12 @@ Panorama (OpenCV: maydon chiziqlari bo'yicha moslash, ustma-ust qismda SIFT/ORB,
 
 | Vazifa | Yondashuv | Eslatma |
 |---|---|---|
-| O'yinchi va to'p detection | Fine-tune qilingan detector. Kandidatlar: **RT-DETR** yoki **YOLOX** (Apache-2.0) yoki YOLOv8/YOLO11 | ⚠️ Ultralytics YOLOv8/YOLO11 — **AGPL-3.0**, YOLOv10 ham shu kodga asoslangan. Yopiq kommersiya mahsulotida ishlatish uchun Ultralytics Enterprise litsenziyasi kerak, aks holda Apache-2.0 modellar olinadi. Tanlov pilot benchmark'idan keyin. |
+| O'yinchi va to'p detection | Fine-tune qilingan detector: asosiy nomzod **RF-DETR**, zaxira **RT-DETR** yoki **YOLOX** (hammasi Apache-2.0) | Ultralytics YOLOv8/YOLO11 (**AGPL-3.0**, YOLOv10 ham) **ishlatilmaydi** (§11, §14.3). Ochiq misollar (roboflow/sports va boshqalar) Ultralytics'ga tayanadi — ulardan faqat pipeline tuzilmasi olinadi. Tanlov pilot benchmark'idan keyin. |
 | To'p (kichik obyekt) | Yuqori aniqlikdagi tile'lar (SAHI uslubi), to'pga alohida model, Kalman filtr + yo'qolgan kadrlarda interpolyatsiya | 4K'da to'p 10–20 px. Panjara (qafas maydonlar) va tungi yoritish asosiy xato manbalari. |
-| Tracking | **ByteTrack** (MIT) yoki BoT-SORT; har kamera alohida, keyin pitch koordinatalarida birlashtiriladi | DeepSORT'ning tashqi ko'rinish embedding'lari faqat ishlov paytida, keyin o'chiriladi (§8). |
-| Kalibrovka | Maydon chiziqlari va burchak keypoint modeli + RANSAC homography; kamera qimirlasa, har N soniyada qayta baholanadi | Maydon o'lchamlari `pitches.length_m/width_m` dan olinadi. |
-| Jamoa | Tors crop'laridagi rang bo'yicha K-means. Bib ranglari oldindan ma'lum (`match_sides.bib_color`) | Hakam yoki tomoshabin — alohida klaster yoki maydondan tashqarida. 3–4 jamoali navbatli o'yinlar — §13. |
-| Identity | Bib raqami **OCR** (PARSeq/CRNN, bib raqamlariga fine-tune qilingan) + track bo'ylab ovoz berish → `match_participants.bib_number`. Raqam — odam, rang — jamoa; rang va raqam diapazoni mos kelmasa o'qish rad etiladi (§13.2) | Aniqlanmagan track'lar review navbatiga tushadi va host/admin uni bir bosishda o'yinchiga bog'laydi. |
+| Tracking | **ByteTrack** (MIT) yoki BoT-SORT, `supervision` (MIT) orqali; har kamera alohida, keyin pitch koordinatalarida birlashtiriladi | DeepSORT'ning tashqi ko'rinish embedding'lari faqat ishlov paytida, keyin o'chiriladi (§8). |
+| Kalibrovka | Maydon chiziqlari va burchak keypoint modeli + RANSAC homography; kamera qimirlasa, har N soniyada qayta baholanadi. Nomzodlar: roboflow/sports keypoint yondashuvi, PnLCalib / No-Bells-Just-Whistles (§14) | Maydon o'lchamlari `pitches.length_m/width_m` dan olinadi. Ochiq modellar katta maydon va TV kamerasiga o'qitilgan — kichik maydonlar uchun o'z keypoint sxemasi va fine-tune kerak. |
+| Jamoa | Bib ranglari oldindan ma'lum (`match_sides.bib_color`) — tors crop'i eng yaqin bib rangiga; rang noaniq bo'lsa zaxira: SigLIP embedding + UMAP + K-means (roboflow/sports `TeamClassifier` g'oyasi) | Hakam yoki tomoshabin — alohida klaster yoki maydondan tashqarida. 3–4 jamoali navbatli o'yinlar — §13. |
+| Identity | Bib raqami **OCR**: raqam o'qiladimi filtri → tana holati (ViTPose) bo'yicha tors qirqish → **PARSeq** (Apache-2.0, o'z bib'larimizga fine-tune) → track bo'ylab ovoz berish (jersey-number-pipeline sxemasi, §14) → `match_participants.bib_number`. TV translyatsiyasida ham aniqlik ~80–86% — telefonda pastroq kutiladi. Raqam — odam, rang — jamoa; rang va raqam diapazoni mos kelmasa o'qish rad etiladi (§13.2) | Aniqlanmagan track'lar review navbatiga tushadi va host/admin uni bir bosishda o'yinchiga bog'laydi. |
 
 ## 4. Event'lar va reyting
 
@@ -267,7 +267,7 @@ Natijalar API'ga ichki endpoint orqali yoziladi (servis token, faqat VPC ichida)
 
 | Xatar | Choralar |
 |---|---|
-| Ultralytics AGPL litsenziyasi | Apache-2.0 modellar (RT-DETR/YOLOX) yoki Enterprise litsenziya — Bosqich B oldidan qaror |
+| Ultralytics AGPL litsenziyasi | **Qaror (2026-11-02):** Ultralytics ishlatilmaydi — RF-DETR / RT-DETR / YOLOX (Apache-2.0). Litsenziyasiz va GPL kod mahsulotga ko'chirilmaydi, model og'irliklari va dataset shartlari alohida tekshiriladi (§14.3) |
 | Telefon qizishi va batareya (yoz) | power bank, soya, 4K o'rniga 2.7K varianti, harorat logi |
 | Venue'larda Wi-Fi yo'q | resumable upload uydan ham davom etadi; Bosqich D'da qurilmada siqish |
 | Qafas/panjara, tungi yoritish | venue bo'yicha kalibrovka profili, test set'da alohida o'lchash |
@@ -382,3 +382,47 @@ Pickup o'yinlarda ko'pincha 2 dan ortiq jamoa navbat bilan o'ynaydi (masalan, 15
 - **Stadion to'plami.** Venue'ga jiletka to'plami (ranglar va raqam diapazonlari) — host faqat mavjud rang va raqamni tanlaydi.
 - **Pult.** `recording_markers.kind` ga `segment` (maydondagi jamoalar juftligi bilan) — "Yangi o'yin: X–Y".
 - **Bosqich C.** Segmentlar bo'yicha natija va daqiqalar; review navbatida noma'lum raqamni o'yinchiga bog'lash.
+
+## 14. Mavjud yechimlar va saboqlar (2026-11 tahlili)
+
+Telefon, havaskor maydon, jiletka raqami bo'yicha o'yinchi reytingi va booking bitta tizimda bo'lgan tayyor ochiq yechim topilmadi. Ochiq kod alohida qismlarni yechadi va asosan **TV translyatsiyasi** videolariga mo'ljallangan; tijoriy mahsulotlar (Veo, Pixellot, Trace) maxsus keng burchakli kameralar bilan ishlaydi. Bizning ish — tayyor qismlarni yig'ish va o'z sharoitimizga (telefon, kichik maydon, jiletka, navbatli jamoalar) moslash.
+
+### 14.1 Nimadan foydalanamiz
+
+| Loyiha | Nima beradi | Litsenziya | Qanday foydalanamiz |
+|---|---|---|---|
+| [roboflow/sports](https://github.com/roboflow/sports) | o'yinchi/to'p detection, to'p kuzatuvi, maydon keypoint'lari → yuqoridan xarita (`ViewTransformer`), jamoa ajratish (SigLIP + UMAP + K-means) | MIT; misol kodi Ultralytics'ga tayanadi | pipeline tuzilmasi va g'oyalar; detector RF-DETR bilan almashtiriladi |
+| [supervision](https://github.com/roboflow/supervision) | ByteTrack, annotator'lar, zonalar, homography yordamchilari | MIT | kod sifatida |
+| [RF-DETR](https://github.com/roboflow/rf-detr) | detector (o'yinchi, to'p, hakam) | Apache-2.0 | asosiy detector — pilot videolarida fine-tune |
+| [RT-DETR](https://github.com/lyuwenyu/RT-DETR), [YOLOX](https://github.com/Megvii-BaseDetection/YOLOX) | detector | Apache-2.0 | zaxira, benchmark uchun |
+| [ByteTrack](https://github.com/FoundationVision/ByteTrack) | multi-object tracking | MIT | kod sifatida (supervision orqali) |
+| [jersey-number-pipeline](https://github.com/mkoshkina/jersey-number-pipeline) | raqam o'qiladimi filtri → ViTPose bilan tors qirqish → PARSeq → tracklet ovozi | boshqa (tekshirish kerak) | sxemasi; komponentlar Apache-2.0 manbalardan: [PARSeq](https://github.com/baudm/parseq), [ViTPose](https://github.com/ViTAE-Transformer/ViTPose) |
+| [PnLCalib](https://github.com/mguti97/PnLCalib), [No-Bells-Just-Whistles](https://github.com/mguti97/No-Bells-Just-Whistles) | maydon chiziqlari va nuqtalaridan kalibrovka | tekshirish kerak | usul; kichik maydonlarga moslash |
+| [SoccerNet/sn-gamestate](https://github.com/SoccerNet/sn-gamestate), [tracklab](https://github.com/TrackingLaboratory/tracklab) | to'liq zanjir: topish → kuzatish → jamoa → raqam → kalibrovka → xarita; benchmark | GPL-3.0 / MIT | o'lchov va metrikalar (GS-HOTA); GPL kodi mahsulotga olinmaydi |
+| [SoccerTrack](https://openaccess.thecvf.com/content/CVPR2022W/CVSports/html/Scott_SoccerTrack_A_Dataset_and_Tracking_Algorithm_for_Soccer_With_Fish-Eye_CVPRW_2022_paper.html) | fish-eye va dron videolari datasets | tekshirish kerak | statik keng kamera — bizning rig'ga yaqin; benchmark |
+| [AutoCam AI](https://github.com/chele-s/AutoCam-AI), [BallScope](https://github.com/rafaelreverberi/ballscope) | to'p ortidan virtual kamera; ikki kamerani birlashtirish | MIT | yangi va kichik loyihalar — g'oya manbai (virtual kamera, §2) |
+| [abdullahtarek/football_analysis](https://github.com/abdullahtarek/football_analysis) | YOLO, rang bo'yicha jamoa, kamera harakati, tezlik | **litsenziya yo'q** | faqat o'rganish; kod olinmaydi |
+
+### 14.2 Issue va muhokamalardan saboqlar
+
+1. **To'p — eng qiyin qism** (kichik, tez). Havodagi to'p homography'da noto'g'ri joyga tushadi, yo'qolgan kadrlarni interpolyatsiya qilish yolg'on traektoriya beradi ([roboflow/sports #10](https://github.com/roboflow/sports/issues/10)). → Gollar hozircha pult belgisidan (Bosqich A); avtomatik gol detection Bosqich B'da hostning hisobi bilan solishtiriladi (§4).
+2. **Demo boshqa videoda takrorlanmaydi** — maydon keypoint'lari xato topilib, xarita buziladi ([#43](https://github.com/roboflow/sports/issues/43)). → Har model pilot videolarimizda fine-tune qilinadi va o'z test set'imizda o'lchanadi (§9).
+3. **Rang bo'yicha jamoa xato** — binafsha va oq bitta klasterga tushgan; o'yinchilar yaqinlashganda tracker ID almashadi va jamoa ham almashadi ([football_analysis #3](https://github.com/abdullahtarek/football_analysis/issues/3)). → Bib ranglari oldindan ma'lum va keskin farqli (§13.2); asosiy xato manbai ID almashuvi — track birlashtirishda rang va raqam birga ishlatiladi.
+4. **Jiletka raqami TV translyatsiyasida ham ~80–86%** ([Grad, CVPRW 2025](https://lukaszgrad.github.io/jnr/static/pdfs/cvsports_poster_final.pdf); [SoccerNet 2024 natijalari](https://arxiv.org/pdf/2409.10587)); markazdagi shtativdan uzoqdagi raqamlar o'qilmaydi (Reddit muhokamasi). → Ikki kamera (har biri yarim maydon), katta raqamlar, review navbati majburiy (§9 maqsadi ≥ 0.9 — faqat track darajasida va review bilan).
+5. **Ikki kamera** — "2 baravar sekin yoki stitching kerak" ([#8](https://github.com/roboflow/sports/issues/8)). → Tahlil pitch koordinatalarida birlashtiriladi, panorama faqat chiqish videosi uchun (§2).
+6. **Hisoblash narxi asosiy to'siq emas** — bir o'yin bulut GPU'da ~$2–5; 90 daqiqa ≈ 162 ming kadr, tezlik muhim; eng qiyini — butun o'yin davomida qayta tanish (re-ID) va havaskor video sifati ([Reddit](https://reddit.sentinel-team.org/posts/1ugzszc/snapshots/2026-06-29T21%3A04%3A40.74823Z)). → Takrorlanmaydigan raqamlar (§13) re-ID'ni osonlashtiradi.
+7. **"O'yinchilarni ko'rish — o'yinni tushunish emas"** ([#55](https://github.com/roboflow/sports/issues/55)): ramka va xarita tahlil emas; pas, bosim kabi hodisalarni futbolni biladigan odamlar belgilashi kerak. → Event qoidalari (§4) va reyting formulasi mutaxassislar belgilagan CVAT dataset'ida tekshiriladi.
+
+### 14.3 Litsenziya qoidalari
+
+- **Ruxsat:** Apache-2.0 va MIT kod va modellar (RF-DETR, RT-DETR, YOLOX, PARSeq, ViTPose, ByteTrack, supervision).
+- **Yo'q:** AGPL (Ultralytics) — yopiq serverda ishlatilsa ham manbani ochishni talab qiladi; litsenziyasiz repolar.
+- **Faqat o'rganish va benchmark:** GPL (sn-gamestate) — kodi mahsulotga ko'chirilmaydi.
+- **Og'irliklar va dataset'lar alohida:** kod litsenziyasi og'irliklarga tatbiq etilmasligi mumkin. SoccerNet videolari tadqiqot shartlari bilan beriladi — ular bilan o'qitilgan og'irliklarni mahsulotda ishlatishdan oldin shartlari tekshiriladi; Roboflow Universe dataset'larining har biri o'z litsenziyasiga ega.
+
+### 14.4 Keyingi qadamlar (Bosqich B prototipi)
+
+1. Pilot videolari (STATUS C3) va CVAT'da belgilash: o'yinchi, to'p, bib raqami, maydon nuqtalari, gol.
+2. roboflow/sports tuzilmasini Ultralytics'siz qayta yig'ish: RF-DETR + supervision (ByteTrack) + o'z maydon keypoint modeli + bib rangi bo'yicha jamoa.
+3. Bib OCR: PARSeq'ni o'z jiletkalarimizda fine-tune (4 rang × 8, raqam diapazoni tekshiruvi — §13.2).
+4. O'lchov: §9 metrikalari pilot test set'ida, SoccerNet metrikalari (GS-HOTA) bilan solishtirish.
