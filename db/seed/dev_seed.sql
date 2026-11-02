@@ -13,43 +13,50 @@ INSERT INTO currencies (code, minor_unit, symbol, name) VALUES
   ('USD', 2, '$',     '{"en": "US Dollar"}'),
   ('EUR', 2, '€',     '{"en": "Euro"}'),
   ('KZT', 2, '₸',     '{"en": "Kazakhstani tenge"}'),
-  ('AED', 2, 'AED',   '{"en": "UAE Dirham"}');
+  ('AED', 2, 'AED',   '{"en": "UAE Dirham"}')
+ON CONFLICT DO NOTHING;
 
 INSERT INTO countries (code, name, default_currency, default_locale, phone_prefix, data_region, is_active) VALUES
   ('UZ', '{"uz-Latn": "O''zbekiston", "ru": "Узбекистан", "en": "Uzbekistan"}', 'UZS', 'uz-Latn', '+998', 'uz-1', true),
   ('KZ', '{"ru": "Казахстан", "en": "Kazakhstan"}',                            'KZT', 'ru',      '+7',   'kz-1', false),
-  ('AE', '{"en": "United Arab Emirates"}',                                     'AED', 'en',      '+971', 'me-1', false);
+  ('AE', '{"en": "United Arab Emirates"}',                                     'AED', 'en',      '+971', 'me-1', false)
+ON CONFLICT DO NOTHING;
 
 INSERT INTO cities (country_code, slug, name, timezone, center, default_currency, is_active) VALUES
   ('UZ', 'tashkent',  '{"uz-Latn": "Toshkent", "uz-Cyrl": "Тошкент", "ru": "Ташкент", "en": "Tashkent"}',
    'Asia/Tashkent',  ST_SetSRID(ST_MakePoint(69.2401, 41.2995), 4326)::geography, 'UZS', true),
   ('UZ', 'samarkand', '{"uz-Latn": "Samarqand", "uz-Cyrl": "Самарқанд", "ru": "Самарканд", "en": "Samarkand"}',
-   'Asia/Samarkand', ST_SetSRID(ST_MakePoint(66.9597, 39.6542), 4326)::geography, 'UZS', true);
+   'Asia/Samarkand', ST_SetSRID(ST_MakePoint(66.9597, 39.6542), 4326)::geography, 'UZS', true)
+ON CONFLICT DO NOTHING;
 
 INSERT INTO sports (code, name, default_players_per_side) VALUES
   ('football',   '{"uz-Latn": "Futbol",    "ru": "Футбол",    "en": "Football"}',   7),
   ('basketball', '{"uz-Latn": "Basketbol", "ru": "Баскетбол", "en": "Basketball"}', 5),
-  ('volleyball', '{"uz-Latn": "Voleybol",  "ru": "Волейбол",  "en": "Volleyball"}', 6);
+  ('volleyball', '{"uz-Latn": "Voleybol",  "ru": "Волейбол",  "en": "Volleyball"}', 6)
+ON CONFLICT DO NOTHING;
 
 INSERT INTO amenities (code, name, icon) VALUES
   ('parking',        '{"uz-Latn": "Avtoturargoh", "ru": "Парковка",    "en": "Parking"}',        'car'),
   ('shower',         '{"uz-Latn": "Dush",         "ru": "Душ",         "en": "Shower"}',         'shower'),
   ('changing_room',  '{"uz-Latn": "Kiyinish xonasi", "ru": "Раздевалка", "en": "Changing room"}', 'shirt'),
   ('lighting',       '{"uz-Latn": "Yoritish",     "ru": "Освещение",   "en": "Floodlights"}',    'light'),
-  ('drinking_water', '{"uz-Latn": "Ichimlik suvi", "ru": "Питьевая вода", "en": "Drinking water"}', 'water');
+  ('drinking_water', '{"uz-Latn": "Ichimlik suvi", "ru": "Питьевая вода", "en": "Drinking water"}', 'water')
+ON CONFLICT DO NOTHING;
 
 INSERT INTO cancellation_policies (code, name, rules, is_default) VALUES
   ('standard', '{"uz-Latn": "Standart", "en": "Standard"}',
    '[{"min_hours_before": 24, "refund_pct": 100, "destination": "original_method"},
      {"min_hours_before": 3,  "refund_pct": 100, "destination": "wallet"},
-     {"min_hours_before": 0,  "refund_pct": 0}]', true);
+     {"min_hours_before": 0,  "refund_pct": 0}]', true)
+ON CONFLICT DO NOTHING;
 
 INSERT INTO payment_provider_configs (country_code, provider, currencies, priority, is_enabled, merchant_id, secret_ref) VALUES
   ('UZ', 'wallet', '{UZS}',  5, true,  NULL,          'none'),
   ('UZ', 'payme',  '{UZS}', 10, true,  'demo-payme',  'vault:kv/payments/uz/payme'),
   ('UZ', 'click',  '{UZS}', 20, true,  'demo-click',  'vault:kv/payments/uz/click'),
   ('UZ', 'uzum',   '{UZS}', 30, true,  'demo-uzum',   'vault:kv/payments/uz/uzum'),
-  ('AE', 'stripe', '{AED,USD}', 10, false, NULL,      'vault:kv/payments/ae/stripe');
+  ('AE', 'stripe', '{AED,USD}', 10, false, NULL,      'vault:kv/payments/ae/stripe')
+ON CONFLICT DO NOTHING;
 
 -- -----------------------------------------------------------------------------
 -- Users: 1 admin, 1 host, 30 player (+998 90 200 00 01 .. 30)

@@ -7,7 +7,7 @@
 | Qism | Natija | Tekshiruv |
 |---|---|---|
 | Arxitektura | `docs/ARCHITECTURE.md`: stack, DB, API, data residency (2026-yil mart qonuni), to'lovlar, compliance, roadmap; `docs/AI_CAM.md` — AI-Cam dizayni; `docs/DEPLOYMENT.md` | — |
-| DB | migratsiyalar 0001–0012, 0014, dev seed, `db/tests/verify.sh` (oversell race) | CI |
+| DB | migratsiyalar 0001–0012, 0014, 0015 (ma'lumotnomalar), dev seed, `db/tests/verify.sh` (oversell race) | CI |
 | Backend (`apps/api`) | auth (OTP, Google/Apple/Telegram), profil, discovery, waiver, booking, to'lovlar (Payme, Click, Uzum, Rahmat/Multicard, hamyon) va avtomatik refund (flag bilan; Multicard'da qisman ham), kechki reconciliation, host panel, admin API (moderatsiya, host payout'lari), push va WebSocket, GDPR eksport (media bilan) / erasure, highlight va to'liq o'yin yozuvi (AI-Cam A), post-match job'lari (Glicko-2, feedback, no-show, haftalik payout, host no-show alert), BullMQ job'lar, outbox | e2e 149/149 |
 | Media worker (`services/media-worker`) | Python 3.12 + FFmpeg, ikki navbat (kliplar, yozuvlar): HLS (yozuv — 1080p/720p/480p), thumbnail, 9:16 MP4, yozuvdan klip kesish; navbat bo'yicha autoscaling | pytest 43/43 |
 | Player ilovasi (`apps/player`) | Expo, discovery, booking va to'lov (Payme, Click, Uzum, Rahmat, hamyon), QR chipta, social login, profil (kirish usullari, maxfiylik, akkauntni o'chirish), push va deep link'lar, highlight feed, to'liq o'yin videosi, o'yindan keyin baholash, Sentry | tsc |

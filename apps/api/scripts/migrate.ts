@@ -39,7 +39,8 @@ export async function runMigrations(databaseUrl: string, opts: { seed?: boolean;
       await client.query('INSERT INTO schema_migrations (version) VALUES ($1)', [file]);
     }
     if (opts.seed) {
-      const { rows } = await client.query<{ n: string }>('SELECT count(*) AS n FROM currencies');
+      // Ma'lumotnomalar (valyuta, mamlakat, ...) 0015 migratsiyasida — seed yuklanganini foydalanuvchilar bildiradi
+      const { rows } = await client.query<{ n: string }>('SELECT count(*) AS n FROM users');
       if (rows[0]?.n === '0') {
         log('-> dev_seed.sql');
         await client.query(readFileSync(SEED_FILE, 'utf8'));
