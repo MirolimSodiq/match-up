@@ -11,14 +11,17 @@ export interface OtpSender {
 export const OTP_SENDER = Symbol('OTP_SENDER');
 
 /**
- * Matnlar Eskiz kabinetidagi tasdiqlangan shablonlar bilan harfma-harf bir xil bo'lishi shart (resurs nomi + maqsad):
- * o'zgartirilsa — avval Eskiz'da yangi shablon tasdiqlatiladi. Kod login'da ham, waiver imzosida ham ishlatiladi
- * ("kirish va tasdiqlash"). Har biri bitta SMS: kirill matn 70 belgigacha, lotin — 160.
+ * Matnlar Eskiz kabinetidagi tasdiqlangan shablonlar bilan harfma-harf bir xil bo'lishi shart. Eskiz yo'riqnomasi
+ * (Punkt 2): resurs nomi va turi ("1Dream ilovasi") hamda maqsad ("kirish uchun") aniq yozilgan bo'lsin — "1Dream:"
+ * prefiksi va "kirish va tasdiqlash kodi" rad etilgan. O'zgartirilsa — avval Eskiz'da yangi shablon tasdiqlatiladi.
+ * Har biri bitta SMS: kirill matn 70 belgigacha, lotin — 160.
+ * Waiver imzosi (`otp_confirmed`) ham shu koddan foydalanadi; mijoz ilovalar uni ishlatganda alohida maqsadli shablon
+ * (va OTP so'roviga maqsad parametri) qo'shiladi.
  */
 export function otpText(code: string, locale: Locale): string {
-  if (locale === 'ru') return `1Dream: код для входа и подтверждения ${code}. Не сообщайте его никому.`;
-  if (locale === 'en') return `1Dream: sign-in and confirmation code ${code}. Do not share it.`;
-  return `1Dream: kirish va tasdiqlash kodi ${code}. Kodni hech kimga bermang.`;
+  if (locale === 'ru') return `Код для входа в приложение 1Dream: ${code}. Никому его не сообщайте!`;
+  if (locale === 'en') return `Your code to sign in to the 1Dream app: ${code}. Do not share it with anyone!`;
+  return `1Dream ilovasiga kirish uchun tasdiqlash kodi: ${code}. Kodni hech kimga bermang!`;
 }
 
 /** Dev: kod logga yoziladi. Production'da env validatsiyasi buni taqiqlaydi. */
