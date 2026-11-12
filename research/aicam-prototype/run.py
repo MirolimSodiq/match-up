@@ -10,6 +10,7 @@ import time
 
 import cv2
 import easyocr
+import numpy as np
 from PIL import Image
 from rfdetr import RFDETRMedium
 
@@ -34,6 +35,8 @@ def main(src: str, start: float, duration: float, out: str) -> None:
     numbers: dict[int, collections.Counter] = collections.defaultdict(collections.Counter)
     seen: collections.Counter = collections.Counter()
     total, t0 = int(duration * fps), time.time()
+    # Har kadr ramkalari — keyingi bosqichlar (birlashtirish, xarita) videoni qayta ishlamasdan shundan foydalanadi
+    tracks: list[np.ndarray] = []
 
     for i in range(total):
         ok, frame = cap.read()
@@ -42,6 +45,7 @@ def main(src: str, start: float, duration: float, out: str) -> None:
         det = model.predict(Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)), threshold=0.35)
         people, balls = det[det.class_id == PERSON], det[det.class_id == BALL]
         ids = tracker.update(people.xyxy)
+        tracks += [np.r_[i, tid, box] for box, tid in zip(people.xyxy, ids)]
         for box, tid in zip(people.xyxy, ids):
             seen[tid] += 1
             # Rang har 3-kadrda, raqam har 6-kadrda va faqat yetarlicha katta ramkada (OCR qimmat)
@@ -60,6 +64,7 @@ def main(src: str, start: float, duration: float, out: str) -> None:
         int(t): {'kadr': seen[t], 'jamoa': dict(teams[t]), 'raqam': {k: round(v, 2) for k, v in numbers[t].items()}}
         for t in seen
     }
+    np.save(out + '.tracks.npy', np.array(tracks).reshape(-1, 6))  # kadr, trek, x1, y1, x2, y2
     with open(out + '.json', 'w') as f:
         json.dump(summary, f, ensure_ascii=False, indent=1)
     print(f'tayyor: {time.time() - t0:.0f}s, {len(summary)} trek')
