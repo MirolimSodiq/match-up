@@ -9,6 +9,7 @@ Tayyor ochiq modellar bilan pilot videolarida tajriba: o'yinchini topish, kuzati
 | `tracker.py` | oddiy IoU kuzatuvchi (ByteTrack o'rniga, vaqtincha) |
 | `post.py` | maydon chegarasi (`calib.json`) bo'yicha tomoshabinlar chiqariladi; treklar raqamga ko'ra bitta odamga birlashtiriladi (raqam — odam, §13.1); kameralar ro'yxati |
 | `render.py` | ikki kamera yonma-yon + ro'yxat paneli; yorliq trekning yakuniy raqamidan — raqam o'qilishidan oldingi kadrlarda ham |
+| `reel.py` | bitta o'yinchi videosi (player reel, §4): o'yinchini kuzatuvchi 720×720 kadr, belgi, raqam va jamoa; o'yinchi yaqinroq ko'ringan kameraga o'tadi. Reyting va harakat yorliqlari yo'q — hali hisoblanmaydi |
 | `calib.json` | har kamera kadridagi maydon chegarasi (qo'lda, taxminiy) |
 
 Modellar: [RF-DETR](https://github.com/roboflow/rf-detr) Medium (COCO: `person`, `sports ball`), [EasyOCR](https://github.com/JaidedAI/EasyOCR). Litsenziyalar — Apache-2.0 / MIT / BSD (§14.3). Og'irliklar birinchi ishga tushishda yuklanadi: `~/.roboflow/models` (~390 MB) va `~/.EasyOCR`.
@@ -21,6 +22,7 @@ uv venv --python 3.12 && uv pip install -e .
 mkdir -p out
 uv run python run.py "/yo'l/video.MOV" 420 60 out/R420
 uv run python post.py out/R420 R out/L631 L
+uv run python reel.py out/reel20.avi "ko'k #20" 30 "<chap>" 631 out/L631 L "<o'ng>" 420 out/R420 R
 uv run python render.py out/both.avi "<chap>" 631 out/L631 L "<o'ng>" 420 out/R420 R
 ```
 
