@@ -57,5 +57,4 @@ Xatolar: ba'zi raqamlar noto'g'ri o'qilgan ("ko'k #18" — "10" bo'lishi mumkin;
 
 1. ByteTrack; raqam diapazoni tekshiruvi (rang ↔ o'nlik xona, §13.2) — "ko'k #18" kabi xatolarni kesadi.
 2. Kalibrovka: kamera o'rnatilganda bir marta ko'proq nuqta (burchaklar, jarima maydoni, darvoza — o'lchab) yoki maydon keypoint modeli; maqsad — kameralar orasidagi farq < 0.5 m. Sinxron — boshida qarsak (ovoz bo'yicha avtomatik).
-3. Ikki kamera → bitta maydon xaritasi (yuqoridan ko'rinish, metrlarda).
-4. CVAT'da belgilash (to'p, raqam, maydon nuqtalari) va fine-tune (§14.4).
+3. CVAT'da belgilash (to'p, raqam, maydon nuqtalari) va fine-tune (§14.4).
