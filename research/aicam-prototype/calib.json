@@ -1,5 +1,143 @@
 {
-  "_izoh": "Har kamera uchun kadrdagi maydon chegarasi (4K piksel, taxminiy, 2026-11-12 pilot). Oyoq nuqtasi shundan tashqarida bo'lgan odam — tomoshabin yoki zaxira",
-  "R": [[90, 2160], [90, 1150], [600, 1090], [900, 1010], [1500, 880], [3840, 830], [3840, 2160]],
-  "L": [[0, 1000], [2480, 940], [2800, 1120], [3660, 1240], [3660, 2160], [0, 2160]]
+ "_izoh": "Har kamera uchun kadrdagi maydon chegarasi (4K piksel, taxminiy, 2026-11-12 pilot). Oyoq nuqtasi shundan tashqarida bo'lgan odam — tomoshabin yoki zaxira",
+ "R": [
+  [
+   90,
+   2160
+  ],
+  [
+   90,
+   1150
+  ],
+  [
+   600,
+   1090
+  ],
+  [
+   900,
+   1010
+  ],
+  [
+   1500,
+   880
+  ],
+  [
+   3840,
+   830
+  ],
+  [
+   3840,
+   2160
+  ]
+ ],
+ "L": [
+  [
+   0,
+   1000
+  ],
+  [
+   2480,
+   940
+  ],
+  [
+   2800,
+   1120
+  ],
+  [
+   3660,
+   1240
+  ],
+  [
+   3660,
+   2160
+  ],
+  [
+   0,
+   2160
+  ]
+ ],
+ "_maydon": "40 × 30 m. Koordinatalar metrda: x — uzunlik (0 — o'rta chiziq, chap darvoza −20, o'ng +20), y — en (0 — narigi chiziq, 30 — kameralar turgan chiziq)",
+ "nuqtalar": {
+  "_izoh": "kadr pikseli → maydon (m). Markaziy nuqta — o'yin boshidagi to'p; darvoza eni 5 m deb olingan (o'lchanmagan). Ikki kamera orasidagi farq — median ~2.3 m: qo'lda 4 nuqta yetmaydi",
+  "L": {
+   "kadr": [
+    [
+     1474,
+     1274
+    ],
+    [
+     3670,
+     1670
+    ],
+    [
+     2790,
+     1165
+    ],
+    [
+     2497,
+     1117
+    ]
+   ],
+   "maydon": [
+    [
+     0,
+     15
+    ],
+    [
+     0,
+     30
+    ],
+    [
+     -20,
+     17.5
+    ],
+    [
+     -20,
+     12.5
+    ]
+   ]
+  },
+  "R": {
+   "kadr": [
+    [
+     2249,
+     1122
+    ],
+    [
+     40,
+     1610
+    ],
+    [
+     925,
+     1015
+    ],
+    [
+     1236,
+     985
+    ]
+   ],
+   "maydon": [
+    [
+     0,
+     15
+    ],
+    [
+     0,
+     30
+    ],
+    [
+     20,
+     17.5
+    ],
+    [
+     20,
+     12.5
+    ]
+   ]
+  }
+ },
+ "sinxron": {
+  "_izoh": "chap = o'ng − 1.55 s (ovoz korrelyatsiyasi, uch oynada bir xil; o'yin boshlanishi bilan tasdiqlangan)",
+  "L_minus_R_s": -1.55
+ }
 }
