@@ -423,7 +423,7 @@ Telefon, havaskor maydon, jiletka raqami bo'yicha o'yinchi reytingi va booking b
 ### 14.4 Keyingi qadamlar (Bosqich B prototipi)
 
 1. Pilot videolari (STATUS C3) va CVAT'da belgilash: o'yinchi, to'p, bib raqami, maydon nuqtalari, gol.
-2. roboflow/sports tuzilmasini Ultralytics'siz qayta yig'ish: RF-DETR + supervision (ByteTrack) + o'z maydon keypoint modeli + bib rangi bo'yicha jamoa.
+2. roboflow/sports tuzilmasini Ultralytics'siz qayta yig'ish: RF-DETR + supervision (ByteTrack) + o'z maydon keypoint modeli + bib rangi bo'yicha jamoa. Boshlangan: [`research/aicam-prototype`](../research/aicam-prototype/) — topish, kuzatish, jamoa va raqam pilot videosida (birinchi natija README'da).
 3. Bib OCR: PARSeq'ni o'z jiletkalarimizda fine-tune (4 rang × 8, raqam diapazoni tekshiruvi — §13.2).
 4. O'lchov: §9 metrikalari pilot test set'ida, SoccerNet metrikalari (GS-HOTA) bilan solishtirish.
 

@@ -1,0 +1,269 @@
+{
+ "_izoh": "Har kamera uchun kadrdagi maydon chegarasi (4K piksel, taxminiy, 2026-11-12 pilot). Oyoq nuqtasi shundan tashqarida bo'lgan odam — tomoshabin yoki zaxira",
+ "R": [
+  [
+   90,
+   2160
+  ],
+  [
+   90,
+   1150
+  ],
+  [
+   600,
+   1090
+  ],
+  [
+   900,
+   1010
+  ],
+  [
+   1500,
+   880
+  ],
+  [
+   3840,
+   830
+  ],
+  [
+   3840,
+   2160
+  ]
+ ],
+ "L": [
+  [
+   0,
+   1000
+  ],
+  [
+   2480,
+   940
+  ],
+  [
+   2800,
+   1120
+  ],
+  [
+   3660,
+   1240
+  ],
+  [
+   3660,
+   2160
+  ],
+  [
+   0,
+   2160
+  ]
+ ],
+ "_maydon": "40 × 30 m. Koordinatalar metrda: x — uzunlik (0 — o'rta chiziq, chap darvoza −20, o'ng +20), y — en (0 — narigi chet, 30 — kameralar turgan chet). Kameralar kesishgan: chap kamera o'ng darvozani, o'ng kamera chap darvozani oladi",
+ "sinxron": {
+  "_izoh": "chap = o'ng − 1.55 s (ovoz korrelyatsiyasi, uch oynada bir xil; o'yin boshlanishi bilan tasdiqlangan)",
+  "L_minus_R_s": -1.55
+ },
+ "chiziqlar": {
+  "_izoh": "calibrate.py uchun kadrdagi taxminiy shakllar (4K piksel, 2026-11-12 pilot): half — o'rta chiziq bo'laklari, near — yaqin chet, end — darvoza chizig'i, circle — markaziy aylana ((markaz), (yarim o'qlar), burchak); top — boshlang'ich to'p; ustunlar — darvoza ustunlari asosi (+1 — yaqin chetga yaqin ustun); yaqin_markaz — o'rta chiziq ∩ yaqin chet",
+  "L": {
+   "half": [
+    [
+     [
+      300,
+      1010
+     ],
+     [
+      1090,
+      1190
+     ]
+    ],
+    [
+     [
+      1960,
+      1350
+     ],
+     [
+      3640,
+      1770
+     ]
+    ]
+   ],
+   "near": [
+    [
+     [
+      3672,
+      1800
+     ],
+     [
+      3655,
+      2150
+     ]
+    ]
+   ],
+   "circle": [
+    [
+     1460,
+     1278
+    ],
+    [
+     490,
+     92
+    ],
+    2
+   ],
+   "top": [
+    1474,
+    1262
+   ],
+   "ustunlar": [
+    [
+     [
+      2494,
+      1114
+     ],
+     -1
+    ],
+    [
+     [
+      2794,
+      1164
+     ],
+     1
+    ]
+   ],
+   "darvoza_x": 20,
+   "yaqin_markaz": [
+    3660,
+    1770
+   ]
+  },
+  "R": {
+   "half": [
+    [
+     [
+      280,
+      1540
+     ],
+     [
+      1850,
+      1215
+     ]
+    ]
+   ],
+   "near": [
+    [
+     [
+      30,
+      1720
+     ],
+     [
+      70,
+      2150
+     ]
+    ]
+   ],
+   "end": [
+    [
+     [
+      600,
+      1075
+     ],
+     [
+      700,
+      1100
+     ]
+    ]
+   ],
+   "circle": [
+    [
+     2265,
+     1135
+    ],
+    [
+     485,
+     85
+    ],
+    -3
+   ],
+   "top": [
+    2250,
+    1118
+   ],
+   "ustunlar": [
+    [
+     [
+      924,
+      1014
+     ],
+     1
+    ],
+    [
+     [
+      1236,
+      984
+     ],
+     -1
+    ]
+   ],
+   "darvoza_x": -20,
+   "yaqin_markaz": [
+    40,
+    1610
+   ]
+  }
+ },
+ "H": {
+  "_izoh": "kadr pikseli → maydon (m), calibrate.py natijasi",
+  "L": [
+   [
+    0.0003169237470973093,
+    -0.001394769917851973,
+    1.310782397791041
+   ],
+   [
+    -2.1528741525119505e-06,
+    0.0021955145140738317,
+    -2.1843907457181113
+   ],
+   [
+    -8.362611330381747e-06,
+    7.070898247535707e-05,
+    -0.03767670995110033
+   ]
+  ],
+  "R": [
+   [
+    0.0002971636846998087,
+    0.0013354987319149506,
+    -2.1748860067827085
+   ],
+   [
+    -3.928274854863981e-05,
+    0.0021102563278803063,
+    -1.6725107271902273
+   ],
+   [
+    6.968002228555829e-06,
+    6.815119837967997e-05,
+    -0.05198981070784288
+   ]
+  ]
+ },
+ "kalibrovka_natijasi": {
+  "faqat_chiziqlar_median_m": 1.27,
+  "chiziqlar_va_juftliklar_median_m": 0.86,
+  "tekshiruv_kadrlari": 1047,
+  "darvoza_eni_m": 4.28,
+  "aylana_radiusi_m": 3.51,
+  "kamera_L": {
+   "x": -19.6,
+   "y": 30.4,
+   "balandlik_m": 4.15,
+   "fokus_px": 3368
+  },
+  "kamera_R": {
+   "x": 19.3,
+   "y": 30.2,
+   "balandlik_m": 4.33,
+   "fokus_px": 3335
+  }
+ }
+}
