@@ -22,8 +22,8 @@ SMOOTH = 15  # 0.5 s — masofada titrash yig'ilmasin
 
 
 def homography(cam: str, calib: dict) -> np.ndarray:
-    p = calib['nuqtalar'][cam]
-    return cv2.getPerspectiveTransform(np.float32(p['kadr']), np.float32(p['maydon']))
+    """Kadr pikseli → maydon (m); calibrate.py yozadi."""
+    return np.array(calib['H'][cam])
 
 
 def positions(prefix: str, cam: str, calib: dict) -> tuple[dict, dict, np.ndarray]:
@@ -125,7 +125,7 @@ def main(out: str, *args: str) -> None:
             color = COLORS.get(name.split(' #')[0], GREY)
             cv2.putText(side, name.replace("'", "'").upper(), (30, 100 + j * 38), cv2.FONT_HERSHEY_SIMPLEX, 0.75, color, 2, cv2.LINE_AA)
         cv2.putText(side, 'kulrang - raqami aniqlanmagan', (30, TILE_H - 55), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (170, 170, 170), 1, cv2.LINE_AA)
-        cv2.putText(side, 'taxminiy: kameralar orasidagi farq ~2 m', (30, TILE_H - 25), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (170, 170, 170), 1, cv2.LINE_AA)
+        cv2.putText(side, 'taxminiy: kameralar orasidagi farq ~0.9 m', (30, TILE_H - 25), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (170, 170, 170), 1, cv2.LINE_AA)
         img = np.vstack([np.hstack(tiles), np.hstack([cv2.resize(m, (TILE_H * m.shape[1] // m.shape[0], TILE_H)), side])])
         if writer is None:
             writer = cv2.VideoWriter(out, cv2.VideoWriter_fourcc(*'MJPG'), FPS, (img.shape[1], img.shape[0]))

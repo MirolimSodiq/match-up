@@ -11,7 +11,8 @@ Tayyor ochiq modellar bilan pilot videolarida tajriba: o'yinchini topish, kuzati
 | `render.py` | ikki kamera yonma-yon + ro'yxat paneli; yorliq trekning yakuniy raqamidan — raqam o'qilishidan oldingi kadrlarda ham |
 | `reel.py` | bitta o'yinchi videosi (player reel, §4): o'yinchini kuzatuvchi 720×720 kadr, belgi, raqam va jamoa; o'yinchi yaqinroq ko'ringan kameraga o'tadi. Reyting va harakat yorliqlari yo'q — hali hisoblanmaydi |
 | `pitchmap.py` | ikki kamera → bitta maydon xaritasi (yuqoridan, metrda): har kamera homography'si, odam bo'yicha birlashtirish, 0.5 s silliqlash |
-| `calib.json` | har kamera kadridagi maydon chegarasi, homography nuqtalari (kadr ↔ metr) va ikki video orasidagi vaqt farqi — qo'lda, taxminiy |
+| `calibrate.py` | kamera kalibrovkasi: kadrdagi oq chiziqlar (o'rta chiziq, chet, aylana, darvoza) + ikkala kamerada ko'ringan bir odam → har kamera pozasi va homography (kadr → metr) |
+| `calib.json` | maydon chegarasi (qo'lda), chiziqlarning taxminiy joyi, `calibrate.py` natijasi (`H`) va ikki video orasidagi vaqt farqi |
 
 Modellar: [RF-DETR](https://github.com/roboflow/rf-detr) Medium (COCO: `person`, `sports ball`), [EasyOCR](https://github.com/JaidedAI/EasyOCR). Litsenziyalar — Apache-2.0 / MIT / BSD (§14.3). Og'irliklar birinchi ishga tushishda yuklanadi: `~/.roboflow/models` (~390 MB) va `~/.EasyOCR`.
 
@@ -24,6 +25,7 @@ mkdir -p out
 uv run python run.py "/yo'l/video.MOV" 420 60 out/R420
 uv run python post.py out/R420 R out/L631 L
 uv run python reel.py out/reel20.avi "ko'k #20" 30 "<chap>" 631 out/L631 L "<o'ng>" 420 out/R420 R
+uv run python calibrate.py "<chap>" 631 out/L631 "<o'ng>" 632.55 out/R632
 uv run python pitchmap.py out/map.avi "<chap>" 631 out/L631 L "<o'ng>" 632.55 out/R632 R
 ```
 
@@ -49,12 +51,22 @@ Videolar va natijalar repoga qo'shilmaydi (`.gitignore`) — kadrda rozilik berm
 | Raqami aniqlangan vaqt (o'yinchi × kadr) | 43% | ~40% |
 | Ikkala kamerada topilganlar | ko'k 12, 17, 18, 19, 20 | |
 
-**Kalibrovka.** Maydon 40 × 30 m. Har kamerada 4 nuqta qo'lda: markaziy nuqta (o'yin boshidagi to'p), o'rta chiziq ∩ yaqin chiziq, ikki darvoza ustuni. Darvoza eni o'lchanmagan (5 m deb olingan). Tekshiruv — bir lahzada ikkala kamerada ko'ringan bir odam xaritada qancha farq qiladi: **median ~2.3 m**, chetlarda ko'proq; o'ng kamera yaqinidagi o'yinchilarning bir qismi xaritadan chiqib ketadi. Darvoza enini 4–9 m oralig'ida o'zgartirish aniq minimum bermadi — asosiy xato qo'lda olingan nuqtalarda. Shu aniqlikda bosib o'tilgan masofa ishonchsiz, videoda ko'rsatilmaydi (faqat konsolga).
+**Kalibrovka.** Maydon 40 × 30 m. Birinchi urinish — har kamerada qo'lda 4 nuqta (darvoza eni 5 m deb olingan): kameralar orasidagi farq **median ~2.3 m**; darvoza enini 3 m qilinganda ~6 m'ga yomonlashdi — demak xato nuqtalarda edi. Bundan tashqari kameralar teskari belgilangan edi: joylashuv kesishgan — **chap kamera o'ng darvozani, o'ng kamera chap darvozani oladi** (xarita ko'zgudagidek chiqqan).
+
+`calibrate.py` (2026-11-14): kadrdan oq chiziqlar avtomatik yig'iladi (o'rta chiziq ~90, chet ~15, aylana 48 nuqta), har kamera pozasi va fokus fit qilinadi; darvoza eni va aylana radiusi noma'lum parametr. So'ng ikkala kamerada bir lahzada ko'ringan bir odam (raqam bo'yicha) qo'shimcha cheklov sifatida qo'shiladi. Tekshiruv — fit'da qatnashmagan ikkinchi 30 s:
+
+| | Kameralar orasidagi farq (median) |
+|---|---|
+| Qo'lda 4 nuqta | 2.3 m |
+| Faqat chiziqlar | 1.27 m |
+| Chiziqlar + ikki kamera juftliklari | **0.86 m** |
+
+Fit natijasi: telefonlar taxminan maydon burchaklarida (x ≈ ±20, yaqin chet), balandlik ~4.2 m, fokus ~3350 px (gorizontal ko'rish burchagi ~60°). Darvoza eni ~4.3 m, aylana radiusi ~3.5 m chiqadi — haqiqatda darvoza 2–3 m bo'lsa, "40 × 30" chiziqdan chiziqqacha emas (to'r bilan birga) bo'lishi mumkin: bu holda butun masshtab (va balandlik) kichrayadi. Chiziqdan chiziqqacha o'lcham kerak. Linza buzilishi (k1) natijaga ta'sir qilmadi — hisobga olinmaydi. p90 ~17 m — noto'g'ri o'qilgan raqamlar (ikki kamerada boshqa-boshqa odam bir xil raqam bilan). Masofa hali faqat konsolga chiqadi.
 
 Xatolar: ba'zi raqamlar noto'g'ri o'qilgan ("ko'k #18" — "10" bo'lishi mumkin; "yashil #17" shubhali). Aniqlikni o'lchash uchun belgilangan kadrlar (ground truth) kerak.
 
 ## Keyingi qadamlar
 
 1. ByteTrack; raqam diapazoni tekshiruvi (rang ↔ o'nlik xona, §13.2) — "ko'k #18" kabi xatolarni kesadi.
-2. Kalibrovka: kamera o'rnatilganda bir marta ko'proq nuqta (burchaklar, jarima maydoni, darvoza — o'lchab) yoki maydon keypoint modeli; maqsad — kameralar orasidagi farq < 0.5 m. Sinxron — boshida qarsak (ovoz bo'yicha avtomatik).
+2. Kalibrovka: maydon o'lchamlarini chiziqdan chiziqqacha o'lchash; chiziqlar joyini qo'lda emas, maydon keypoint/chiziq modeli bilan topish (yangi kamera joyi — o'qitishsiz, avtomatik); maqsad — kameralar orasidagi farq < 0.5 m. Sinxron — boshida qarsak (ovoz bo'yicha avtomatik).
 3. CVAT'da belgilash (to'p, raqam, maydon nuqtalari) va fine-tune (§14.4).
