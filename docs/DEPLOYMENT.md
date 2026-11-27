@@ -396,7 +396,7 @@ Downtime: API konteyneri almashganda bir necha soniya — Caddy so'rovlarni kuti
 | Kliplar (highlight'lar) | o'chirilguncha | muddatga bog'liq emas |
 | Backup'lar | 14 kun (`BACKUP_RETENTION_DAYS`) | |
 
-Kuniga 2 ta o'yin (2 kamera, ~16 GB / kamera) bilan storage'da bir vaqtda ~0.3 TB turadi — Object Storage bazaviy narxi ichida. AWS'da (Terraform) standartlar boshqa: xom 30, to'liq yozuv 90 kun (`media_raw_expiration_days`, `media_recording_expiration_days`).
+Kuniga 2 ta o'yin (2 kamera, ~20 GB / kamera — pilotda o'lchangan, AI_CAM §1.1) bilan storage'da bir vaqtda ~0.4 TB turadi — Object Storage bazaviy narxi ichida. AWS'da (Terraform) standartlar boshqa: xom 30, to'liq yozuv 90 kun (`media_raw_expiration_days`, `media_recording_expiration_days`).
 
 ### Backup va tiklash
 

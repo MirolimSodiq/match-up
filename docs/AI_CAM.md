@@ -37,15 +37,27 @@ sequenceDiagram
 ```
 
 **Rig (host olib yuradigan to'plam):**
-- 5 metrli teleskopik shtativ markaziy chiziqda, maydon chetida. 2 ta telefon (iPhone 11+): **A** — chap yarim maydon, **B** — o'ng yarim maydon. Markaziy doira atrofida ikkala kadr ~10–15% ustma-ust tushadi (kalibrovka va stitching uchun).
+- **Kesishgan joylashuv** (pilot, §1.1): ikkala telefon bir tomondagi to'r ustunida yoki arka ustunida, markazdan maydon uzunligining ~1/4 qismi narida (40 m maydonda ~10 m), har biri **qarama-qarshi** yarimni qiyalab yozadi: **A** (o'ngda turadi) — chap yarim maydon, **B** (chapda turadi) — o'ng yarim maydon. Ilovadagi pozitsiya — telefon yozayotgan yarim, turgan joyi emas. Markaziy doira atrofida ikkala kadr ~10–15% ustma-ust tushadi (kalibrovka va stitching uchun). Balandlik 3.5–4.5 m (qamrovga kam ta'sir qiladi, lekin o'yinchilar bir-birini kamroq to'sadi). Linza — **1x**. Markazdagi bitta shtativdan 1x bilan yaqin chiziq va telefon tagidagi joy kadrga sig'maydi (40×20 m maydonda ~75%), kesishgan joylashuvda — 100%.
+- To'r: linza to'r katagining o'rtasida, to'rdan 1–2 sm masofada — iplar kadrga tushmaydi. To'r linzadan 20 sm – 2 m oldinda bo'lsa ko'rinadi va fokusni o'ziga tortadi. Telefon to'rning tashqi tomonida (to'p tegmaydi), to'r tarang joyda (ustun yonida).
 - Ixtiyoriy 3-telefon: keng burchakli umumiy kadr (zaxira va sinxronlash uchun).
 - **Raqamli bib'lar** (oldi va orqasida katta raqam, ikki rang). Pickup o'yinlarda futbolka raqami yo'q, shuning uchun o'yinchini tanish faqat bib raqami orqali ishonchli ishlaydi. Host check-in paytida har o'yinchiga bib raqamini biriktiradi (§5).
 - Power bank va soya: 90+ daqiqa 4K yozuvda iPhone qiziydi. Yozda Toshkentda 40°C — bu real xavf (§10).
 
 **Yozish sozlamalari (host app yozadi, oddiy kamera ilovasi emas):**
-- 4K 30 fps HEVC, ekspozitsiya va fokus qulflangan, stabilizatsiya o'chiq. Stabilizatsiya kadrni siljitib, kalibrovkani buzadi.
+- 4K 30 fps HEVC, SDR (HDR o'chiq), ekspozitsiya va fokus qulflangan, stabilizatsiya o'chiq. Stabilizatsiya kadrni siljitib, kalibrovkani buzadi.
 - Boshlashdan oldin tekshiruvlar: bo'sh joy ≥ 40 GB, batareya ≥ 80% yoki quvvatga ulangan, ikkala telefon soati NTP bo'yicha.
-- Hajm: ~15 GB / telefon / 90 daqiqa → bitta match ≈ 30 GB. Mobil internet orqali yuklash amalda imkonsiz. Upload Wi-Fi'da, fonda, qismlarga bo'lib va uzilsa davom ettiriladigan (resumable) bo'ladi. Fayl serverda checksum tasdiqlanmaguncha telefondan o'chirilmaydi.
+- Hajm: ~18–23 GB / telefon / 90 daqiqa (pilotda o'lchangan, §1.1) → bitta match ≈ 40 GB. Mobil internet orqali yuklash amalda imkonsiz. Upload Wi-Fi'da, fonda, qismlarga bo'lib va uzilsa davom ettiriladigan (resumable) bo'ladi. Fayl serverda checksum tasdiqlanmaguncha telefondan o'chirilmaydi.
+
+### 1.1 Pilot testlari (2026-11)
+
+Ikki test, Toshkent, yopiq (arka + to'r) mini-maydon, kechqurun projektorlar ostida, telefonning oddiy kamera ilovasi (host ilovasi emas), iPhone 16 Pro Max va 17 Pro Max, 4K 30 fps HEVC.
+
+| Sana | Nima yozildi | Natija |
+|---|---|---|
+| 2026-11-07 | 6 ta qisqa klip (5–17 s): 0.5x 2 m, 0.5x markazdan, 1x maydon chetidan 1.5 m | **1x maydon chetidan** eng yaxshi. 0.5x linza kechqurun loyqa (kichik sensor, kuchli shovqin tozalash) — narigi darvoza oldidagi o'yinchilar o'qilmaydi; 1x'da ko'ylakdagi ~10 sm harflar narigi chetda ham o'qiladi (~20 px). Kadrdagi projektor + linzadagi dog' — uzun nur chiziqlari. 1.5 m past: yaqindagi odamlar kadrni to'sadi |
+| 2026-11-12 | 2 telefon, kesishgan joylashuv, 1x, ~16 daqiqa (13 daqiqasi bir vaqtda), 2 jamoa raqamli jiletkada | Orqadagi raqamlar 4K'da o'qiladi, narigi tomonda ham (ko'k jiletkada oq raqam). **Neon yashil jiletkada oq raqam** uzoqda o'qilmaydi — kontrast yetmaydi (§13.2); oldidagi katta raqam ham (16, 22) shu sababli o'qilmaydi. Ko'k jiletkalarning bir qismida oldida raqam yo'q. Darvozabon jiletkasiz. Telefonlar biroz qiyshiq (roll) — kalibrovka uchun muammo emas; o'yin davomida qimirlamagan (o'ng — faqat dastlabki ~10 s o'rnatish). Hajm: SDR ~210 MB/daq, HDR ~265 MB/daq. Sinxron qarsak yo'q edi — moslash boshlanish vaqti (`creationdate`, soniya aniqligi) va o'yindagi lahzalar bo'yicha |
+
+Hali o'lchanmagan: 90 daqiqalik yozuv, qizish va batareya, 3.5–4.5 m balandlik, kunduzgi yorug'lik, host ilovasi orqali yozish va yuklash. Host ilovasidagi `BYTES_PER_MINUTE` (HEVC 180 MB/daq) oddiy kamera ilovasidagidan kichik — host ilovasi bilan yozilgan fayl hajmi o'lchangach tuzatiladi.
 
 ## 2. Pipeline arxitekturasi
 
@@ -272,7 +284,7 @@ Natijalar API'ga ichki endpoint orqali yoziladi (servis token, faqat VPC ichida)
 | Venue'larda Wi-Fi yo'q | resumable upload uydan ham davom etadi; Bosqich D'da qurilmada siqish |
 | Qafas/panjara, tungi yoritish | venue bo'yicha kalibrovka profili, test set'da alohida o'lchash |
 | Navbatli o'yinlar (3–4 jamoa), bir o'yinchi bir necha jamoada, jiletka almashishi | §13: raqam takrorlanmaydi va o'yinchida qoladi, jamoa segment bo'yicha; tizimda hali faqat 2 jamoa (§13.5) |
-| Bib raqami uzoqdan o'qilmaydi (identity va player reel shunga bog'liq) | pilotda 4K kadrda maydonning narigi chetidagi raqam ko'z bilan o'qilishini tekshirish (ko'z o'qimasa, OCR ham o'qimaydi); katta, kontrastli, old va orqada raqamli bib; kamera balandligi 2–3 m |
+| Bib raqami uzoqdan o'qilmaydi (identity va player reel shunga bog'liq) | pilotda 4K kadrda maydonning narigi chetidagi raqam ko'z bilan o'qilishini tekshirish (ko'z o'qimasa, OCR ham o'qimaydi); katta, kontrastli, old va orqada raqamli bib; kamera balandligi 3.5–4.5 m, 1x linza. Pilot (§1.1): 1x'da orqadagi raqam narigi chetda ham o'qiladi; neon yashilda oq raqam — yo'q |
 | Host'ga qo'shimcha ish (~10–15 daq rig) | host haqiga AI-Cam bonusi, rig bo'yicha qo'llanma |
 | "Biometrik ma'lumot" ta'rifi | yuz tanimaslik siyosati, yurist xulosasi (ARCHITECTURE §6, 1-band) |
 | Reyting adolati va nizolar | breakdown shaffofligi, nizo oqimi, shadow rejim |
@@ -350,7 +362,7 @@ Pickup o'yinlarda ko'pincha 2 dan ortiq jamoa navbat bilan o'ynaydi (masalan, 15
 | Raqamlash | o'nlik xona = rang: 1–8, 11–18, 21–28, 31–38. Host va o'yinchi raqamdan rangni biladi; AI rang bilan raqam diapazoni mos kelmasa (ko'k jiletkada "17", ko'k esa 21–28) o'qishni rad etadi. Raqam faqat o'yin ichida unikal — stadionlar bir xil to'plamdan foydalanadi |
 | Ranglar | keskin farqli: masalan, ko'k, qizil, neon sariq, pushti. Yashil (maydon), oq va qora (oddiy kiyim) emas; to'q sariq bilan qizil birga emas (chiroq ostida adashadi) |
 | Mato | yaxlit, to'r emas — ichidagi futbolka rangi ko'rinmasin |
-| Raqam | old va orqada, orqada ≥ 20 sm, fonga kontrast (sariqda qora, ko'k/qizilda oq) |
+| Raqam | old va orqada, orqada ≥ 20 sm, fonga kontrast (sariq/neon yashilda qora yoki to'q ko'k, ko'k/qizilda oq). Pilotda neon yashil jiletkadagi oq raqam uzoqdan o'qilmadi (§1.1) |
 | Darvozabon | shu to'plamdan raqamli jiletka kiyadi |
 | Saqlash | stadionda; yuvish va almashtirish uchun mas'ul; 1–2 zaxira jiletka |
 
