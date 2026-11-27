@@ -1,0 +1,9 @@
+# Videolar va natijalar repoga tushmaydi — ularda begona odamlar bor (AI_CAM.md §8)
+*.mov
+*.MOV
+*.mp4
+*.avi
+*.jpg
+*.png
+out/
+.venv/

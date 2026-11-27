@@ -1,0 +1,14 @@
+[project]
+name = "aicam-prototype"
+version = "0.1.0"
+description = "AI-Cam Bosqich B prototipi: o'yinchini topish, kuzatish, jamoa va jiletka raqami (AI_CAM.md §14.4)"
+requires-python = ">=3.11,<3.13"
+# Litsenziyalar (AI_CAM.md §14.3): rfdetr — Apache-2.0, supervision — MIT, easyocr — Apache-2.0,
+# opencv — Apache-2.0, scipy — BSD. Ultralytics (AGPL) ishlatilmaydi.
+dependencies = [
+  "rfdetr>=1.3",
+  "supervision>=0.26",
+  "easyocr>=1.7",
+  "opencv-python-headless>=4.10",
+  "scipy>=1.13",
+]
